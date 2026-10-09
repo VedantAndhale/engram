@@ -1,0 +1,100 @@
+/** Where a folder lives on GitHub. */
+export interface RepoRef {
+  owner: string;
+  repo: string;
+  branch: string;
+}
+
+/**
+ * A folder groups documents and maps to its own private GitHub repository. Its id is
+ * also written to the repo's reader.json, so every device recognises the same folder.
+ */
+export interface Folder {
+  id: string;
+  name: string;
+  /** Unset until the folder has a repository (no GitHub account connected yet). */
+  repo?: RepoRef;
+  /** False only for an adopted repo that turned out to be public; shown as a warning. */
+  isPrivate?: boolean;
+  createdAt: number;
+  updatedAt: number;
+  /** Removed from this device. Discovery skips it; the repository itself is kept. */
+  hidden?: boolean;
+}
+
+/** A document in the library. Keyed by the SHA-256 of the PDF bytes, so the same file is stored once. */
+export interface DocMeta {
+  hash: string;
+  title: string;
+  fileName: string;
+  size: number;
+  pages: number;
+  addedAt: number;
+  addedBy?: string;
+  updatedAt: number;
+  deleted?: boolean;
+}
+
+/** A rectangle in page-relative units (0..1 of page width / height), so it is zoom-independent. */
+export interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export type AnnotationKind = "highlight" | "ink";
+
+export interface Annotation {
+  id: string;
+  doc: string;
+  kind: AnnotationKind;
+  /** 1-based page number. */
+  page: number;
+  color: string;
+  /** Highlight geometry. */
+  rects?: Rect[];
+  /** Highlighted text, kept for the sidebar, search and export. */
+  quote?: string;
+  note?: string;
+  /** Ink stroke as flat [x, y, pressure, ...] in units where page width = 1000. */
+  points?: number[];
+  size?: number;
+  author?: string;
+  createdAt: number;
+  updatedAt: number;
+  /** Tombstone: deletions are kept so a missing item always means "not synced yet", never "deleted". */
+  deleted?: boolean;
+}
+
+/** Reading position: page plus fraction scrolled into that page, so it lands right at any zoom or screen size. */
+export interface Position {
+  doc: string;
+  page: number;
+  offset: number;
+  updatedAt: number;
+  device: string;
+  deviceName: string;
+}
+
+/** Another collaborator's last known position, read from their positions/<login>.json. */
+export interface PeerPosition extends Position {
+  key: string;
+  user: string;
+}
+
+export const HIGHLIGHT_COLORS = [
+  { id: "yellow", value: "#f7d154", label: "Yellow" },
+  { id: "green", value: "#7bd389", label: "Green" },
+  { id: "blue", value: "#7cb7f2", label: "Blue" },
+  { id: "pink", value: "#f49ac1", label: "Pink" },
+  { id: "purple", value: "#b9a2f2", label: "Purple" },
+] as const;
+
+export const INK_COLORS = ["#1f2a37", "#d64545", "#2f6fd6", "#2e9e5b", "#e08a1e"] as const;
+
+/** Later edit wins; ties broken deterministically so every device converges on the same answer. */
+export function newer<T extends { updatedAt: number }>(a: T, b: T): boolean {
+  if (a.updatedAt !== b.updatedAt) return a.updatedAt > b.updatedAt;
+  return JSON.stringify(a) > JSON.stringify(b);
+}

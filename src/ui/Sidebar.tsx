@@ -1,0 +1,203 @@
+import { useLiveQuery } from "dexie-react-hooks";
+import { AlertTriangle, ExternalLink, FolderInput, FolderPlus, Moon, Pencil, Search, Sun, Trash2, Coffee, Ellipsis } from "lucide-react";
+import { useState } from "react";
+import {
+  adoptRepo,
+  createFolder,
+  pendingChanges,
+  removeFolder,
+  renameFolder,
+  RepoPermissionError,
+  visibleFolders,
+} from "../folders/registry";
+import type { Folder } from "../model";
+import { navigate, setTheme, toast, useUI, type Theme } from "../store/ui";
+import { useAccount } from "../sync/account";
+import { ConfirmDialog, GitHubMark, PromptDialog, SyncDot, useFolderSync, useMenu } from "./common";
+
+const NEXT_THEME: Record<Theme, Theme> = { light: "sepia", sepia: "dark", dark: "light" };
+
+type Dialog = { kind: "new" } | { kind: "adopt" } | { kind: "rename"; folder: Folder } | { kind: "remove"; folder: Folder; pending: number };
+
+export function Sidebar({ active, onNavigate }: { active?: string; onNavigate?: () => void }) {
+  const folders = useLiveQuery(visibleFolders, []) ?? [];
+  const { account, authError } = useAccount();
+  const route = useUI((s) => s.route);
+  const theme = useUI((s) => s.theme);
+  const [dialog, setDialog] = useState<Dialog | null>(null);
+  const menu = useMenu();
+
+  const go = (folder: string) => {
+    navigate({ name: "library", folder });
+    onNavigate?.();
+  };
+
+  const folderMenu = (e: React.MouseEvent, f: Folder) =>
+    menu.open(e, [
+      { label: "Rename", icon: <Pencil size={15} />, run: () => setDialog({ kind: "rename", folder: f }) },
+      ...(f.repo
+        ? [
+            {
+              label: "Open repository on GitHub",
+              icon: <ExternalLink size={15} />,
+              run: () => window.open(`https://github.com/${f.repo!.owner}/${f.repo!.repo}`, "_blank", "noopener"),
+            },
+          ]
+        : []),
+      {
+        label: "Remove from this device",
+        icon: <Trash2 size={15} />,
+        danger: true,
+        run: async () => setDialog({ kind: "remove", folder: f, pending: await pendingChanges(f.id) }),
+      },
+    ]);
+
+  return (
+    <nav className="sidebar">
+      <div className="brand">
+        <img src="./icon.svg" alt="" width={22} height={22} />
+        <span>Engram</span>
+      </div>
+
+      <button
+        className={`nav-item ${route.name === "search" ? "active" : ""}`}
+        onClick={() => {
+          navigate({ name: "search" });
+          onNavigate?.();
+        }}
+      >
+        <Search size={16} />
+        <span>Search</span>
+        <kbd>/</kbd>
+      </button>
+
+      <div className="nav-section">
+        <span>Folders</span>
+        <button className="icon-btn" title="New folder" aria-label="New folder" onClick={() => setDialog({ kind: "new" })}>
+          <FolderPlus size={16} />
+        </button>
+      </div>
+      <ul className="folder-list">
+        {folders.map((f) => (
+          <FolderRow key={f.id} folder={f} active={f.id === active} onOpen={() => go(f.id)} onMenu={(e) => folderMenu(e, f)} />
+        ))}
+      </ul>
+      {account && (
+        <button className="nav-item subtle" onClick={() => setDialog({ kind: "adopt" })}>
+          <FolderInput size={16} />
+          <span>Add a shared folder</span>
+        </button>
+      )}
+
+      <div className="sidebar-foot">
+        {authError && (
+          <button className="nav-item warn" onClick={() => navigate({ name: "setup" })}>
+            <AlertTriangle size={16} />
+            <span>GitHub token stopped working</span>
+          </button>
+        )}
+        <button className={`nav-item ${route.name === "setup" ? "active" : ""}`} onClick={() => navigate({ name: "setup" })}>
+          {account?.avatarUrl ? <img className="avatar" src={account.avatarUrl} alt="" /> : <GitHubMark />}
+          <span>{account ? account.login : "Connect GitHub"}</span>
+        </button>
+        <button className="nav-item" onClick={() => setTheme(NEXT_THEME[theme])} title="Change theme">
+          {theme === "light" ? <Sun size={16} /> : theme === "sepia" ? <Coffee size={16} /> : <Moon size={16} />}
+          <span>{theme === "light" ? "Light" : theme === "sepia" ? "Sepia" : "Dark"}</span>
+        </button>
+      </div>
+
+      {menu.node}
+
+      {dialog?.kind === "new" && (
+        <PromptDialog
+          title="New folder"
+          label="Name"
+          placeholder="e.g. Papers to read"
+          action="Create"
+          hint={account ? "It gets its own private GitHub repository." : "It stays on this device until you connect GitHub."}
+          onClose={() => setDialog(null)}
+          onSubmit={async (name) => {
+            try {
+              const f = await createFolder(name);
+              go(f.id);
+            } catch (e) {
+              // The folder exists locally either way; the repository is retried in the background.
+              if (e instanceof RepoPermissionError) toast(e.message, { ttl: 12_000 });
+              else toast("Folder created. Its repository will be made when GitHub is reachable.");
+              const f = (await visibleFolders()).find((x) => x.name === name.trim() && !x.repo);
+              if (f) go(f.id);
+            }
+          }}
+        />
+      )}
+      {dialog?.kind === "adopt" && (
+        <PromptDialog
+          title="Add a shared folder"
+          label="Repository"
+          placeholder="owner/reader-papers or a GitHub link"
+          action="Add"
+          hint="Use a private repository someone shared with you. Accept their GitHub invitation first."
+          onClose={() => setDialog(null)}
+          onSubmit={async (input) => go((await adoptRepo(input)).id)}
+        />
+      )}
+      {dialog?.kind === "rename" && (
+        <PromptDialog
+          title="Rename folder"
+          label="Name"
+          initial={dialog.folder.name}
+          action="Rename"
+          hint="The repository keeps its name on GitHub; every device shows the new one."
+          onClose={() => setDialog(null)}
+          onSubmit={(name) => renameFolder(dialog.folder.id, name)}
+        />
+      )}
+      {dialog?.kind === "remove" && (
+        <ConfirmDialog
+          title={`Remove "${dialog.folder.name}"?`}
+          action="Remove from this device"
+          danger
+          onClose={() => setDialog(null)}
+          onConfirm={async () => {
+            const wasActive = dialog.folder.id === active;
+            await removeFolder(dialog.folder.id);
+            if (wasActive) navigate({ name: "library" });
+          }}
+        >
+          {dialog.folder.repo ? (
+            <p>
+              Its files and notes stay in the private repository{" "}
+              <strong>
+                {dialog.folder.repo.owner}/{dialog.folder.repo.repo}
+              </strong>
+              . You can add it back later with "Add a shared folder".
+            </p>
+          ) : (
+            <p>This folder has no repository yet, so its documents and notes will be deleted.</p>
+          )}
+          {dialog.pending > 0 && (
+            <p className="error">
+              {dialog.pending} change{dialog.pending === 1 ? " hasn't" : "s haven't"} reached GitHub yet and will be lost.
+            </p>
+          )}
+        </ConfirmDialog>
+      )}
+    </nav>
+  );
+}
+
+function FolderRow({ folder, active, onOpen, onMenu }: { folder: Folder; active: boolean; onOpen: () => void; onMenu: (e: React.MouseEvent) => void }) {
+  const s = useFolderSync(folder.id);
+  return (
+    <li className={`folder-row ${active ? "active" : ""}`}>
+      <button className="nav-item" onClick={onOpen} onContextMenu={onMenu}>
+        <SyncDot s={s} />
+        <span className="folder-name">{folder.name}</span>
+        {folder.isPrivate === false && <AlertTriangle size={14} className="warn-icon" aria-label="Public repository" />}
+      </button>
+      <button className="icon-btn row-menu" aria-label={`${folder.name} options`} onClick={onMenu}>
+        <Ellipsis size={16} />
+      </button>
+    </li>
+  );
+}

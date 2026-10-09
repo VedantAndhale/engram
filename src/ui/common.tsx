@@ -1,0 +1,310 @@
+import { AlertTriangle, Check, CloudOff, LoaderCircle, Lock, X } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { timeAgo } from "../lib/util";
+import { dismissToast, useUI } from "../store/ui";
+import { useSync, type FolderSync } from "../sync/engine";
+
+// ---------------------------------------------------------------------------------------------
+// Sync status
+// ---------------------------------------------------------------------------------------------
+
+export function useFolderSync(id: string | undefined): FolderSync {
+  return useSync((s) => (id ? s.folders[id] : undefined)) ?? { state: "local", pending: 0 };
+}
+
+export function syncLabel(s: FolderSync): string {
+  switch (s.state) {
+    case "local":
+      return "On this device only";
+    case "synced":
+      return s.lastSyncedAt ? `Synced ${timeAgo(s.lastSyncedAt)}` : "Synced";
+    case "syncing":
+      return "Syncing…";
+    case "pending":
+      return `${s.pending} change${s.pending === 1 ? "" : "s"} waiting`;
+    case "offline":
+      return "Offline: changes are saved here";
+    case "auth":
+      return "GitHub sign-in needed";
+    case "error":
+      return "Sync problem";
+  }
+}
+
+/** A small dot for the folder list; the badge in the top bar adds words. */
+export function SyncDot({ s }: { s: FolderSync }) {
+  return <span className={`sync-dot sync-${s.state}`} title={s.message ?? syncLabel(s)} />;
+}
+
+export function SyncBadge({ s, onClick }: { s: FolderSync; onClick?: () => void }) {
+  const icon =
+    s.state === "syncing" ? (
+      <LoaderCircle size={14} className="spin" />
+    ) : s.state === "synced" ? (
+      <Check size={14} />
+    ) : s.state === "offline" || s.state === "local" ? (
+      <CloudOff size={14} />
+    ) : s.state === "error" || s.state === "auth" ? (
+      <AlertTriangle size={14} />
+    ) : (
+      <LoaderCircle size={14} />
+    );
+  return (
+    <button className={`sync-badge sync-${s.state}`} title={s.message ?? syncLabel(s)} onClick={onClick}>
+      {icon}
+      <span>{syncLabel(s)}</span>
+    </button>
+  );
+}
+
+export function PrivateBadge({ isPrivate }: { isPrivate?: boolean }) {
+  if (isPrivate === false)
+    return (
+      <span className="badge badge-warn" title="Anyone can see this repository. Make it private on GitHub.">
+        <AlertTriangle size={12} /> Public repo
+      </span>
+    );
+  return (
+    <span className="badge" title="Private repository">
+      <Lock size={12} /> Private
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Dialogs
+// ---------------------------------------------------------------------------------------------
+
+export function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className={`modal ${wide ? "modal-wide" : ""}`} role="dialog" aria-modal="true" aria-label={title}>
+        <header>
+          <h2>{title}</h2>
+          <button className="icon-btn" onClick={onClose} aria-label="Close">
+            <X size={18} />
+          </button>
+        </header>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/** Ask for one line of text. `submit` may throw; its message is shown under the field. */
+export function PromptDialog({
+  title,
+  label,
+  initial = "",
+  placeholder,
+  action,
+  hint,
+  onSubmit,
+  onClose,
+}: {
+  title: string;
+  label: string;
+  initial?: string;
+  placeholder?: string;
+  action: string;
+  hint?: ReactNode;
+  onSubmit: (value: string) => Promise<void> | void;
+  onClose: () => void;
+}) {
+  const [value, setValue] = useState(initial);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!value.trim() || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onSubmit(value.trim());
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal title={title} onClose={onClose}>
+      <form onSubmit={submit} className="form">
+        <label>
+          <span>{label}</span>
+          <input autoFocus value={value} placeholder={placeholder} onChange={(e) => setValue(e.target.value)} onFocus={(e) => e.target.select()} />
+        </label>
+        {hint && <p className="hint">{hint}</p>}
+        {error && <p className="error">{error}</p>}
+        <footer>
+          <button type="button" className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" className="btn btn-primary" disabled={!value.trim() || busy}>
+            {busy && <LoaderCircle size={14} className="spin" />} {action}
+          </button>
+        </footer>
+      </form>
+    </Modal>
+  );
+}
+
+export function ConfirmDialog({
+  title,
+  children,
+  action,
+  danger,
+  onConfirm,
+  onClose,
+}: {
+  title: string;
+  children: ReactNode;
+  action: string;
+  danger?: boolean;
+  onConfirm: () => Promise<void> | void;
+  onClose: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <Modal title={title} onClose={onClose}>
+      <div className="form">
+        {children}
+        <footer>
+          <button className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            autoFocus
+            className={`btn ${danger ? "btn-danger" : "btn-primary"}`}
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                await onConfirm();
+              } finally {
+                onClose();
+              }
+            }}
+          >
+            {action}
+          </button>
+        </footer>
+      </div>
+    </Modal>
+  );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Menus
+// ---------------------------------------------------------------------------------------------
+
+export interface MenuItem {
+  label: string;
+  icon?: ReactNode;
+  danger?: boolean;
+  disabled?: boolean;
+  run: () => void;
+}
+
+/** A popover menu anchored to the element that opened it. */
+export function Menu({ anchor, items, onClose }: { anchor: HTMLElement; items: MenuItem[]; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+  useLayoutEffect(() => {
+    const a = anchor.getBoundingClientRect();
+    const m = ref.current!.getBoundingClientRect();
+    const left = Math.min(a.right - m.width, window.innerWidth - m.width - 8);
+    const below = a.bottom + 4 + m.height < window.innerHeight;
+    setPos({ top: below ? a.bottom + 4 : a.top - m.height - 4, left: Math.max(8, left) });
+  }, [anchor]);
+  useEffect(() => {
+    const away = (e: Event) => {
+      if (!ref.current?.contains(e.target as Node) && !anchor.contains(e.target as Node)) onClose();
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    document.addEventListener("pointerdown", away, true);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("resize", onClose);
+    return () => {
+      document.removeEventListener("pointerdown", away, true);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", onClose);
+    };
+  }, [anchor, onClose]);
+  return (
+    <div ref={ref} className="menu" role="menu" style={pos}>
+      {items.map((it) => (
+        <button
+          key={it.label}
+          role="menuitem"
+          className={it.danger ? "danger" : ""}
+          disabled={it.disabled}
+          onClick={() => {
+            onClose();
+            it.run();
+          }}
+        >
+          {it.icon}
+          <span>{it.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** State for a menu that opens from a button: `open(e)` with the click event, `node` to render. */
+export function useMenu() {
+  const [state, setState] = useState<{ anchor: HTMLElement; items: MenuItem[] } | null>(null);
+  return {
+    open: (e: React.MouseEvent, items: MenuItem[]) => {
+      e.stopPropagation();
+      e.preventDefault();
+      setState({ anchor: e.currentTarget as HTMLElement, items });
+    },
+    node: state && <Menu anchor={state.anchor} items={state.items} onClose={() => setState(null)} />,
+  };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Toasts
+// ---------------------------------------------------------------------------------------------
+
+export function Toasts() {
+  const toasts = useUI((s) => s.toasts);
+  return (
+    <div className="toasts" aria-live="polite">
+      {toasts.map((t) => (
+        <div key={t.id} className="toast">
+          <span>{t.text}</span>
+          {t.action && (
+            <button
+              onClick={() => {
+                t.action!.run();
+                dismissToast(t.id);
+              }}
+            >
+              {t.action.label}
+            </button>
+          )}
+          <button className="icon-btn" aria-label="Dismiss" onClick={() => dismissToast(t.id)}>
+            <X size={14} />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** GitHub's mark (lucide no longer ships brand icons). */
+export function GitHubMark({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+    </svg>
+  );
+}

@@ -1,0 +1,394 @@
+import { create } from "zustand";
+import type { ReaderDB } from "../db/db";
+import type { RepoRef } from "../model";
+import { getAccount, useAccount } from "./account";
+import { GitHub, GitHubError } from "./github";
+import {
+  gitBlobSha,
+  mergeAnnotations,
+  mergeFolder,
+  mergeLibrary,
+  mergeMyPositions,
+  mergePeerPositions,
+  serializeAnnotations,
+  serializeFolder,
+  serializeLibrary,
+  serializePositions,
+} from "./merge";
+import { FOLDER_FILE, LIBRARY, annotationsPath, parsePath, pathPriority, pdfPath, positionsPath } from "./paths";
+
+export type SyncState = "local" | "synced" | "syncing" | "pending" | "offline" | "error" | "auth";
+
+export interface FolderSync {
+  state: SyncState;
+  message?: string;
+  lastSyncedAt?: number;
+  pending: number;
+}
+
+/** Sync status of every folder, keyed by folder id. */
+export const useSync = create<{ folders: Record<string, FolderSync> }>(() => ({ folders: {} }));
+
+const IDLE: FolderSync = { state: "local", pending: 0 };
+
+export const getFolderSync = (id: string) => useSync.getState().folders[id] ?? IDLE;
+
+function setFolderSync(id: string, patch: Partial<FolderSync>) {
+  useSync.setState((s) => ({ folders: { ...s.folders, [id]: { ...(s.folders[id] ?? IDLE), ...patch } } }));
+}
+
+/** What we last saw on GitHub: head commit, its ETag, and the blob sha of every file. */
+interface RemoteState {
+  repoKey: string;
+  head?: string;
+  etag?: string;
+  shas: Record<string, string>;
+}
+
+/**
+ * GitHub allows ~80 content-creating requests a minute and 500 an hour, per user across all
+ * repositories, so every folder's engine draws from this one shared budget.
+ */
+const WRITE_LIMITS = [
+  { windowMs: 60_000, max: 60 },
+  { windowMs: 3_600_000, max: 420 },
+];
+let writes: number[] = JSON.parse(localStorage.getItem("reader.writes") ?? "[]");
+
+function canWrite(cost: number) {
+  const now = Date.now();
+  writes = writes.filter((t) => now - t < 3_600_000);
+  return WRITE_LIMITS.every(({ windowMs, max }) => writes.filter((t) => now - t < windowMs).length + cost <= max);
+}
+
+export function recordWrites(cost: number) {
+  for (let i = 0; i < cost; i++) writes.push(Date.now());
+  localStorage.setItem("reader.writes", JSON.stringify(writes));
+}
+
+/**
+ * How often to check a folder's repo for other people's changes. Unchanged checks cost nothing
+ * (they come back 304), but background folders still back off so many folders stay cheap.
+ */
+export type Attention = "reading" | "open" | "background";
+const POLL_MS: Record<Attention, number> = { reading: 5_000, open: 20_000, background: 120_000 };
+
+/** Moves one folder's local database to and from its GitHub repository. */
+export class SyncEngine {
+  private gh: GitHub | null = null;
+  private remote: RemoteState = { repoKey: "", shas: {} };
+  private running = false;
+  private lastPull = 0;
+  private forcePull = true;
+  private backoffUntil = 0;
+  private failures = 0;
+  attention: Attention = "background";
+
+  constructor(
+    readonly folderId: string,
+    readonly db: ReaderDB,
+  ) {}
+
+  get connected() {
+    return this.gh !== null;
+  }
+
+  /** Point the engine at the folder's repository, or detach it (no repo, or signed out). */
+  async attach(repo: RepoRef | undefined) {
+    const account = getAccount();
+    if (!repo || !account) {
+      this.gh = null;
+      setFolderSync(this.folderId, { state: "local", message: undefined });
+      await this.refreshPending();
+      return;
+    }
+    this.gh = new GitHub(account.token, repo);
+    const repoKey = `${repo.owner}/${repo.repo}@${repo.branch}`;
+    const saved = await this.db.kvGet<RemoteState>("remote");
+    if (saved?.repoKey !== repoKey) {
+      // New repository for this folder: everything local still has to go up.
+      this.remote = { repoKey, shas: {} };
+      await this.markEverythingDirty();
+    } else this.remote = saved;
+    this.forcePull = true;
+    this.backoffUntil = 0;
+    setFolderSync(this.folderId, { state: "syncing", message: undefined });
+    await this.refreshPending();
+  }
+
+  /** Called when the tab comes back or the network returns. */
+  wake() {
+    this.forcePull = true;
+    this.backoffUntil = 0;
+  }
+
+  /**
+   * Queue a remote file for upload. Edits close together collapse into one commit:
+   * each edit pushes the deadline out by `delayMs`, but never past `maxWaitMs` from the first edit.
+   */
+  async markDirty(path: string, delayMs: number, maxWaitMs = Math.max(delayMs * 4, 1)) {
+    const now = Date.now();
+    const db = this.db;
+    await db.transaction("rw", db.outbox, async () => {
+      const row = await db.outbox.get(path);
+      const firstAt = row?.firstAt ?? now;
+      await db.outbox.put({
+        path,
+        rev: (row?.rev ?? 0) + 1,
+        firstAt,
+        dueAt: Math.min(now + delayMs, firstAt + maxWaitMs),
+      });
+    });
+    await this.refreshPending();
+  }
+
+  async markEverythingDirty() {
+    const db = this.db;
+    const login = getAccount()?.login;
+    await this.markDirty(FOLDER_FILE, 0);
+    await this.markDirty(LIBRARY, 0);
+    for (const doc of await db.docs.toArray()) {
+      if (!doc.deleted && (await db.blobs.get(doc.hash))) await this.markDirty(pdfPath(doc.hash), 0);
+      if (await db.annotations.where("doc").equals(doc.hash).count()) await this.markDirty(annotationsPath(doc.hash), 0);
+    }
+    if (login && (await db.positions.count())) await this.markDirty(positionsPath(login), 0);
+  }
+
+  /** Sync now: used when the tab hides or closes, and by the "Sync now" button. */
+  async flush() {
+    await this.db.outbox.toCollection().modify({ dueAt: 0 });
+    this.wake();
+    await this.tick(document.visibilityState === "hidden");
+  }
+
+  /** Fetch a PDF from GitHub on first open on this device. PDFs are only downloaded when needed. */
+  async downloadPdf(doc: string): Promise<Blob | null> {
+    if (!this.gh) return null;
+    let sha = this.remote.shas[pdfPath(doc)];
+    if (!sha) {
+      this.forcePull = true;
+      await this.tick();
+      sha = this.remote.shas[pdfPath(doc)];
+    }
+    if (!sha || !this.gh) return null;
+    const bytes = await this.gh.getBlobBytes(sha);
+    const data = new Blob([bytes], { type: "application/pdf" });
+    await this.db.blobs.put({ hash: doc, data, lastUsed: Date.now() });
+    return data;
+  }
+
+  isUploaded(doc: string) {
+    return !!this.remote.shas[pdfPath(doc)];
+  }
+
+  async refreshPending() {
+    const pending = await this.db.outbox.count();
+    const s = getFolderSync(this.folderId);
+    let state = s.state;
+    if (!this.gh) state = "local";
+    else if (state === "synced" && pending > 0) state = "pending";
+    else if (state === "pending" && pending === 0 && !s.message) state = "synced";
+    setFolderSync(this.folderId, { pending, state });
+  }
+
+  async tick(keepalive = false) {
+    if (!this.gh || this.running) return;
+    if (!navigator.onLine) {
+      if (getFolderSync(this.folderId).state !== "offline") setFolderSync(this.folderId, { state: "offline", message: undefined });
+      return;
+    }
+    if (Date.now() < this.backoffUntil) return;
+    const visible = document.visibilityState === "visible";
+    const pullDue = this.forcePull || (visible && Date.now() - this.lastPull > POLL_MS[this.attention]);
+    const due = (await this.db.outbox.where("dueAt").belowOrEqual(Date.now()).toArray()).sort(
+      (a, b) => pathPriority(a.path) - pathPriority(b.path),
+    );
+    if (!pullDue && due.length === 0) return;
+
+    this.running = true;
+    if (due.length > 0 || this.forcePull) setFolderSync(this.folderId, { state: "syncing" });
+    try {
+      if (pullDue) await this.pull();
+      let throttled = false;
+      for (const row of due) throttled = !(await this.push(row.path, row.rev, keepalive)) || throttled;
+      this.failures = 0;
+      const pending = await this.db.outbox.count();
+      setFolderSync(this.folderId, {
+        state: pending ? "pending" : "synced",
+        pending,
+        message: throttled ? "Pacing uploads to stay inside GitHub's limits." : undefined,
+        lastSyncedAt: Date.now(),
+      });
+    } catch (e) {
+      this.handleError(e);
+    } finally {
+      this.running = false;
+    }
+  }
+
+  private handleError(e: unknown) {
+    this.failures++;
+    const backoff = Math.min(5 * 60_000, 2_000 * 2 ** this.failures);
+    const set = (patch: Partial<FolderSync>) => setFolderSync(this.folderId, patch);
+    if (e instanceof GitHubError) {
+      if (e.isAuth) {
+        this.backoffUntil = Date.now() + 60_000;
+        useAccount.setState({ authError: true });
+        set({ state: "auth", message: "Your GitHub token expired or was revoked." });
+        return;
+      }
+      if (e.isRateLimit) {
+        this.backoffUntil = e.retryAt!;
+        set({ state: "pending", message: "GitHub asked us to slow down. Changes are safe on this device." });
+        return;
+      }
+      if (e.status === 0) {
+        this.backoffUntil = Date.now() + Math.min(60_000, backoff);
+        set({ state: "offline", message: undefined });
+        return;
+      }
+      if (e.status === 404 || e.status === 403) {
+        this.backoffUntil = Date.now() + 60_000;
+        set({ state: "error", message: "Can't reach this folder's repository. Check the token's repository access." });
+        return;
+      }
+    }
+    console.error("sync failed", e);
+    this.backoffUntil = Date.now() + backoff;
+    set({ state: "error", message: e instanceof Error ? e.message : String(e) });
+  }
+
+  private async saveRemote() {
+    await this.db.kvSet("remote", this.remote);
+  }
+
+  private async pull() {
+    const gh = this.gh!;
+    const db = this.db;
+    this.lastPull = Date.now();
+    const force = this.forcePull;
+    this.forcePull = false;
+    const head = await gh.getHead(force ? undefined : this.remote.etag);
+    if (head === null) return;
+    if (head === "empty") {
+      // An adopted repository with no commits yet; the Git Data API needs at least one.
+      await gh.putFile("README.md", README, undefined, "Set up Engram folder");
+      recordWrites(1);
+      this.forcePull = true;
+      return;
+    }
+    if (head.sha === this.remote.head) {
+      this.remote.etag = head.etag;
+      return;
+    }
+    const tree = await gh.getTree(head.sha);
+    const login = getAccount()?.login;
+    for (const entry of tree) {
+      if (this.remote.shas[entry.path] === entry.sha) continue;
+      const p = parsePath(entry.path);
+      if (p.kind === "other") continue;
+      if (p.kind !== "pdf") {
+        const text = await gh.getBlobText(entry.sha);
+        let localAhead = false;
+        if (p.kind === "folder") localAhead = await mergeFolder(this.folderId, text);
+        else if (p.kind === "library") localAhead = await mergeLibrary(db, text);
+        else if (p.kind === "annotations") localAhead = await mergeAnnotations(db, p.doc, text);
+        else if (p.kind === "positions") {
+          if (p.user === login) localAhead = await mergeMyPositions(db, text);
+          else await mergePeerPositions(db, p.user, text);
+        }
+        if (localAhead) await this.markDirty(entry.path, 1_000);
+      }
+      this.remote.shas[entry.path] = entry.sha;
+    }
+    this.remote.head = head.sha;
+    this.remote.etag = head.etag;
+    await this.saveRemote();
+  }
+
+  private async serialize(path: string): Promise<string | null> {
+    const p = parsePath(path);
+    if (p.kind === "folder") return serializeFolder(this.folderId);
+    if (p.kind === "library") return serializeLibrary(this.db);
+    if (p.kind === "annotations") return serializeAnnotations(this.db, p.doc);
+    if (p.kind === "positions") return serializePositions(this.db, p.user);
+    return null;
+  }
+
+  private async mergeInto(path: string, text: string) {
+    const p = parsePath(path);
+    if (p.kind === "folder") await mergeFolder(this.folderId, text);
+    else if (p.kind === "library") await mergeLibrary(this.db, text);
+    else if (p.kind === "annotations") await mergeAnnotations(this.db, p.doc, text);
+    else if (p.kind === "positions") await mergeMyPositions(this.db, text);
+  }
+
+  /** Push one file. Returns false if it was deferred to respect GitHub's write limits. */
+  private async push(path: string, rev: number, keepalive: boolean): Promise<boolean> {
+    const gh = this.gh!;
+    const db = this.db;
+    const p = parsePath(path);
+    if (p.kind === "pdf") {
+      if (!this.remote.shas[path]) {
+        const blob = await db.blobs.get(p.doc);
+        const meta = await db.docs.get(p.doc);
+        if (blob && !meta?.deleted) {
+          if (!canWrite(4)) return false;
+          this.remote.shas[path] = await gh.putBinary(path, blob.data, `Add ${meta?.title ?? "PDF"}`);
+          recordWrites(4);
+          await this.saveRemote();
+        }
+      }
+    } else {
+      for (let attempt = 0; ; attempt++) {
+        const text = await this.serialize(path);
+        if (text === null) break;
+        if ((await gitBlobSha(text)) === this.remote.shas[path]) break; // remote already has exactly this
+        if (!canWrite(1)) return false;
+        try {
+          // keepalive requests are capped at 64 KB; larger bodies go as normal requests.
+          const ka = keepalive && text.length < 48_000;
+          this.remote.shas[path] = await gh.putFile(path, text, this.remote.shas[path], commitMessage(path), ka);
+          recordWrites(1);
+          await this.saveRemote();
+          break;
+        } catch (e) {
+          // Someone else changed this file since we last saw it: merge their version and try again.
+          if (!(e instanceof GitHubError && e.isConflict) || attempt >= 4) throw e;
+          recordWrites(1);
+          const remote = await gh.getFile(path);
+          if (remote) {
+            await this.mergeInto(path, remote.text);
+            this.remote.shas[path] = remote.sha;
+          } else delete this.remote.shas[path];
+        }
+      }
+    }
+    await db.transaction("rw", db.outbox, async () => {
+      const row = await db.outbox.get(path);
+      if (row && row.rev === rev) await db.outbox.delete(path);
+    });
+    return true;
+  }
+}
+
+function commitMessage(path: string) {
+  const p = parsePath(path);
+  if (p.kind === "folder") return "Update folder details";
+  if (p.kind === "annotations") return "Update highlights and notes";
+  if (p.kind === "positions") return `Update reading position (${p.user})`;
+  return "Update library";
+}
+
+const README = `# Engram folder
+
+This private repository is one folder of an Engram library: PDFs, highlights, notes, ink and reading positions.
+
+- \`reader.json\`: the folder's id and name
+- \`library.json\`: the list of documents
+- \`pdfs/<sha256>.pdf\`: each PDF, stored once
+- \`annotations/<sha256>.json\`: highlights, notes and drawings for one PDF
+- \`positions/<github-user>.json\`: where each person is in each document
+
+The app manages these files. Editing them by hand is safe but rarely needed.
+`;
