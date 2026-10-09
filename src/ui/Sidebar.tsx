@@ -1,5 +1,5 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { AlertTriangle, ExternalLink, FolderInput, FolderPlus, Moon, Pencil, Search, Sun, Trash2, Coffee, Ellipsis } from "lucide-react";
+import { AlertTriangle, ExternalLink, FolderInput, FolderPlus, Moon, Pencil, Search, Sun, Sunrise, Trash2, Coffee, Ellipsis } from "lucide-react";
 import { useState } from "react";
 import {
   adoptRepo,
@@ -58,6 +58,17 @@ export function Sidebar({ active, onNavigate }: { active?: string; onNavigate?: 
         <img src="./icon.svg" alt="" width={22} height={22} />
         <span>Engram</span>
       </div>
+
+      <button
+        className={`nav-item ${route.name === "today" ? "active" : ""}`}
+        onClick={() => {
+          navigate({ name: "today" });
+          onNavigate?.();
+        }}
+      >
+        <Sunrise size={16} />
+        <span>Today</span>
+      </button>
 
       <button
         className={`nav-item ${route.name === "search" ? "active" : ""}`}

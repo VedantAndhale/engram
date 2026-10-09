@@ -6,7 +6,9 @@ export type Route =
   | { name: "library"; folder?: string }
   | { name: "reader"; folder: string; doc: string; page?: number; find?: string }
   | { name: "search"; q?: string }
-  | { name: "setup" };
+  | { name: "setup" }
+  | { name: "today" }
+  | { name: "welcome" };
 
 export interface Toast {
   id: number;
@@ -32,14 +34,16 @@ function parseHash(): Route {
   if (m) return { name: "library", folder: m[1] };
   if (path === "/search") return { name: "search", q: q.get("q") ?? undefined };
   if (path === "/setup") return { name: "setup" };
-  return { name: "library" };
+  if (path === "/library") return { name: "library" };
+  if (path === "/welcome") return { name: "welcome" };
+  return { name: "today" };
 }
 
 export function routeHash(route: Route): string {
   const q = new URLSearchParams();
   switch (route.name) {
     case "library":
-      return route.folder ? `#/f/${route.folder}` : "#/";
+      return route.folder ? `#/f/${route.folder}` : "#/library";
     case "reader":
       if (route.page) q.set("page", String(route.page));
       if (route.find) q.set("find", route.find);
@@ -49,6 +53,10 @@ export function routeHash(route: Route): string {
       return `#/search${q.size ? `?${q}` : ""}`;
     case "setup":
       return "#/setup";
+    case "today":
+      return "#/today";
+    case "welcome":
+      return "#/welcome";
   }
 }
 

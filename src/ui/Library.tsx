@@ -1,10 +1,12 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { Copy, Ellipsis, FileText, LoaderCircle, Menu as MenuIcon, Pencil, Trash2, Upload } from "lucide-react";
+import { Copy, Ellipsis, FileText, LoaderCircle, Menu as MenuIcon, Pencil, Tag, Trash2, Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { folderCtx, renameFolder, setAttention, visibleFolders } from "../folders/registry";
 import { formatBytes, timeAgo } from "../lib/util";
 import type { DocMeta, Folder } from "../model";
-import { addPdf, copyDoc, removeDoc, renameDoc, restoreDoc } from "../store/actions";
+import { addPdf, copyDoc, removeDoc, renameDoc, restoreDoc, setDocTopics } from "../store/actions";
+import { setHabit, useHabit } from "../habit/prefs";
+import { TopicsDialog } from "./habit";
 import { navigate, rememberFolder, toast } from "../store/ui";
 import { useAccount } from "../sync/account";
 import { Modal, PrivateBadge, PromptDialog, SyncBadge, useFolderSync, useMenu } from "./common";
@@ -16,7 +18,8 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
   const s = useFolderSync(folder.id);
   const account = useAccount((a) => a.account);
   const [sort, setSort] = useState<Sort>(() => (localStorage.getItem("reader.sort") as Sort) ?? "recent");
-  const [dialog, setDialog] = useState<{ kind: "rename" | "copy"; doc: DocMeta } | { kind: "renameFolder" } | null>(null);
+  const [dialog, setDialog] = useState<{ kind: "rename" | "copy" | "topics"; doc: DocMeta } | { kind: "renameFolder" } | null>(null);
+  const topics = useHabit((h) => h.topics);
   const [adding, setAdding] = useState(0);
   const [dragging, setDragging] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -104,6 +107,7 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
   const docMenu = (e: React.MouseEvent, d: DocMeta) =>
     menu.open(e, [
       { label: "Rename", icon: <Pencil size={15} />, run: () => setDialog({ kind: "rename", doc: d }) },
+      { label: "Topics", icon: <Tag size={15} />, run: () => setDialog({ kind: "topics", doc: d }) },
       { label: "Copy to another folder", icon: <Copy size={15} />, run: () => setDialog({ kind: "copy", doc: d }) },
       {
         label: "Remove",
@@ -219,6 +223,7 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
                       {pos ? `p. ${pos.page} of ${d.pages} · ${timeAgo(pos.updatedAt)}` : `${d.pages} pages · ${formatBytes(d.size)}`}
                       {n > 0 && ` · ${n} note${n === 1 ? "" : "s"}`}
                     </span>
+                    {d.topics?.length ? <span className="doc-topics">{d.topics.join(" · ")}</span> : null}
                   </div>
                   <button className="icon-btn card-menu" aria-label={`${d.title} options`} onClick={(e) => docMenu(e, d)}>
                     <Ellipsis size={16} />
@@ -260,6 +265,21 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
         />
       )}
       {dialog?.kind === "copy" && <CopyDialog from={folder} doc={dialog.doc} onClose={() => setDialog(null)} />}
+      {dialog?.kind === "topics" && (
+        <TopicsDialog
+          title={`Topics for "${dialog.doc.title}"`}
+          intro="Which of the things you're growing in does this belong to?"
+          options={topics}
+          initial={dialog.doc.topics ?? []}
+          onSave={async (chosen) => {
+            await setDocTopics(folder.id, dialog.doc.hash, chosen);
+            // A topic first typed here becomes one of the reader's topics too.
+            const added = chosen.filter((t) => !topics.includes(t));
+            if (added.length) setHabit({ topics: [...topics, ...added] });
+          }}
+          onClose={() => setDialog(null)}
+        />
+      )}
     </main>
   );
 }

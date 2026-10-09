@@ -78,6 +78,12 @@ export async function renameDoc(folder: string, hash: string, title: string) {
   await sync.markDirty(LIBRARY, 1500);
 }
 
+export async function setDocTopics(folder: string, hash: string, topics: string[]) {
+  const { db, sync } = folderCtx(folder);
+  await db.docs.update(hash, { topics: topics.length ? topics : undefined, updatedAt: Date.now() });
+  await sync.markDirty(LIBRARY, 1500);
+}
+
 export async function removeDoc(folder: string, hash: string) {
   const { db, sync } = folderCtx(folder);
   await db.docs.update(hash, { deleted: true, updatedAt: Date.now() });

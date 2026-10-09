@@ -33,6 +33,8 @@ export interface DocMeta {
   addedBy?: string;
   updatedAt: number;
   deleted?: boolean;
+  /** Topics the reader is growing in that this document belongs to. */
+  topics?: string[];
 }
 
 /** A rectangle in page-relative units (0..1 of page width / height), so it is zoom-independent. */
@@ -65,6 +67,16 @@ export interface Annotation {
   updatedAt: number;
   /** Tombstone: deletions are kept so a missing item always means "not synced yet", never "deleted". */
   deleted?: boolean;
+  /** Spaced-review schedule. Unset means never reviewed: first due a day after it was made. */
+  review?: Review;
+}
+
+export interface Review {
+  /** Index into the review intervals; grows each time it is still clear, resets when hazy. */
+  step: number;
+  due: number;
+  last: number;
+  count: number;
 }
 
 /** Reading position: page plus fraction scrolled into that page, so it lands right at any zoom or screen size. */

@@ -235,7 +235,9 @@ export function Reader({ folder, doc, page: startPage, find: startFind }: { fold
   }, []);
 
   const highlight = useCallback(
-    async (color: string, rects: Map<number, Annotation["rects"]>, quote: string, withNote = false) => {
+    // `askWhy` opens the new highlight for an optional line in the reader's own words. Quick strokes
+    // with the highlighter tool skip it so they stay quick.
+    async (color: string, rects: Map<number, Annotation["rects"]>, quote: string, askWhy = false) => {
       setLastColor(color);
       window.getSelection()?.removeAllRanges();
       setSelection(null);
@@ -244,7 +246,7 @@ export function Reader({ folder, doc, page: startPage, find: startFind }: { fold
         const a = await saveAnnotation(folder.id, { doc, kind: "highlight", page, color, rects: r, quote });
         first ??= a;
       }
-      if (withNote && first) {
+      if (askWhy && first) {
         const hit = document.querySelector(`.page[data-page="${first.page}"] .hl-hit`);
         const box = scroller.current!.querySelector(`.page[data-page="${first.page}"]`)!.getBoundingClientRect();
         const r = first.rects![0];
@@ -565,7 +567,7 @@ export function Reader({ folder, doc, page: startPage, find: startFind }: { fold
         <SelectionPopover
           anchor={selection.anchor}
           text={selection.text}
-          onHighlight={(color, withNote) => void highlight(color, selection.rects, selection.text, withNote)}
+          onHighlight={(color) => void highlight(color, selection.rects, selection.text, true)}
           onClose={() => setSelection(null)}
         />
       )}

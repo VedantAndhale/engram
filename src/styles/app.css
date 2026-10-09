@@ -1009,6 +1009,13 @@ main {
   font: inherit;
   resize: vertical;
 }
+.note-coach {
+  width: 280px;
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
 
 /* Notes panel */
 .notes-panel {
@@ -1390,5 +1397,281 @@ main {
 @media (max-width: 760px) {
   .setup-body {
     padding: 4px 12px 32px;
+  }
+}
+
+/* ---- Habit: Today, first run, topics, reminders ------------------------------------------ */
+
+.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+input[type="time"] {
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.doc-topics {
+  overflow: hidden;
+  color: var(--accent);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.today-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 880px;
+  padding: 4px 24px 48px;
+}
+.today-date {
+  margin: 0;
+  color: var(--muted);
+}
+.today-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+.today-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.today-card h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  font: 600 17px var(--serif);
+}
+.today-card h2 .push {
+  margin-left: auto;
+  font: inherit;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 400;
+}
+.today-card p {
+  margin: 0;
+}
+.today-card .hint {
+  margin-top: auto;
+}
+.today-card.review {
+  align-items: stretch;
+  padding: 22px 24px;
+}
+.continue {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: inherit;
+  text-decoration: none;
+}
+.continue strong {
+  color: var(--accent);
+}
+.continue:hover strong {
+  text-decoration: underline;
+}
+.stats,
+.growth {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.stats strong {
+  display: inline-block;
+  min-width: 1.6em;
+  font: 600 18px var(--serif);
+}
+.growth li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.review-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+}
+.review-head a {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.review-quote {
+  margin: 4px 0;
+  padding: 4px 0 4px 16px;
+  border-left: 3px solid var(--accent);
+  font: 19px/1.5 var(--serif);
+}
+.review-words,
+.review-write {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.review-words p {
+  font-style: italic;
+}
+.review-write textarea {
+  width: 100%;
+}
+.review-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.review-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.review-empty h2 {
+  font: 600 20px var(--serif);
+}
+
+.welcome {
+  display: grid;
+  place-items: center;
+  min-height: 100%;
+  padding: 24px;
+  background: var(--bg);
+}
+.welcome-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(560px, 100%);
+  padding: 32px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.welcome-card h1 {
+  font: 600 26px/1.25 var(--serif);
+}
+.welcome-card p {
+  margin: 0;
+}
+.welcome-card .lead {
+  font: 19px/1.45 var(--serif);
+}
+.welcome-steps {
+  display: flex;
+  gap: 6px;
+  margin: 0 0 6px;
+  padding: 0;
+  list-style: none;
+}
+.welcome-steps li {
+  width: 28px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--surface-2);
+}
+.welcome-steps li.done {
+  background: color-mix(in srgb, var(--accent) 45%, var(--surface-2));
+}
+.welcome-steps li.on {
+  background: var(--accent);
+}
+.welcome-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.topic-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  background: var(--surface);
+}
+.chip:hover {
+  background: var(--surface-2);
+}
+.chip.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  color: var(--text);
+}
+.topic-add {
+  display: flex;
+  gap: 8px;
+}
+.topic-add input {
+  flex: 1;
+  min-width: 0;
+}
+
+.reminder-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.time-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.reminder-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.reminder-actions a.btn {
+  color: inherit;
+  text-decoration: none;
+}
+
+@media (max-width: 760px) {
+  .today-body {
+    padding: 4px 16px 40px;
+  }
+  .welcome-card {
+    padding: 24px 20px;
   }
 }

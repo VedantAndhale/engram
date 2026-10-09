@@ -1,5 +1,6 @@
 import { Copy, StickyNote, Trash2 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { setHabit, useHabit } from "../../habit/prefs";
 import { HIGHLIGHT_COLORS, type Annotation } from "../../model";
 
 /** A small floating panel pinned under (or above, if there's no room) an on-screen rectangle. */
@@ -110,6 +111,7 @@ export function AnnotationPopover({
   const [note, setNote] = useState(annotation.note ?? "");
   const [editing, setEditing] = useState(startEditing || !!annotation.note);
   const saved = useRef(annotation.note ?? "");
+  const coachDone = useHabit((h) => h.coachDone);
 
   // Save the note as it's typed (debounced) and once more on close, so nothing is lost.
   useEffect(() => {
@@ -117,12 +119,15 @@ export function AnnotationPopover({
     const t = setTimeout(() => {
       saved.current = note;
       onChange({ note: note.trim() ? note : undefined });
+      // Once they've written a line of their own, the tip has done its job.
+      if (note.trim()) setHabit({ coachDone: true });
     }, 600);
     return () => clearTimeout(t);
   }, [note, onChange]);
 
   const close = () => {
     if (note !== saved.current) onChange({ note: note.trim() ? note : undefined });
+    if (note.trim()) setHabit({ coachDone: true });
     onClose();
   };
 
@@ -146,12 +151,15 @@ export function AnnotationPopover({
           <Trash2 size={16} />
         </button>
       </div>
+      {editing && !coachDone && !annotation.note && (
+        <p className="note-coach">One line on why this matters to you. It's what you'll see again when you review, and no chatbot can write it for you.</p>
+      )}
       {editing && (
         <textarea
           className="note-input"
           autoFocus
           rows={3}
-          placeholder="Write a note…"
+          placeholder={annotation.note ? "Write a note…" : "Why does this matter? (optional)"}
           value={note}
           onChange={(e) => setNote(e.target.value)}
           onKeyDown={(e) => {
