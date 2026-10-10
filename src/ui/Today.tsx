@@ -1,12 +1,13 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { itemHref } from "../capture/capture";
-import { BellRing, BookmarkPlus, BookOpen, CloudUpload, Menu as MenuIcon, Pencil, Plus, Sparkles } from "lucide-react";
+import { BellRing, BookmarkPlus, BookOpen, CloudUpload, Menu as MenuIcon, NotebookPen, Pencil, Plus, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 import { folderCtx, visibleFolders } from "../folders/registry";
 import { setHabit, useHabit } from "../habit/prefs";
 import { allCards, rate, saveWords, weekStats, type Card } from "../habit/review";
 import { timeAgo } from "../lib/util";
-import { navigate, openQuickAdd } from "../store/ui";
+import { dailyNote } from "../notes/notes";
+import { lastFolder, navigate, openQuickAdd } from "../store/ui";
 import { useAccount } from "../sync/account";
 import { BookmarkletCard } from "./Capture";
 import { ReminderDialog, TopicsDialog } from "./habit";
@@ -159,6 +160,25 @@ export function Today({ onOpenSidebar }: { onOpenSidebar: () => void }) {
             ) : (
               <p className="muted">Pick what you want to grow in. Tag what you save with a topic.</p>
             )}
+          </section>
+
+          <section className="today-card">
+            <h2>
+              <NotebookPen size={17} /> Today's note
+            </h2>
+            <p className="muted">A page for today: what you read, what you thought, what to look into next.</p>
+            <button
+              className="btn"
+              onClick={async () => {
+                const folders = await visibleFolders();
+                const folder = folders.find((f) => f.id === lastFolder()) ?? folders[0];
+                if (!folder) return;
+                const note = await dailyNote(folder.id);
+                navigate({ name: "item", folder: folder.id, item: note.id });
+              }}
+            >
+              Write today's note
+            </button>
           </section>
 
           <section className="today-card">

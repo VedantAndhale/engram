@@ -29,10 +29,12 @@ export async function setItemBody(folder: string, id: string, body: string) {
   await updateItem(folder, id, { body: body.trim() ? body : undefined }, 2_000, 8_000);
 }
 
-/** Make a new item that isn't a PDF: a link, a quote, a note. */
-export async function createItem(folder: string, fields: Omit<Item, "id" | "path" | "addedAt" | "updatedAt">): Promise<Item> {
+/**
+ * Make a new item that isn't a PDF: a link, a quote, a note. `id` is only given for items every
+ * device must agree on without talking, like a day's note.
+ */
+export async function createItem(folder: string, fields: Omit<Item, "id" | "path" | "addedAt" | "updatedAt">, id = uid()): Promise<Item> {
   const { db, sync } = folderCtx(folder);
-  const id = uid();
   const now = Date.now();
   const item: Item = { id, ...fields, addedAt: now, addedBy: login(), updatedAt: now, path: itemPath(id, fields.title, now) };
   await db.items.put(item);
