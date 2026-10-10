@@ -1,16 +1,12 @@
 import { type Completion, type CompletionContext, type CompletionResult, startCompletion } from "@codemirror/autocomplete";
 import { EditorSelection } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
+import { today } from "../notes/links";
 
 /*
  * Typing "/" offers blocks (headings, lists, to-dos, quotes, code), and "[[" offers the titles
  * of everything in the folder. Both only ever insert plain Markdown.
  */
-
-export const today = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-};
 
 /** Replace "/command" with `text`, leaving the cursor `cursorBack` characters from its end. */
 function insert(text: string, cursorBack = 0) {

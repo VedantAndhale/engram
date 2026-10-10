@@ -1,4 +1,4 @@
-import { Copy, StickyNote, Trash2 } from "lucide-react";
+import { Copy, NotebookPen, StickyNote, Trash2 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { setHabit, useHabit } from "../../habit/prefs";
 import { HIGHLIGHT_COLORS, type Annotation } from "../../model";
@@ -92,13 +92,14 @@ export function SelectionPopover({
   );
 }
 
-/** Shown when tapping an existing highlight: recolour, write a note, or delete. */
+/** Shown when tapping an existing highlight: recolour, write a note, make it a note of its own, or delete. */
 export function AnnotationPopover({
   anchor,
   annotation,
   startEditing,
   onChange,
   onDelete,
+  onMakeNote,
   onClose,
 }: {
   anchor: DOMRect;
@@ -106,6 +107,7 @@ export function AnnotationPopover({
   startEditing?: boolean;
   onChange: (patch: Partial<Annotation>) => void;
   onDelete: () => void;
+  onMakeNote?: () => void;
   onClose: () => void;
 }) {
   const [note, setNote] = useState(annotation.note ?? "");
@@ -145,6 +147,18 @@ export function AnnotationPopover({
         {!editing && (
           <button className="icon-btn" title="Add a note" onClick={() => setEditing(true)}>
             <StickyNote size={16} />
+          </button>
+        )}
+        {onMakeNote && !!annotation.quote?.trim() && (
+          <button
+            className="icon-btn"
+            title="Make a note from this"
+            onClick={() => {
+              if (note !== saved.current) onChange({ note: note.trim() ? note : undefined });
+              onMakeNote();
+            }}
+          >
+            <NotebookPen size={16} />
           </button>
         )}
         <button className="icon-btn danger" title="Delete highlight" onClick={onDelete}>

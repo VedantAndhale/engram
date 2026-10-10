@@ -20,6 +20,7 @@ import { clamp } from "../../lib/util";
 import { INK_COLORS, type Annotation, type Folder } from "../../model";
 import { selectionRects } from "../../reader/geometry";
 import { deleteAnnotation, ensureThumb, indexDocument, loadPdfData, saveAnnotation, savePosition, updateAnnotation } from "../../store/actions";
+import { noteFromHighlight } from "../../notes/notes";
 import { navigate, toast } from "../../store/ui";
 import { useAccount } from "../../sync/account";
 import { SyncBadge, useFolderSync } from "../common";
@@ -579,6 +580,14 @@ export function Reader({ folder, doc, page: startPage, find: startFind }: { fold
           startEditing={picked.edit}
           onChange={changePicked}
           onDelete={() => void deleteWithUndo(picked.id, "Highlight")}
+          onMakeNote={
+            meta
+              ? async () => {
+                  const note = await noteFromHighlight(folder.id, meta, pickedAnnotation.quote!, pickedAnnotation.page);
+                  navigate({ name: "item", folder: folder.id, item: note.id });
+                }
+              : undefined
+          }
           onClose={() => setPicked(null)}
         />
       )}

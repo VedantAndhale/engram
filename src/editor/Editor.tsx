@@ -66,7 +66,8 @@ export interface EditorProps {
 
 /**
  * A Markdown editor with live preview. The text it produces is exactly what goes in the file.
- * Changes from elsewhere (another device syncing in) replace the text only while you aren't in it.
+ * Changes from elsewhere (another device syncing in) wait while you type, and land once you leave
+ * the editor, unless you changed the text yourself in the meantime (then your words win).
  */
 export function Editor({ value, onChange, placeholder, titles, openWiki, autoFocus, label }: EditorProps) {
   const host = useRef<HTMLDivElement>(null);
@@ -74,6 +75,20 @@ export function Editor({ value, onChange, placeholder, titles, openWiki, autoFoc
   // The latest callbacks, so the editor is created once.
   const props = useRef({ onChange, titles, openWiki });
   props.current = { onChange, titles, openWiki };
+  // The latest saved text, and the last saved text the editor was known to match. A synced change
+  // that arrived while you were typing is applied when you leave, unless you've typed since.
+  const saved = useRef(value);
+  saved.current = value;
+  const base = useRef(value);
+
+  const takeSaved = (v: EditorView) => {
+    const cur = v.state.doc.toString();
+    if (cur === saved.current) base.current = cur;
+    else if (cur === base.current) {
+      v.dispatch({ changes: { from: 0, to: cur.length, insert: saved.current }, annotations: External.of(true) });
+      base.current = saved.current;
+    }
+  };
 
   useEffect(() => {
     const v = new EditorView({
@@ -100,12 +115,16 @@ export function Editor({ value, onChange, placeholder, titles, openWiki, autoFoc
           placeholder ? placeholderExt(placeholder) : [],
           EditorView.updateListener.of((u) => {
             if (u.docChanged && !u.transactions.some((t) => t.annotation(External))) props.current.onChange(u.state.doc.toString());
+            if (u.focusChanged && !u.view.hasFocus) queueMicrotask(() => view.current && takeSaved(view.current));
           }),
         ],
       }),
     });
     view.current = v;
-    if (autoFocus) v.focus();
+    if (autoFocus) {
+      v.dispatch({ selection: { anchor: v.state.doc.length } });
+      v.focus();
+    }
     return () => {
       v.destroy();
       view.current = null;
@@ -115,9 +134,12 @@ export function Editor({ value, onChange, placeholder, titles, openWiki, autoFoc
 
   useEffect(() => {
     const v = view.current;
-    if (!v || v.hasFocus) return;
-    const cur = v.state.doc.toString();
-    if (cur !== value) v.dispatch({ changes: { from: 0, to: cur.length, insert: value }, annotations: External.of(true) });
+    if (v) {
+      const cur = v.state.doc.toString();
+      if (cur === value) base.current = value;
+      else if (!v.hasFocus) takeSaved(v);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
 
   return <div ref={host} className="md-editor" />;

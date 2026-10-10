@@ -5,7 +5,8 @@ import { useEffect, useRef, useState } from "react";
 import { folderCtx, renameFolder, setAttention, visibleFolders } from "../folders/registry";
 import { formatBytes, timeAgo } from "../lib/util";
 import type { Item, Folder } from "../model";
-import { addPdf, copyItem, removeItem, renameItem, restoreItem, setItemTopics } from "../store/actions";
+import { addPdf, copyItem, removeItem, restoreItem, setItemTopics } from "../store/actions";
+import { renameWithLinks } from "../notes/notes";
 import { setHabit, useHabit } from "../habit/prefs";
 import { TopicsDialog } from "./habit";
 import { navigate, openQuickAdd, rememberFolder, toast } from "../store/ui";
@@ -261,7 +262,7 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
           initial={dialog.doc.title}
           action="Rename"
           onClose={() => setDialog(null)}
-          onSubmit={(t) => renameItem(folder.id, dialog.doc.id, t)}
+          onSubmit={(t) => renameWithLinks(folder.id, dialog.doc.id, t)}
         />
       )}
       {dialog?.kind === "renameFolder" && (

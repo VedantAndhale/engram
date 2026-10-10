@@ -1,19 +1,16 @@
-import { today } from "../editor/completions";
-import { WIKI_LINK } from "../editor/livePreview";
 import type { ReaderDB } from "../db/db";
 import { folderCtx } from "../folders/registry";
 import type { Item } from "../model";
-import { createItem } from "../store/actions";
+import { createItem, renameItem, setItemBody } from "../store/actions";
+import { linksIn, retarget, sameTitle, today } from "./links";
 
 /*
  * Notes link to each other by title, the way Obsidian does: [[Title]] or [[Title|shown text]].
  * Titles are matched without regard to case, within one folder (folders never share notes).
  */
 
-const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
-
 export async function findByTitle(db: ReaderDB, title: string): Promise<Item | undefined> {
-  return db.items.filter((i) => !i.deleted && same(i.title, title)).first();
+  return db.items.filter((i) => !i.deleted && sameTitle(i.title, title)).first();
 }
 
 /** The item a [[link]] names. A link to something that doesn't exist yet makes a new note. */
@@ -35,15 +32,29 @@ export async function dailyNote(folder: string): Promise<Item> {
   return createItem(folder, { type: "note", title: date }, id);
 }
 
-/** Titles linked from some Markdown. */
-export function linksIn(text: string | undefined): string[] {
-  return text ? [...text.matchAll(WIKI_LINK)].map((m) => m[1].trim()) : [];
+/**
+ * Rename an item and point every [[link]] to its old title at the new one, so renaming never
+ * breaks a link. Each changed note is saved (and synced) like any other edit.
+ */
+export async function renameWithLinks(folder: string, id: string, title: string): Promise<void> {
+  const { db } = folderCtx(folder);
+  const before = (await db.items.get(id))?.title;
+  const next = title.trim();
+  await renameItem(folder, id, next);
+  // A title with [ ] | in it can't be written inside a link; leave links alone rather than break them.
+  if (!before || !next || sameTitle(before, next) || /[[\]|\n]/.test(next)) return;
+  // Another item still answering to the old title keeps its links.
+  if (await findByTitle(db, before)) return;
+  for (const note of await backlinks(db, before, id)) {
+    const body = retarget(note.body!, before, next);
+    if (body !== note.body) await setItemBody(folder, note.id, body);
+  }
 }
 
 /** Everything in the folder whose own words link to this title. */
 export async function backlinks(db: ReaderDB, title: string, exceptId: string): Promise<Item[]> {
   return db.items
-    .filter((i) => !i.deleted && i.id !== exceptId && !!i.body?.includes("[[") && linksIn(i.body).some((t) => same(t, title)))
+    .filter((i) => !i.deleted && i.id !== exceptId && !!i.body?.includes("[[") && linksIn(i.body).some((t) => sameTitle(t, title)))
     .toArray();
 }
 

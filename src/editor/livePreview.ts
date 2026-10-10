@@ -1,6 +1,7 @@
 import { syntaxTree } from "@codemirror/language";
 import { type EditorState, type Range } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType } from "@codemirror/view";
+import { WIKI_LINK } from "../notes/links";
 
 /*
  * Live preview, the Obsidian model: the file stays plain Markdown, but lines you aren't editing
@@ -8,7 +9,6 @@ import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate
  * cursor or selection touches, so editing always happens on the real text.
  */
 
-export const WIKI_LINK = /\[\[([^[\]\n|]+)(?:\|([^[\]\n]+))?\]\]/g;
 
 class BulletWidget extends WidgetType {
   toDOM() {
