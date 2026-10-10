@@ -3,6 +3,7 @@ import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
 import { type EditorState, Prec, type Range, StateEffect, StateField } from "@codemirror/state";
 import { type Command, Decoration, type DecorationSet, EditorView, keymap, WidgetType } from "@codemirror/view";
 import { EMBED_LINE, type EmbedData, parseTarget } from "../notes/links";
+import { blockBox, MathWidget } from "./math";
 
 /*
  * Blocks that show as something other than text: tables, images and ![[embeds]]. Like the rest
@@ -79,7 +80,7 @@ class TableWidget extends WidgetType {
   }
   toDOM() {
     const wrap = document.createElement("div");
-    wrap.className = "cm-block-widget cm-table-wrap";
+    wrap.className = "cm-table-wrap";
     const table = wrap.appendChild(document.createElement("table"));
     const [head, delim, ...rows] = this.text.split("\n");
     const align = cells(delim ?? "").map((d) => (/^:-+:$/.test(d) ? "center" : /^-+:$/.test(d) ? "right" : ""));
@@ -94,7 +95,7 @@ class TableWidget extends WidgetType {
     row(table.appendChild(document.createElement("thead")), head, "th");
     const body = table.appendChild(document.createElement("tbody"));
     for (const r of rows) if (r.trim()) row(body, r, "td");
-    return wrap;
+    return blockBox(wrap);
   }
   ignoreEvent() {
     return false;
@@ -147,7 +148,7 @@ class EmbedWidget extends WidgetType {
   }
   toDOM() {
     const box = document.createElement("div");
-    box.className = "cm-block-widget cm-embed is-loading";
+    box.className = "cm-embed is-loading";
     const { title, ref } = parseTarget(this.target);
     box.textContent = title;
     void this.resolve(this.target).then((data) => {
@@ -177,7 +178,7 @@ class EmbedWidget extends WidgetType {
         if (data.excerpt) renderInline(data.excerpt, box.appendChild(document.createElement("p")));
       }
     });
-    return box;
+    return blockBox(box);
   }
   ignoreEvent() {
     return false;
@@ -231,6 +232,26 @@ function build(state: EditorState, handlers: BlockHandlers): DecorationSet {
     const m = EMBED_LINE.exec(line.text);
     if (!m || code.some(([a, b]) => line.from >= a && line.from < b)) continue;
     decos.push(Decoration.replace({ widget: new EmbedWidget(m[1].trim(), handlers.embed), block: true }).range(line.from, line.to));
+  }
+
+  // $$Display math$$: from a line starting with $$ to the line ending with it.
+  for (let n = 1; n <= doc.lines; n++) {
+    const first = doc.line(n);
+    const open = first.text.trimStart();
+    if (!open.startsWith("$$") || code.some(([a, b]) => first.from >= a && first.from < b)) continue;
+    let last = first;
+    const closesHere = open.length > 4 && open.trimEnd().endsWith("$$");
+    if (!closesHere) {
+      let m = n + 1;
+      while (m <= doc.lines && !doc.line(m).text.trimEnd().endsWith("$$")) m++;
+      if (m > doc.lines) break; // never closed: leave it as text
+      last = doc.line(m);
+    }
+    const tex = doc.sliceString(first.from, last.to).trim().slice(2, -2).trim();
+    if (tex && !touched(first.from, last.to)) {
+      decos.push(Decoration.replace({ widget: new MathWidget(tex, true), block: true }).range(first.from, last.to));
+    }
+    n = last.number;
   }
   return Decoration.set(decos, true);
 }

@@ -30,6 +30,7 @@ const SLASH: Completion[] = [
   { label: "Quote", detail: ">", apply: insert("> ") },
   { label: "Code block", detail: "```", apply: insert("```\n\n```", 4) },
   { label: "Divider", detail: "---", apply: insert("---\n") },
+  { label: "Math", detail: "$$", apply: insert("$$\n\n$$", 3) },
   {
     label: "Link to an item",
     detail: "[[",

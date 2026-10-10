@@ -3,7 +3,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { folderCtx, visibleFolders } from "../folders/registry";
 import { setHabit, useHabit } from "../habit/prefs";
 import { findUrl } from "../capture/capture";
-import { closePalette, lastFolder, navigate, openPalette, openQuickAdd, useUI } from "../store/ui";
+import { closePalette, lastFolder, navigate, openPalette, openQuickAdd, openShortcuts, useUI } from "../store/ui";
 import { QuickAdd, SavePage } from "./Capture";
 import { Toasts } from "./common";
 import { ItemView } from "./ItemView";
@@ -11,6 +11,7 @@ import { Library } from "./Library";
 import { Palette } from "./Palette";
 import { Search } from "./Search";
 import { Setup } from "./Setup";
+import { Shortcuts } from "./Shortcuts";
 import { Sidebar } from "./Sidebar";
 import { Today } from "./Today";
 import { Welcome } from "./Welcome";
@@ -42,6 +43,31 @@ export function App() {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
+
+  // "?" lists every shortcut; J and K step through the cards or results on screen (Enter opens one).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement;
+      if (e.metaKey || e.ctrlKey || e.altKey || t.closest("input, textarea, select, [contenteditable]")) return;
+      const { route, palette, quickAdd } = useUI.getState();
+      if (route.name === "save" || route.name === "welcome" || palette || quickAdd) return;
+      if (e.key === "?") {
+        e.preventDefault();
+        openShortcuts();
+        return;
+      }
+      if ((e.key !== "j" && e.key !== "k") || route.name === "reader" || document.querySelector(".modal")) return;
+      const all = [...document.querySelectorAll<HTMLElement>("main .doc-card, main .result")];
+      if (!all.length) return;
+      e.preventDefault();
+      const at = all.indexOf(document.activeElement as HTMLElement);
+      const next = at < 0 ? (e.key === "j" ? 0 : all.length - 1) : Math.min(Math.max(at + (e.key === "j" ? 1 : -1), 0), all.length - 1);
+      all[next].focus();
+      all[next].scrollIntoView({ block: "nearest" });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   // "/" jumps to search from anywhere except text fields.
@@ -144,6 +170,7 @@ export function App() {
           <Reader key={`${folder.id}:${route.doc}`} folder={folder} doc={route.doc} page={route.page} find={route.find} />
         </Suspense>
         <Palette />
+        <Shortcuts />
         <Toasts />
       </>
     );
@@ -174,6 +201,7 @@ export function App() {
       )}
       <QuickAdd />
       <Palette />
+      <Shortcuts />
       <Toasts />
     </div>
   );

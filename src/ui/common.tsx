@@ -211,17 +211,27 @@ export interface MenuItem {
   run: () => void;
 }
 
-/** A popover menu anchored to the element that opened it. */
-export function Menu({ anchor, items, onClose }: { anchor: HTMLElement; items: MenuItem[]; onClose: () => void }) {
+/** A popover menu anchored to the element that opened it: under its right edge, or its left with `align="start"`. */
+export function Menu({
+  anchor,
+  items,
+  onClose,
+  align = "end",
+}: {
+  anchor: HTMLElement;
+  items: MenuItem[];
+  onClose: () => void;
+  align?: "start" | "end";
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ top: 0, left: 0 });
   useLayoutEffect(() => {
     const a = anchor.getBoundingClientRect();
     const m = ref.current!.getBoundingClientRect();
-    const left = Math.min(a.right - m.width, window.innerWidth - m.width - 8);
+    const left = Math.min(align === "start" ? a.left : a.right - m.width, window.innerWidth - m.width - 8);
     const below = a.bottom + 4 + m.height < window.innerHeight;
     setPos({ top: below ? a.bottom + 4 : a.top - m.height - 4, left: Math.max(8, left) });
-  }, [anchor]);
+  }, [anchor, align]);
   useEffect(() => {
     const away = (e: Event) => {
       if (!ref.current?.contains(e.target as Node) && !anchor.contains(e.target as Node)) onClose();
@@ -236,8 +246,17 @@ export function Menu({ anchor, items, onClose }: { anchor: HTMLElement; items: M
       window.removeEventListener("resize", onClose);
     };
   }, [anchor, onClose]);
+  // Keyboard: the first item takes focus; Up and Down move between items.
+  useEffect(() => ref.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus(), []);
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    e.preventDefault();
+    const all = [...ref.current!.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")];
+    const at = all.indexOf(document.activeElement as HTMLButtonElement);
+    all[(at + (e.key === "ArrowDown" ? 1 : all.length - 1)) % all.length]?.focus();
+  };
   return (
-    <div ref={ref} className="menu" role="menu" style={pos}>
+    <div ref={ref} className="menu" role="menu" style={pos} onKeyDown={onKeyDown}>
       {items.map((it) => (
         <button
           key={it.label}

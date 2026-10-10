@@ -4,6 +4,7 @@ import {
   FileText,
   FolderOpen,
   GitBranch,
+  Keyboard,
   Moon,
   NotebookPen,
   Plus,
@@ -17,7 +18,7 @@ import { folderCtx, visibleFolders } from "../folders/registry";
 import type { Folder, ItemType } from "../model";
 import { dailyNote, openOrCreate } from "../notes/notes";
 import { sameTitle } from "../notes/links";
-import { closePalette, lastFolder, navigate, openQuickAdd, setTheme, useUI } from "../store/ui";
+import { closePalette, lastFolder, navigate, openQuickAdd, openShortcuts, setTheme, useUI } from "../store/ui";
 
 /*
  * Ctrl+K (or Cmd+K) from anywhere: type to jump to any item in any folder, or to run a command.
@@ -166,6 +167,13 @@ function PaletteDialog() {
         label: `Go to ${f.name}`,
         run: () => navigate({ name: "library" as const, folder: f.id }),
       })),
+      {
+        key: "shortcuts",
+        icon: <Keyboard size={16} />,
+        label: "Keyboard shortcuts",
+        keys: "?",
+        run: openShortcuts,
+      },
       {
         key: "github",
         icon: <GitBranch size={16} />,

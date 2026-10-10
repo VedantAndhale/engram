@@ -1,14 +1,30 @@
 import { autocompletion, completionKeymap } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown, markdownKeymap, markdownLanguage } from "@codemirror/lang-markdown";
-import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
+import { codeFolding, foldKeymap, HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { Annotation, EditorSelection, EditorState, type StateCommand } from "@codemirror/state";
 import { EditorView, keymap, placeholder as placeholderExt } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
-import { useEffect, useRef } from "react";
+import {
+  ArrowDown,
+  ArrowUp,
+  CheckSquare,
+  Copy,
+  Heading1,
+  Heading2,
+  Heading3,
+  List,
+  ListOrdered,
+  Pilcrow,
+  Quote,
+  Trash2,
+} from "lucide-react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
+import { Menu, type MenuItem } from "../ui/common";
 import type { EmbedData, HighlightChoice } from "../notes/links";
 import { blocks } from "./blocks";
 import { completionSources } from "./completions";
+import { type BlockAction, blockHandles } from "./handles";
 import { livePreview } from "./livePreview";
 
 /** Marks text replaced from outside (a sync), so it isn't reported back as an edit. */
@@ -48,6 +64,21 @@ const wrap =
   };
 
 // Colors and fonts come from the app's theme variables, so light, sepia and dark all apply.
+const ICONS: Record<string, ReactNode> = {
+  text: <Pilcrow size={15} />,
+  h1: <Heading1 size={15} />,
+  h2: <Heading2 size={15} />,
+  h3: <Heading3 size={15} />,
+  bullet: <List size={15} />,
+  number: <ListOrdered size={15} />,
+  todo: <CheckSquare size={15} />,
+  quote: <Quote size={15} />,
+  up: <ArrowUp size={15} />,
+  down: <ArrowDown size={15} />,
+  duplicate: <Copy size={15} />,
+  delete: <Trash2 size={15} />,
+};
+
 const highlight = HighlightStyle.define([
   { tag: tags.monospace, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" },
   { tag: tags.meta, color: "var(--muted)" },
@@ -79,6 +110,9 @@ export interface EditorProps {
 export function Editor({ value, onChange, placeholder, titles, openWiki, highlights, embed, autoFocus, label }: EditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
+  const [menu, setMenu] = useState<{ anchor: HTMLElement; items: MenuItem[] } | null>(null);
+  const showMenu = (anchor: HTMLElement, actions: BlockAction[]) =>
+    setMenu({ anchor, items: actions.map(({ id, ...a }) => ({ ...a, icon: ICONS[id] })) });
   // The latest callbacks, so the editor is created once.
   const props = useRef({ onChange, titles, openWiki, highlights, embed });
   props.current = { onChange, titles, openWiki, highlights, embed };
@@ -111,6 +145,7 @@ export function Editor({ value, onChange, placeholder, titles, openWiki, highlig
             { key: "Mod-i", run: wrap("*") },
             { key: "Mod-e", run: wrap("`") },
             ...completionKeymap,
+            ...foldKeymap,
             ...markdownKeymap,
             ...historyKeymap,
             ...defaultKeymap,
@@ -121,6 +156,8 @@ export function Editor({ value, onChange, placeholder, titles, openWiki, highlig
           }),
           livePreview({ openWiki: (t) => props.current.openWiki(t) }),
           blocks({ embed: (t) => props.current.embed(t) }),
+          codeFolding({ placeholderText: "…" }),
+          blockHandles({ menu: showMenu }),
           EditorView.lineWrapping,
           EditorView.contentAttributes.of({ "aria-label": label ?? "Note", spellcheck: "true", autocapitalize: "sentences" }),
           placeholder ? placeholderExt(placeholder) : [],
@@ -153,7 +190,23 @@ export function Editor({ value, onChange, placeholder, titles, openWiki, highlig
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
 
-  return <div ref={host} className="md-editor" />;
+  return (
+    <>
+      <div ref={host} className="md-editor" />
+      {menu && (
+        <Menu
+          anchor={menu.anchor}
+          items={menu.items}
+          align="start"
+          onClose={() => {
+            setMenu(null);
+            // Closed from the keyboard (focus went nowhere): back to writing.
+            setTimeout(() => document.activeElement === document.body && view.current?.focus());
+          }}
+        />
+      )}
+    </>
+  );
 }
 
 export default Editor;

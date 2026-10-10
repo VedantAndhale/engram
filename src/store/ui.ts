@@ -32,6 +32,7 @@ interface UIState {
   toasts: Toast[];
   quickAdd: QuickAddPrefill | null;
   palette: boolean;
+  shortcuts: boolean;
 }
 
 const ID = "[A-Za-z0-9-]+";
@@ -84,10 +85,13 @@ export const useUI = create<UIState>(() => ({
   toasts: [],
   quickAdd: null,
   palette: false,
+  shortcuts: false,
 }));
 
 export const openPalette = () => useUI.setState({ palette: true });
 export const closePalette = () => useUI.setState({ palette: false });
+export const openShortcuts = () => useUI.setState({ shortcuts: true, palette: false });
+export const closeShortcuts = () => useUI.setState({ shortcuts: false });
 
 export function openQuickAdd(prefill: QuickAddPrefill = {}) {
   useUI.setState({ quickAdd: prefill });

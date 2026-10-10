@@ -2096,7 +2096,7 @@ input[type="time"] {
   cursor: text;
 }
 .md-editor .cm-block-widget {
-  margin: 6px 0;
+  padding: 6px 0;
   cursor: text;
 }
 .md-editor .cm-table-wrap {
@@ -2251,44 +2251,214 @@ input[type="time"] {
   overflow-wrap: anywhere;
 }
 
-/* Phone widths: three smaller covers per row instead of two large ones. Wider screens are unchanged. */
+/* Phone widths: the library is a list, one item per row, with a small cover beside its title. */
 @media (max-width: 480px) {
   .doc-grid {
-    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
-    gap: 18px 10px;
+    grid-template-columns: 1fr;
+    gap: 0;
+    padding: 0 12px 32px;
+  }
+  .doc-grid > li + li {
+    border-top: 1px solid var(--border);
+  }
+  .doc-card {
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0;
+  }
+  .doc-card .cover {
+    flex: none;
+    width: 52px;
   }
   .doc-info {
-    gap: 2px;
+    flex: 1;
+    min-width: 0;
+    padding-right: 32px;
   }
   .doc-title {
-    font-size: 13px;
+    font-size: 15px;
   }
   .doc-meta,
   .doc-topics {
-    font-size: 11px;
-  }
-  .cover-placeholder {
-    gap: 6px;
-    padding: 8px;
     font-size: 12px;
+  }
+  .card-menu {
+    top: 50%;
+    bottom: auto;
+    right: -4px;
+    transform: translateY(-50%);
+  }
+  /* Too small to read in a thumbnail: keep only the icon or the type. */
+  .cover-placeholder {
+    padding: 4px;
+  }
+  .cover-placeholder span,
+  .cover-excerpt,
+  .cover-quote,
+  .cover-host {
+    display: none;
   }
   .cover-item {
-    gap: 6px;
-    padding: 8px;
+    justify-content: center;
+    align-items: center;
+    padding: 4px;
   }
   .cover-item .type-pill {
-    padding: 1px 6px;
-    font-size: 9px;
+    align-self: center;
+    padding: 1px 4px;
+    font-size: 8px;
   }
-  .cover-excerpt {
-    font-size: 11px;
-    -webkit-line-clamp: 7;
+}
+
+/* Block grips and fold toggles, beside the text. In a note they hang in the margin. */
+.md-editor .cm-gutters {
+  background: none;
+  border: none;
+  color: var(--muted);
+}
+.md-editor .cm-handles {
+  width: 36px;
+}
+.md-editor .cm-handles .cm-gutterElement {
+  display: flex;
+  justify-content: flex-end;
+}
+@media (min-width: 720px) {
+  .item-words.is-note .md-editor {
+    margin-left: -36px;
   }
-  .cover-quote {
-    padding-left: 7px;
-    font-size: 12px;
+}
+@media (max-width: 719px) {
+  .md-editor .cm-handles {
+    width: 30px;
   }
-  .cover-host {
-    font-size: 13px;
+  .item-words.is-note .md-editor {
+    margin-left: -14px;
   }
+}
+.md-editor .cm-handle {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: calc(1.6em + 4px);
+}
+.md-editor .cm-grip,
+.md-editor .cm-fold-toggle {
+  display: grid;
+  place-items: center;
+  padding: 2px 1px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  opacity: 0.55;
+  cursor: grab;
+  touch-action: none;
+}
+.md-editor .cm-fold-toggle {
+  cursor: pointer;
+}
+.md-editor .cm-fold-toggle.is-folded svg {
+  transform: rotate(-90deg);
+}
+.md-editor .cm-grip:hover,
+.md-editor .cm-fold-toggle:hover {
+  opacity: 1;
+  background: var(--hover, rgba(127, 127, 127, 0.15));
+}
+.md-editor .cm-dragging-block,
+.md-editor .cm-dragging-block * {
+  cursor: grabbing !important;
+}
+.md-editor .cm-drop-line {
+  position: absolute;
+  left: 36px;
+  right: 0;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  pointer-events: none;
+  z-index: 5;
+}
+.md-editor .cm-foldPlaceholder {
+  margin-left: 6px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+/* Math */
+.md-editor .cm-math-display {
+  padding: 4px 0;
+  overflow-x: auto;
+  text-align: center;
+}
+.md-editor .cm-math.is-error {
+  color: var(--danger, #b42318);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+}
+.md-editor .cm-math-raw {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em;
+  color: var(--muted);
+}
+
+/* Stepping through cards and results with J and K */
+.doc-card:focus-visible,
+.result:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Keyboard shortcuts sheet */
+.shortcuts {
+  padding: 4px 20px 20px;
+  columns: 240px 2;
+  column-gap: 28px;
+}
+.shortcuts section {
+  break-inside: avoid;
+  padding-bottom: 8px;
+}
+.shortcuts h3 {
+  margin: 8px 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.shortcuts dl {
+  margin: 0;
+}
+.shortcuts dl > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+}
+.shortcuts dt {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+  order: 2;
+}
+.shortcuts dd {
+  margin: 0;
+  font-size: 14px;
+}
+.shortcuts kbd {
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap;
 }

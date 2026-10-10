@@ -2,6 +2,7 @@ import { syntaxTree } from "@codemirror/language";
 import { type EditorState, type Range } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType } from "@codemirror/view";
 import { WIKI_LINK } from "../notes/links";
+import { INLINE_MATH, MathWidget } from "./math";
 
 /*
  * Live preview, the Obsidian model: the file stays plain Markdown, but lines you aren't editing
@@ -200,6 +201,18 @@ function build(view: EditorView, focused: boolean): DecorationSet {
       const cls = hash < 0 ? "cm-wikilink" : "cm-wikilink cm-wikilink-highlight";
       decos.push(mark(cls, { "data-wiki": target }).range(shownFrom, shownTo));
       decos.push(hide.range(shownTo, end));
+    }
+
+    // $Inline math$, also found by pattern. Lines that are all $$display math$$ are blocks.ts's.
+    for (const m of text.matchAll(INLINE_MATH)) {
+      const start = from + m.index!;
+      const end = start + m[0].length;
+      if (codeRanges.some(([a, b]) => start >= a && start < b)) continue;
+      if (doc.sliceString(start, start + 2) === "$$" || doc.sliceString(end - 2, end) === "$$") continue;
+      const inCode = syntaxTree(state).resolveInner(start + 1, 1).name;
+      if (inCode === "InlineCode" || inCode === "CodeText" || inCode === "URL") continue;
+      if (isActive(start)) decos.push(mark("cm-math-raw").range(start, end));
+      else decos.push(Decoration.replace({ widget: new MathWidget(m[1], false) }).range(start, end));
     }
   }
   return Decoration.set(decos, true);
