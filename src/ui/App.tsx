@@ -2,8 +2,11 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { folderCtx, visibleFolders } from "../folders/registry";
 import { setHabit, useHabit } from "../habit/prefs";
-import { lastFolder, navigate, useUI } from "../store/ui";
+import { findUrl } from "../capture/capture";
+import { lastFolder, navigate, openQuickAdd, useUI } from "../store/ui";
+import { QuickAdd, SavePage } from "./Capture";
 import { Toasts } from "./common";
+import { ItemView } from "./ItemView";
 import { Library } from "./Library";
 import { Search } from "./Search";
 import { Setup } from "./Setup";
@@ -39,12 +42,52 @@ export function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // Saving is always one key or one paste away: "n" opens the save box, and pasting anywhere
+  // outside a text field opens it with what you pasted.
+  useEffect(() => {
+    const away = () => {
+      const { route, quickAdd } = useUI.getState();
+      return !quickAdd && route.name !== "reader" && route.name !== "save" && route.name !== "welcome" && !document.querySelector(".modal");
+    };
+    const typing = (t: EventTarget | null) => !!(t as HTMLElement | null)?.closest?.("input, textarea, select, [contenteditable]");
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "n" || e.metaKey || e.ctrlKey || e.altKey || typing(e.target) || !away()) return;
+      e.preventDefault();
+      openQuickAdd(folderOnScreen());
+    };
+    const onPaste = (e: ClipboardEvent) => {
+      const text = e.clipboardData?.getData("text/plain").trim();
+      if (!text || typing(e.target) || !away()) return;
+      e.preventDefault();
+      openQuickAdd({ text, ...folderOnScreen() });
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("paste", onPaste);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("paste", onPaste);
+    };
+  }, []);
+
+  // Shared from another app (Android share sheet): the installed app opens with ?title&text&url.
+  useEffect(() => {
+    const q = new URLSearchParams(location.search);
+    if (!q.has("text") && !q.has("url") && !q.has("title")) return;
+    const text = q.get("text") ?? "";
+    const url = q.get("url") || findUrl(text);
+    const rest = url ? text.replace(url, "").trim() : text.trim();
+    history.replaceState(null, "", location.pathname + location.hash); // don't keep it in the address
+    openQuickAdd(url ? { text: url, title: q.get("title") || rest || undefined } : { text: [q.get("title"), rest].filter(Boolean).join("\n\n") });
+  }, []);
+
   useEffect(() => setDrawer(false), [route]);
 
   // First run goes through the welcome flow. Anyone who already has documents has clearly started.
   const welcomed = useHabit((s) => s.welcomed);
   useEffect(() => {
     if (welcomed || !folders) return;
+    // Saving from the bookmark or the share sheet comes first; welcome can wait.
+    if (useUI.getState().route.name === "save" || useUI.getState().quickAdd) return;
     void (async () => {
       for (const f of folders) {
         if (await folderCtx(f.id).db.items.filter((d) => !d.deleted).count()) return setHabit({ welcomed: true });
@@ -54,6 +97,15 @@ export function App() {
   }, [welcomed, folders]);
 
   if (!folders) return null;
+
+  if (route.name === "save") {
+    return (
+      <>
+        <SavePage />
+        <Toasts />
+      </>
+    );
+  }
 
   if (route.name === "welcome") {
     return (
@@ -65,7 +117,7 @@ export function App() {
   }
 
   // Which folder is on screen: the one in the address, else the last one used, else the first.
-  const wanted = route.name === "library" || route.name === "reader" ? route.folder : undefined;
+  const wanted = route.name === "library" || route.name === "reader" || route.name === "item" ? route.folder : undefined;
   const folder =
     folders.find((f) => f.id === wanted) ??
     (wanted ? undefined : (folders.find((f) => f.id === lastFolder()) ?? folders[0]));
@@ -89,6 +141,8 @@ export function App() {
         <Today onOpenSidebar={() => setDrawer(true)} />
       ) : route.name === "search" ? (
         <Search q={route.q ?? ""} onOpenSidebar={() => setDrawer(true)} />
+      ) : route.name === "item" && folder ? (
+        <ItemView key={route.item} folder={folder} id={route.item} />
       ) : route.name === "setup" ? (
         <Setup onOpenSidebar={() => setDrawer(true)} />
       ) : folder ? (
@@ -102,7 +156,14 @@ export function App() {
           </button>
         </main>
       )}
+      <QuickAdd />
       <Toasts />
     </div>
   );
+}
+
+/** The folder being looked at, so the save box saves there. */
+function folderOnScreen(): { folder?: string } {
+  const r = useUI.getState().route;
+  return r.name === "library" || r.name === "item" ? { folder: r.folder } : {};
 }

@@ -1,12 +1,14 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { BellRing, BookOpen, CloudUpload, Menu as MenuIcon, Pencil, Sparkles } from "lucide-react";
+import { itemHref } from "../capture/capture";
+import { BellRing, BookmarkPlus, BookOpen, CloudUpload, Menu as MenuIcon, Pencil, Plus, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 import { folderCtx, visibleFolders } from "../folders/registry";
 import { setHabit, useHabit } from "../habit/prefs";
 import { allCards, rate, saveWords, weekStats, type Card } from "../habit/review";
 import { timeAgo } from "../lib/util";
-import { navigate } from "../store/ui";
+import { navigate, openQuickAdd } from "../store/ui";
 import { useAccount } from "../sync/account";
+import { BookmarkletCard } from "./Capture";
 import { ReminderDialog, TopicsDialog } from "./habit";
 
 const PER_SESSION = 3;
@@ -31,14 +33,14 @@ export function Today({ onOpenSidebar }: { onOpenSidebar: () => void }) {
   }, [cards, queue]);
 
   const library = useLiveQuery(async () => {
-    const out: { folder: string; hash: string; title: string; page: number; pages: number; at: number; topics: string[] }[] = [];
+    const out: { folder: string; hash: string; pdf: boolean; title: string; page: number; pages: number; at: number; topics: string[] }[] = [];
     for (const f of await visibleFolders()) {
       const { db } = folderCtx(f.id);
       const pos = new Map((await db.positions.toArray()).map((p) => [p.doc, p]));
       for (const d of await db.items.toArray()) {
-        if (d.deleted || d.type !== "pdf") continue;
+        if (d.deleted) continue;
         const p = pos.get(d.id);
-        out.push({ folder: f.id, hash: d.id, title: d.title, page: p?.page ?? 1, pages: d.pages ?? 1, at: p?.updatedAt ?? 0, topics: d.topics ?? [] });
+        out.push({ folder: f.id, hash: d.id, pdf: d.type === "pdf", title: d.title, page: p?.page ?? 1, pages: d.pages ?? 1, at: p?.updatedAt ?? 0, topics: d.topics ?? [] });
       }
     }
     return out;
@@ -50,7 +52,7 @@ export function Today({ onOpenSidebar }: { onOpenSidebar: () => void }) {
   const due = cards.filter((c) => c.due <= now).length;
   const current = cards.find((c) => c.key === queue[pos]);
   const stats = weekStats(cards, now);
-  const lastRead = library.filter((d) => d.at).sort((a, b) => b.at - a.at)[0];
+  const lastRead = library.filter((d) => d.pdf && d.at).sort((a, b) => b.at - a.at)[0];
   const growth = topics.map((t) => {
     const docs = library.filter((d) => d.topics.includes(t));
     const hashes = new Set(docs.map((d) => d.hash));
@@ -65,6 +67,10 @@ export function Today({ onOpenSidebar }: { onOpenSidebar: () => void }) {
           <MenuIcon size={20} />
         </button>
         <h1>Today</h1>
+        <div className="spacer" />
+        <button className="btn btn-primary" title="Save a link, a quote or a note (N)" onClick={() => openQuickAdd()}>
+          <Plus size={16} /> Save
+        </button>
       </header>
 
       <div className="today-body">
@@ -145,13 +151,13 @@ export function Today({ onOpenSidebar }: { onOpenSidebar: () => void }) {
                   <li key={g.topic}>
                     <span>{g.topic}</span>
                     <span className="muted">
-                      {g.docs} doc{g.docs === 1 ? "" : "s"} · {g.highlights} highlight{g.highlights === 1 ? "" : "s"}
+                      {g.docs} item{g.docs === 1 ? "" : "s"} · {g.highlights} highlight{g.highlights === 1 ? "" : "s"}
                     </span>
                   </li>
                 ))}
               </ul>
             ) : (
-              <p className="muted">Pick what you want to grow in. Tag documents with a topic from their menu in the library.</p>
+              <p className="muted">Pick what you want to grow in. Tag what you save with a topic.</p>
             )}
           </section>
 
@@ -174,6 +180,13 @@ export function Today({ onOpenSidebar }: { onOpenSidebar: () => void }) {
                 </button>
               </>
             )}
+          </section>
+
+          <section className="today-card">
+            <h2>
+              <BookmarkPlus size={17} /> Save from anywhere
+            </h2>
+            <BookmarkletCard />
           </section>
 
           {offerBackup && (
@@ -224,8 +237,9 @@ function ReviewCard({ card, index, total, onRated }: { card: Card; index: number
         <span className="muted">
           Review {index + 1} of {total}
         </span>
-        <a className="muted" href={`#/f/${card.folder.id}/doc/${card.doc.id}?page=${card.parts[0].page}`}>
-          {card.doc.title} · p. {card.parts[0].page}
+        <a className="muted" href={itemHref(card.folder.id, card.doc, card.parts[0].page)}>
+          {card.doc.title}
+          {card.parts[0].page > 0 && ` · p. ${card.parts[0].page}`}
         </a>
       </div>
       <blockquote className="review-quote">{card.quote}</blockquote>

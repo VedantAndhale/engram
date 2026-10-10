@@ -5,6 +5,8 @@ export type Theme = "light" | "sepia" | "dark";
 export type Route =
   | { name: "library"; folder?: string }
   | { name: "reader"; folder: string; doc: string; page?: number; find?: string }
+  | { name: "item"; folder: string; item: string }
+  | { name: "save" }
   | { name: "search"; q?: string }
   | { name: "setup" }
   | { name: "today" }
@@ -17,10 +19,18 @@ export interface Toast {
   ttl?: number;
 }
 
+/** What the quick-add box opens with: pasted or shared text, and the folder to save into. */
+export interface QuickAddPrefill {
+  text?: string;
+  title?: string;
+  folder?: string;
+}
+
 interface UIState {
   route: Route;
   theme: Theme;
   toasts: Toast[];
+  quickAdd: QuickAddPrefill | null;
 }
 
 const ID = "[A-Za-z0-9-]+";
@@ -30,12 +40,15 @@ function parseHash(): Route {
   const q = new URLSearchParams(query);
   let m = new RegExp(`^/f/(${ID})/doc/([0-9a-f]{64})$`).exec(path);
   if (m) return { name: "reader", folder: m[1], doc: m[2], page: Number(q.get("page")) || undefined, find: q.get("find") ?? undefined };
+  m = new RegExp(`^/f/(${ID})/item/(${ID})$`).exec(path);
+  if (m) return { name: "item", folder: m[1], item: m[2] };
   m = new RegExp(`^/f/(${ID})$`).exec(path);
   if (m) return { name: "library", folder: m[1] };
   if (path === "/search") return { name: "search", q: q.get("q") ?? undefined };
   if (path === "/setup") return { name: "setup" };
   if (path === "/library") return { name: "library" };
   if (path === "/welcome") return { name: "welcome" };
+  if (path === "/save") return { name: "save" };
   return { name: "today" };
 }
 
@@ -48,6 +61,10 @@ export function routeHash(route: Route): string {
       if (route.page) q.set("page", String(route.page));
       if (route.find) q.set("find", route.find);
       return `#/f/${route.folder}/doc/${route.doc}${q.size ? `?${q}` : ""}`;
+    case "item":
+      return `#/f/${route.folder}/item/${route.item}`;
+    case "save":
+      return "#/save";
     case "search":
       if (route.q) q.set("q", route.q);
       return `#/search${q.size ? `?${q}` : ""}`;
@@ -64,7 +81,15 @@ export const useUI = create<UIState>(() => ({
   route: parseHash(),
   theme: (localStorage.getItem("reader.theme") as Theme) ?? "light",
   toasts: [],
+  quickAdd: null,
 }));
+
+export function openQuickAdd(prefill: QuickAddPrefill = {}) {
+  useUI.setState({ quickAdd: prefill });
+}
+export function closeQuickAdd() {
+  useUI.setState({ quickAdd: null });
+}
 
 window.addEventListener("hashchange", () => useUI.setState({ route: parseHash() }));
 

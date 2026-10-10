@@ -64,6 +64,16 @@ export class LibrarySearch {
       .limit(limit)
       .toArray();
 
+    // Items that aren't PDFs (links, posts, quotes, notes) have no pages; scan their text directly.
+    const items = await this.db.items
+      .filter((i) => {
+        if (i.deleted || i.type === "pdf") return false;
+        const hay = `${i.title} ${i.body ?? ""} ${i.content ?? ""}`.toLowerCase();
+        return words.every((w) => hay.includes(w));
+      })
+      .limit(limit)
+      .toArray();
+
     const pages = this.ms
       .search(q)
       .filter((r) => live.has(r.doc))
@@ -77,6 +87,14 @@ export class LibrarySearch {
         kind: "annotation",
         text: [a.quote, a.note].filter(Boolean).join(" — "),
         color: a.color,
+        terms: words,
+      })),
+      ...items.map<SearchHit>((i) => ({
+        id: `${i.id}:0`,
+        doc: i.id,
+        page: 0,
+        kind: "page",
+        text: [i.body, i.content, i.title].find((t) => t && words.some((w) => t.toLowerCase().includes(w))) ?? i.title,
         terms: words,
       })),
       ...pages.map<SearchHit>((r) => ({

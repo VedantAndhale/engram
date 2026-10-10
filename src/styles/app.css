@@ -1675,3 +1675,230 @@ input[type="time"] {
     padding: 24px 20px;
   }
 }
+
+/* ---- Capture: quick add, the bookmark's save window, item pages ---- */
+
+.capture-form .segmented {
+  align-self: flex-start;
+}
+.label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.label-row .link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 400;
+  font-size: 13px;
+  text-decoration: none;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.field-label {
+  font-weight: 600;
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+.type-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 99px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font: 600 11px var(--font);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.cover-item {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  background: var(--surface);
+}
+.cover-item .type-pill {
+  align-self: flex-start;
+}
+.cover-excerpt {
+  margin: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font: 13px/1.5 var(--serif);
+  display: -webkit-box;
+  -webkit-line-clamp: 9;
+  -webkit-box-orient: vertical;
+}
+.cover-quote {
+  margin: 0;
+  padding-left: 10px;
+  border-left: 3px solid var(--accent);
+  font: italic 15px/1.45 var(--serif);
+  overflow: hidden;
+}
+.type-note {
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+}
+
+.save-page {
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 20px 16px 32px;
+}
+.save-page h1 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px;
+  font-size: 19px;
+}
+.save-page .form {
+  padding: 8px 0 0;
+}
+.save-page.saved {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--accent);
+}
+.capture-quote {
+  margin: 0;
+  padding: 2px 0 2px 12px;
+  border-left: 3px solid var(--accent);
+  font: 15px/1.5 var(--serif);
+  white-space: pre-wrap;
+}
+.bookmarklet {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+.bookmarklet p {
+  margin: 0;
+}
+.bookmarklet-btn {
+  cursor: grab;
+  text-decoration: none;
+  color: inherit;
+}
+
+.item-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 720px;
+  padding: 8px 24px 64px;
+}
+.item-kicker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  font-size: 13px;
+}
+.item-kicker a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--accent);
+}
+.item-title {
+  margin: 0;
+  font: 600 26px/1.25 var(--serif);
+}
+.item-title .folder-title {
+  font: inherit;
+  text-align: left;
+}
+.item-topics {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+.item-topics .chip {
+  height: 26px;
+  cursor: default;
+}
+.item-quotes {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.item-quotes figure {
+  position: relative;
+  margin: 0;
+  padding-right: 32px;
+}
+.item-quotes blockquote {
+  margin: 0;
+  padding: 2px 0 2px 14px;
+  border-left: 3px solid var(--accent);
+  font: 18px/1.55 var(--serif);
+  white-space: pre-wrap;
+}
+.item-quotes figcaption {
+  margin: 6px 0 0 17px;
+  color: var(--muted);
+}
+.item-quotes .icon-btn {
+  position: absolute;
+  top: 0;
+  right: 0;
+  opacity: 0.5;
+}
+.item-quotes figure:hover .icon-btn {
+  opacity: 1;
+}
+.item-words {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.item-words > span {
+  font-weight: 600;
+}
+.item-words textarea {
+  font: 16px/1.6 var(--serif);
+}
+.item-content summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.item-content .hint {
+  margin: 8px 0;
+}
+.saved-text {
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font: 15px/1.6 var(--serif);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 760px) {
+  .item-body {
+    padding: 4px 16px 48px;
+  }
+}
+.cover-host {
+  margin: auto 0;
+  font: 600 17px/1.3 var(--serif);
+  overflow-wrap: anywhere;
+}

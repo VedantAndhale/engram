@@ -1,5 +1,6 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { Copy, Ellipsis, FileText, LoaderCircle, Menu as MenuIcon, Pencil, Tag, Trash2, Upload } from "lucide-react";
+import { Copy, Ellipsis, FileText, LoaderCircle, Menu as MenuIcon, Pencil, Plus, Tag, Trash2, Upload } from "lucide-react";
+import { hostOf, itemHref, titleFromText, TYPE_LABELS } from "../capture/capture";
 import { useEffect, useRef, useState } from "react";
 import { folderCtx, renameFolder, setAttention, visibleFolders } from "../folders/registry";
 import { formatBytes, timeAgo } from "../lib/util";
@@ -7,7 +8,7 @@ import type { Item, Folder } from "../model";
 import { addPdf, copyItem, removeItem, renameItem, restoreItem, setItemTopics } from "../store/actions";
 import { setHabit, useHabit } from "../habit/prefs";
 import { TopicsDialog } from "./habit";
-import { navigate, rememberFolder, toast } from "../store/ui";
+import { navigate, openQuickAdd, rememberFolder, toast } from "../store/ui";
 import { useAccount } from "../sync/account";
 import { Modal, PrivateBadge, PromptDialog, SyncBadge, useFolderSync, useMenu } from "./common";
 
@@ -30,7 +31,7 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
     setAttention(folder.id, "open");
   }, [folder.id]);
 
-  const docs = useLiveQuery(() => db.items.filter((d) => !d.deleted && d.type === "pdf").toArray(), [db]);
+  const docs = useLiveQuery(() => db.items.filter((d) => !d.deleted).toArray(), [db]);
   const positions = useLiveQuery(async () => new Map((await db.positions.toArray()).map((p) => [p.doc, p])), [db]);
   const thumbs = useLiveQuery(async () => new Map((await db.thumbs.toArray()).map((t) => [t.hash, t.dataUrl])), [db]);
   const notes = useLiveQuery(async () => {
@@ -108,7 +109,7 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
     menu.open(e, [
       { label: "Rename", icon: <Pencil size={15} />, run: () => setDialog({ kind: "rename", doc: d }) },
       { label: "Topics", icon: <Tag size={15} />, run: () => setDialog({ kind: "topics", doc: d }) },
-      { label: "Copy to another folder", icon: <Copy size={15} />, run: () => setDialog({ kind: "copy", doc: d }) },
+      ...(d.type === "pdf" ? [{ label: "Copy to another folder", icon: <Copy size={15} />, run: () => setDialog({ kind: "copy", doc: d }) }] : []),
       {
         label: "Remove",
         icon: <Trash2 size={15} />,
@@ -140,8 +141,11 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
           <option value="added">Newest</option>
           <option value="title">A–Z</option>
         </select>
-        <button className="btn btn-primary" onClick={() => fileInput.current?.click()}>
+        <button className="btn" onClick={() => fileInput.current?.click()}>
           <Upload size={16} /> <span className="hide-narrow">Add PDF</span>
+        </button>
+        <button className="btn btn-primary" title="Save a link, a quote or a note (N)" onClick={() => openQuickAdd({ folder: folder.id })}>
+          <Plus size={16} /> <span className="hide-narrow">Save</span>
         </button>
         <input
           ref={fileInput}
@@ -181,15 +185,21 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
       {docs && sorted.length === 0 ? (
         <div className="empty">
           <FileText size={40} strokeWidth={1.4} />
-          <h2>No documents yet</h2>
-          <p>Drop PDFs here, or add them from your device.</p>
-          <button className="btn btn-primary" onClick={() => fileInput.current?.click()}>
-            <Upload size={16} /> Add PDF
-          </button>
+          <h2>Nothing here yet</h2>
+          <p>Save a link, a quote or a note, or drop PDFs here.</p>
+          <div className="row">
+            <button className="btn btn-primary" onClick={() => openQuickAdd({ folder: folder.id })}>
+              <Plus size={16} /> Save
+            </button>
+            <button className="btn" onClick={() => fileInput.current?.click()}>
+              <Upload size={16} /> Add PDF
+            </button>
+          </div>
         </div>
       ) : (
         <ul className="doc-grid">
           {sorted.map((d) => {
+            if (d.type !== "pdf") return <ItemCard key={d.id} folder={folder.id} item={d} notes={notes?.get(d.id) ?? 0} onMenu={(e) => docMenu(e, d)} />;
             const pos = positions?.get(d.id);
             const progress = pos && (d.pages ?? 1) > 1 ? (pos.page - 1 + pos.offset) / d.pages! : 0;
             const n = notes?.get(d.id) ?? 0;
@@ -281,6 +291,44 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
         />
       )}
     </main>
+  );
+}
+
+/** A card for anything that isn't a PDF: its type, a few lines of it, and where it's from. */
+function ItemCard({ folder, item, notes, onMenu }: { folder: string; item: Item; notes: number; onMenu: (e: React.MouseEvent) => void }) {
+  let text = (item.type === "note" ? item.body : (item.content ?? item.body)) ?? "";
+  // A note's first line is already its title.
+  if (item.type === "note" && titleFromText(text) === item.title) text = text.trim().split(/\r?\n/).slice(1).join(" ");
+  const excerpt = text.replace(/[#>*_`]+/g, "").replace(/\s+/g, " ").trim().slice(0, 220);
+  const host = hostOf(item.sourceUrl);
+  return (
+    <li>
+      <a className="doc-card" href={itemHref(folder, item)} onContextMenu={onMenu}>
+        <div className={`cover cover-item type-${item.type}`}>
+          <span className="type-pill">{TYPE_LABELS[item.type]}</span>
+          {item.type === "quote" ? (
+            <p className="cover-quote">{item.title}</p>
+          ) : excerpt ? (
+            <p className="cover-excerpt">{excerpt}</p>
+          ) : (
+            host && <p className="cover-host">{host}</p>
+          )}
+        </div>
+        <div className="doc-info">
+          <span className="doc-title" title={item.title}>
+            {item.title}
+          </span>
+          <span className="doc-meta">
+            {[hostOf(item.sourceUrl), timeAgo(item.addedAt)].filter(Boolean).join(" · ")}
+            {notes > 0 && ` · ${notes} highlight${notes === 1 ? "" : "s"}`}
+          </span>
+          {item.topics?.length ? <span className="doc-topics">{item.topics.join(" · ")}</span> : null}
+        </div>
+        <button className="icon-btn card-menu" aria-label={`${item.title} options`} onClick={onMenu}>
+          <Ellipsis size={16} />
+        </button>
+      </a>
+    </li>
   );
 }
 

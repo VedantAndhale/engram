@@ -4,20 +4,22 @@ A second brain that lives in your own GitHub account.
 
 **Try it:** [engram.vedant.me](https://engram.vedant.me/)
 
-Engram is a local-first web app for reading and keeping what matters. Today it is a calm PDF reader:
-highlight, write notes and draw on any PDF, then find it all again with full-text search. Every
-folder syncs to its own private GitHub repository, so your library is on every device and nothing
-sits on someone else's server.
+Engram is a local-first web app for reading and keeping what matters: PDFs, articles, posts,
+tweets, links, quotes and your own notes. Each one is a Markdown file, with your highlights and your
+own words about it. Every folder syncs to its own private GitHub repository, so your library is on
+every device and nothing sits on someone else's server.
 
-Where it is heading: one place for everything you read and save (articles, posts, tweets, links,
-PDFs, notes), written in Markdown, and open to any AI agent that needs your memory.
+Where it is heading: a Markdown editor, and an open door for any AI agent that needs your memory.
 
 ## Features
 
+- **Save anything in a second.** Press `N` (or paste anywhere) to save a link, a quote or a note.
+  The **Save to Engram** bookmark keeps any page's text and your selection, in every desktop browser.
+  On Android, share to the installed app.
 - **PDF reading** with a fast, crisp renderer (pdf.js), zoom, and your place remembered per document.
 - **Highlights, notes and ink.** Select text to highlight it, attach a note, or draw with a pen.
   Export a document's notes as Markdown.
-- **Search** across every page, highlight and note, in all your folders.
+- **Search** across every page, highlight, note and saved page, in all your folders.
 - **Folders that sync through GitHub.** Each folder is a private repository you own. Share a folder by
   adding collaborators on GitHub.
 - **Works offline.** Installable as a PWA, data kept in IndexedDB.

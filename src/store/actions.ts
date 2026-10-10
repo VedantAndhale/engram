@@ -19,9 +19,25 @@ async function touchItem(folder: string, id: string, delayMs: number, maxWaitMs?
   if (item) await sync.markDirty(item.path, delayMs, maxWaitMs);
 }
 
-async function updateItem(folder: string, id: string, patch: Partial<Item>, delayMs = 1500) {
+export async function updateItem(folder: string, id: string, patch: Partial<Item>, delayMs = 1500, maxWaitMs?: number) {
   await folderCtx(folder).db.items.update(id, { ...patch, updatedAt: Date.now() });
-  await touchItem(folder, id, delayMs);
+  await touchItem(folder, id, delayMs, maxWaitMs);
+}
+
+/** Your own words about an item. Saved as you type, so uploads wait for a pause. */
+export async function setItemBody(folder: string, id: string, body: string) {
+  await updateItem(folder, id, { body: body.trim() ? body : undefined }, 2_000, 8_000);
+}
+
+/** Make a new item that isn't a PDF: a link, a quote, a note. */
+export async function createItem(folder: string, fields: Omit<Item, "id" | "path" | "addedAt" | "updatedAt">): Promise<Item> {
+  const { db, sync } = folderCtx(folder);
+  const id = uid();
+  const now = Date.now();
+  const item: Item = { id, ...fields, addedAt: now, addedBy: login(), updatedAt: now, path: itemPath(id, fields.title, now) };
+  await db.items.put(item);
+  await sync.markDirty(item.path, 500);
+  return item;
 }
 
 export async function addPdf(folder: string, file: File): Promise<string> {

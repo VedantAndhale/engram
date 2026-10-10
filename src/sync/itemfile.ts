@@ -14,6 +14,10 @@ import { pdfPath } from "./paths";
  *
  *   Your own words about it (the body).
  *
+ *   <!-- engram:content … -->
+ *   ## Saved from the source
+ *   The text saved from the page, if any.
+ *
  *   <!-- engram:highlights … -->
  *   ## Highlights
  *   > The quoted text
@@ -27,6 +31,8 @@ import { pdfPath } from "./paths";
 
 const FORMAT = "item@1";
 const MARKER = "<!-- engram:highlights (managed by Engram: write your notes above this line) -->";
+const CONTENT_MARKER = "<!-- engram:content (saved from the source; replaced when you save the page again) -->";
+const CONTENT_HEADING = "## Saved from the source";
 
 const iso = (ts: number) => new Date(ts).toISOString();
 
@@ -58,6 +64,9 @@ export function serializeItem(item: Item, annotations: Annotation[]): string {
   const body = item.body?.trim();
   if (body) out += `\n${body}\n`;
 
+  const content = item.content?.trim();
+  if (content) out += `\n${CONTENT_MARKER}\n\n${CONTENT_HEADING}\n\n${content}\n`;
+
   const sorted = [...annotations].sort(
     (a, b) => a.page - b.page || a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
   );
@@ -67,7 +76,7 @@ export function serializeItem(item: Item, annotations: Annotation[]): string {
       out += "\n";
       if (!a.deleted && a.kind === "highlight" && a.quote?.trim()) {
         out += a.quote.trim().split(/\r?\n/).map((l) => `> ${l}`).join("\n") + "\n";
-        out += `\n— page ${a.page}\n`;
+        if (a.page > 0) out += `\n— page ${a.page}\n`;
         if (a.note?.trim()) out += `\n${a.note.trim()}\n`;
         out += "\n";
       }
@@ -107,12 +116,17 @@ export function parseItem(text: string, path: string): { item: Item; annotations
 
   const rest = text.slice(m[0].length);
   const cut = rest.indexOf("<!-- engram:highlights");
-  const body = (cut < 0 ? rest : rest.slice(0, cut)).trim();
+  const notes = cut < 0 ? rest : rest.slice(0, cut);
+  const at = notes.indexOf("<!-- engram:content");
+  const body = (at < 0 ? notes : notes.slice(0, at)).trim();
+  let content = at < 0 ? "" : notes.slice(notes.indexOf("-->", at) + 3).trim();
+  if (content.startsWith(CONTENT_HEADING)) content = content.slice(CONTENT_HEADING.length).trim();
 
   // Build in the same key order as the app does, so equal items compare equal.
   const item: Item = { id, type, title: str("title") ?? "Untitled", addedAt, updatedAt, path };
   if (str("source_url")) item.sourceUrl = str("source_url");
   if (body) item.body = body;
+  if (content) item.content = content;
   if (topics.length) item.topics = topics;
   if (str("file_name")) item.fileName = str("file_name");
   if (num("size") !== undefined) item.size = num("size");

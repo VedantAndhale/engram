@@ -32,7 +32,7 @@ export async function allCards(): Promise<Card[]> {
   const cards: Card[] = [];
   for (const folder of await visibleFolders()) {
     const { db } = folderCtx(folder.id);
-    const docs = new Map((await db.items.toArray()).filter((d) => !d.deleted && d.type === "pdf").map((d) => [d.id, d]));
+    const docs = new Map((await db.items.toArray()).filter((d) => !d.deleted).map((d) => [d.id, d]));
     const groups = new Map<string, Annotation[]>();
     for (const a of await db.annotations.toArray()) {
       if (!reviewable(a) || !docs.has(a.doc)) continue;

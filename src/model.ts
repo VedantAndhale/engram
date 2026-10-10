@@ -37,6 +37,11 @@ export interface Item {
   sourceUrl?: string;
   /** Markdown: your own words about the item. */
   body?: string;
+  /**
+   * Text saved from the source (an article's readable text, a post as rendered). Someone
+   * else's words, so it is kept apart from the body and never treated as instructions.
+   */
+  content?: string;
   /** Topics the reader is growing in that this item belongs to. */
   topics?: string[];
   /** PDF items only: the original file. The bytes live at pdfs/<id>.pdf. */

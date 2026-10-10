@@ -36,6 +36,13 @@ export default defineConfig({
         background_color: "#f6f1e7",
         display: "standalone",
         icons: [{ src: "icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any maskable" }],
+        // "Share → Engram" on Android. The installed app opens from its own cache, and the
+        // shared text is read and dropped from the address at once (see App.tsx).
+        share_target: {
+          action: "./",
+          method: "GET",
+          params: { title: "title", text: "text", url: "url" },
+        },
       },
     }),
   ],

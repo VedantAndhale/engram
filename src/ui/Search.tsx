@@ -2,6 +2,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { FileText, Highlighter, LoaderCircle, Menu as MenuIcon, Search as SearchIcon, X } from "lucide-react";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { folderCtx, searchAll, visibleFolders, type FolderHit } from "../folders/registry";
+import type { ItemType } from "../model";
 import { snippet } from "../search/index";
 import { navigate } from "../store/ui";
 
@@ -11,6 +12,7 @@ interface Group {
   folderName: string;
   doc: string;
   title: string;
+  type: ItemType;
   hits: FolderHit[];
 }
 
@@ -48,7 +50,7 @@ export function Search({ q, onOpenSidebar }: { q: string; onOpenSidebar: () => v
         let g = byDoc.get(key);
         if (!g) {
           const meta = await folderCtx(h.folder).db.items.get(h.doc);
-          g = { key, folder: h.folder, folderName: names.get(h.folder) ?? "", doc: h.doc, title: meta?.title ?? "Untitled", hits: [] };
+          g = { key, folder: h.folder, folderName: names.get(h.folder) ?? "", doc: h.doc, title: meta?.title ?? "Untitled", type: meta?.type ?? "pdf", hits: [] };
           byDoc.set(key, g);
         }
         g.hits.push(h);
@@ -64,8 +66,10 @@ export function Search({ q, onOpenSidebar }: { q: string; onOpenSidebar: () => v
     };
   }, [text, folders]);
 
-  const open = (h: FolderHit) =>
-    navigate({ name: "reader", folder: h.folder, doc: h.doc, page: h.page, find: h.kind === "page" ? text.trim() : undefined });
+  const open = (h: FolderHit, type: ItemType) =>
+    type === "pdf"
+      ? navigate({ name: "reader", folder: h.folder, doc: h.doc, page: h.page, find: h.kind === "page" ? text.trim() : undefined })
+      : navigate({ name: "item", folder: h.folder, item: h.doc });
 
   const many = (folders?.length ?? 0) > 1;
   const total = groups?.reduce((n, g) => n + g.hits.length, 0) ?? 0;
@@ -82,12 +86,12 @@ export function Search({ q, onOpenSidebar }: { q: string; onOpenSidebar: () => v
             ref={input}
             type="search"
             value={text}
-            placeholder="Search pages, highlights and notes"
+            placeholder="Search everything you saved"
             aria-label="Search"
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Escape") setText("");
-              if (e.key === "Enter" && groups?.[0]) open(groups[0].hits[0]);
+              if (e.key === "Enter" && groups?.[0]) open(groups[0].hits[0], groups[0].type);
             }}
           />
           {busy ? (
@@ -130,18 +134,18 @@ export function Search({ q, onOpenSidebar }: { q: string; onOpenSidebar: () => v
               <ul>
                 {g.hits.map((h) => (
                   <li key={h.id}>
-                    <button className="result" onClick={() => open(h)}>
+                    <button className="result" onClick={() => open(h, g.type)}>
                       {h.kind === "annotation" ? (
                         <span className="result-kind" style={{ color: h.color }} title="Highlight">
                           <Highlighter size={14} />
                         </span>
                       ) : (
-                        <span className="result-kind muted">p.{h.page}</span>
+                        <span className="result-kind muted">{h.page > 0 ? `p.${h.page}` : <FileText size={14} />}</span>
                       )}
                       <span className="result-text">
                         <Marked text={h.kind === "page" ? snippet(h.text, [text.trim(), ...h.terms]) : h.text} terms={h.terms} />
                       </span>
-                      {h.kind === "annotation" && <span className="result-page muted">p.{h.page}</span>}
+                      {h.kind === "annotation" && h.page > 0 && <span className="result-page muted">p.{h.page}</span>}
                     </button>
                   </li>
                 ))}
