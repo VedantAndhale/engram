@@ -31,6 +31,7 @@ interface UIState {
   theme: Theme;
   toasts: Toast[];
   quickAdd: QuickAddPrefill | null;
+  palette: boolean;
 }
 
 const ID = "[A-Za-z0-9-]+";
@@ -82,7 +83,11 @@ export const useUI = create<UIState>(() => ({
   theme: (localStorage.getItem("reader.theme") as Theme) ?? "light",
   toasts: [],
   quickAdd: null,
+  palette: false,
 }));
+
+export const openPalette = () => useUI.setState({ palette: true });
+export const closePalette = () => useUI.setState({ palette: false });
 
 export function openQuickAdd(prefill: QuickAddPrefill = {}) {
   useUI.setState({ quickAdd: prefill });

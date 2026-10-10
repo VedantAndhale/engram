@@ -3,11 +3,12 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { folderCtx, visibleFolders } from "../folders/registry";
 import { setHabit, useHabit } from "../habit/prefs";
 import { findUrl } from "../capture/capture";
-import { lastFolder, navigate, openQuickAdd, useUI } from "../store/ui";
+import { closePalette, lastFolder, navigate, openPalette, openQuickAdd, useUI } from "../store/ui";
 import { QuickAdd, SavePage } from "./Capture";
 import { Toasts } from "./common";
 import { ItemView } from "./ItemView";
 import { Library } from "./Library";
+import { Palette } from "./Palette";
 import { Search } from "./Search";
 import { Setup } from "./Setup";
 import { Sidebar } from "./Sidebar";
@@ -28,6 +29,20 @@ export function App() {
     const bg = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
     document.querySelector('meta[name="theme-color"]')?.setAttribute("content", bg);
   }, [theme]);
+
+  // Ctrl+K (Cmd+K on a Mac) opens the palette from anywhere, text fields and the editor included.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== "k" || !(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+      const { route, palette } = useUI.getState();
+      if (route.name === "save" || route.name === "welcome") return;
+      e.preventDefault();
+      if (palette) closePalette();
+      else openPalette();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
 
   // "/" jumps to search from anywhere except text fields.
   useEffect(() => {
@@ -128,6 +143,7 @@ export function App() {
         <Suspense fallback={<div className="loading-screen" />}>
           <Reader key={`${folder.id}:${route.doc}`} folder={folder} doc={route.doc} page={route.page} find={route.find} />
         </Suspense>
+        <Palette />
         <Toasts />
       </>
     );
@@ -157,6 +173,7 @@ export function App() {
         </main>
       )}
       <QuickAdd />
+      <Palette />
       <Toasts />
     </div>
   );

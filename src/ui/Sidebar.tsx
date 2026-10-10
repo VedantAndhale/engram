@@ -1,5 +1,5 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { AlertTriangle, ExternalLink, FolderInput, FolderPlus, Moon, Pencil, Search, Sun, Sunrise, Trash2, Coffee, Ellipsis } from "lucide-react";
+import { AlertTriangle, ExternalLink, FolderInput, FolderPlus, Moon, Pencil, Search, Sun, Sunrise, Trash2, Coffee, Ellipsis, Command } from "lucide-react";
 import { useState } from "react";
 import {
   adoptRepo,
@@ -11,9 +11,12 @@ import {
   visibleFolders,
 } from "../folders/registry";
 import type { Folder } from "../model";
-import { navigate, setTheme, toast, useUI, type Theme } from "../store/ui";
+import { navigate, openPalette, setTheme, toast, useUI, type Theme } from "../store/ui";
 import { useAccount } from "../sync/account";
 import { ConfirmDialog, GitHubMark, PromptDialog, SyncDot, useFolderSync, useMenu } from "./common";
+
+/** The key Go to anything is under: Cmd on a Mac, Ctrl elsewhere. */
+const MOD = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl+";
 
 const NEXT_THEME: Record<Theme, Theme> = { light: "sepia", sepia: "dark", dark: "light" };
 
@@ -80,6 +83,18 @@ export function Sidebar({ active, onNavigate }: { active?: string; onNavigate?: 
         <Search size={16} />
         <span>Search</span>
         <kbd>/</kbd>
+      </button>
+
+      <button
+        className="nav-item"
+        onClick={() => {
+          openPalette();
+          onNavigate?.();
+        }}
+      >
+        <Command size={16} />
+        <span>Go to anything</span>
+        <kbd>{MOD}K</kbd>
       </button>
 
       <div className="nav-section">
