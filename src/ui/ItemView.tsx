@@ -3,7 +3,8 @@ import { ArrowLeft, Ellipsis, ExternalLink, Link2, NotebookPen, Pencil, Tag, Tra
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { hostOf, itemHref, safeHref, TYPE_LABELS } from "../capture/capture";
 import { folderCtx } from "../folders/registry";
-import { backlinks, noteFromHighlight, openOrCreate, renameWithLinks } from "../notes/notes";
+import { parseTarget } from "../notes/links";
+import { backlinks, findHighlight, highlightsOf, noteFromHighlight, openOrCreate, renameWithLinks, resolveEmbed } from "../notes/notes";
 import { setHabit, useHabit } from "../habit/prefs";
 import type { Folder } from "../model";
 import { deleteAnnotation, removeItem, restoreItem, setItemBody, setItemTopics } from "../store/actions";
@@ -31,9 +32,13 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
   const titlesRef = useRef<string[]>([]);
   titlesRef.current = titles ?? [];
 
-  const openWiki = async (title: string) => {
-    const target = await openOrCreate(folder.id, title);
-    navigate(target.type === "pdf" ? { name: "reader", folder: folder.id, doc: target.id } : { name: "item", folder: folder.id, item: target.id });
+  // A link to one highlight in a PDF opens the PDF at that highlight's page.
+  const openWiki = async (link: string) => {
+    const target = await openOrCreate(folder.id, link);
+    if (target.type !== "pdf") return navigate({ name: "item", folder: folder.id, item: target.id });
+    const { ref } = parseTarget(link);
+    const page = ref ? (await findHighlight(db, target.id, ref))?.page : undefined;
+    navigate({ name: "reader", folder: folder.id, doc: target.id, page });
   };
 
   // Your words are saved as you type, after a short pause; the editor keeps a synced change
@@ -168,6 +173,8 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
               onChange={onWords}
               titles={() => titlesRef.current}
               openWiki={(t) => void openWiki(t)}
+              highlights={(t) => highlightsOf(db, t)}
+              embed={(t) => resolveEmbed(db, t)}
               // An empty note, or one just made (from a link or a highlight), opens ready to write.
               autoFocus={isNote && (!item.body || Date.now() - item.addedAt < 10_000)}
               label={isNote ? "Note" : "In your own words"}

@@ -6,6 +6,8 @@ import { Annotation, EditorSelection, EditorState, type StateCommand } from "@co
 import { EditorView, keymap, placeholder as placeholderExt } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
 import { useEffect, useRef } from "react";
+import type { EmbedData, HighlightChoice } from "../notes/links";
+import { blocks } from "./blocks";
 import { completionSources } from "./completions";
 import { livePreview } from "./livePreview";
 
@@ -59,7 +61,12 @@ export interface EditorProps {
   placeholder?: string;
   /** Titles offered after "[[". Read on each keystroke, so it can change. */
   titles: () => string[];
-  openWiki: (title: string) => void;
+  /** Open what a [[link]] names; the target may end in #^ref for one highlight. */
+  openWiki: (target: string) => void;
+  /** The highlights in the item a title names, offered after "[[Title#". */
+  highlights: (title: string) => Promise<HighlightChoice[]>;
+  /** What ![[target]] shows. */
+  embed: (target: string) => Promise<EmbedData | null>;
   autoFocus?: boolean;
   label?: string;
 }
@@ -69,12 +76,12 @@ export interface EditorProps {
  * Changes from elsewhere (another device syncing in) wait while you type, and land once you leave
  * the editor, unless you changed the text yourself in the meantime (then your words win).
  */
-export function Editor({ value, onChange, placeholder, titles, openWiki, autoFocus, label }: EditorProps) {
+export function Editor({ value, onChange, placeholder, titles, openWiki, highlights, embed, autoFocus, label }: EditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   // The latest callbacks, so the editor is created once.
-  const props = useRef({ onChange, titles, openWiki });
-  props.current = { onChange, titles, openWiki };
+  const props = useRef({ onChange, titles, openWiki, highlights, embed });
+  props.current = { onChange, titles, openWiki, highlights, embed };
   // The latest saved text, and the last saved text the editor was known to match. A synced change
   // that arrived while you were typing is applied when you leave, unless you've typed since.
   const saved = useRef(value);
@@ -108,8 +115,12 @@ export function Editor({ value, onChange, placeholder, titles, openWiki, autoFoc
             ...historyKeymap,
             ...defaultKeymap,
           ]),
-          autocompletion({ override: completionSources(() => props.current.titles()), icons: false }),
+          autocompletion({
+            override: completionSources({ titles: () => props.current.titles(), highlights: (t) => props.current.highlights(t) }),
+            icons: false,
+          }),
           livePreview({ openWiki: (t) => props.current.openWiki(t) }),
+          blocks({ embed: (t) => props.current.embed(t) }),
           EditorView.lineWrapping,
           EditorView.contentAttributes.of({ "aria-label": label ?? "Note", spellcheck: "true", autocapitalize: "sentences" }),
           placeholder ? placeholderExt(placeholder) : [],

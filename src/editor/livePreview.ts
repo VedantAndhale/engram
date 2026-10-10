@@ -171,7 +171,7 @@ function build(view: EditorView, focused: boolean): DecorationSet {
             return false;
           }
           case "URL":
-            if (node.node.parent?.name !== "Link") {
+            if (node.node.parent?.name !== "Link" && node.node.parent?.name !== "Image") {
               decos.push(mark("cm-link", { "data-href": doc.sliceString(node.from, node.to) }).range(node.from, node.to));
             }
             return;
@@ -193,9 +193,13 @@ function build(view: EditorView, focused: boolean): DecorationSet {
         continue;
       }
       const shownFrom = m[2] ? start + 2 + m[1].length + 1 : start + 2;
+      // Without shown text, [[Title#^ref]] reads as its title, marked as pointing at one highlight.
+      const hash = m[2] ? -1 : m[1].indexOf("#");
+      const shownTo = hash < 0 ? end - 2 : start + 2 + hash;
       decos.push(hide.range(start, shownFrom));
-      decos.push(mark("cm-wikilink", { "data-wiki": target }).range(shownFrom, end - 2));
-      decos.push(hide.range(end - 2, end));
+      const cls = hash < 0 ? "cm-wikilink" : "cm-wikilink cm-wikilink-highlight";
+      decos.push(mark(cls, { "data-wiki": target }).range(shownFrom, shownTo));
+      decos.push(hide.range(shownTo, end));
     }
   }
   return Decoration.set(decos, true);

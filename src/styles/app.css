@@ -2019,11 +2019,89 @@ input[type="time"] {
 .md-editor .cm-wikilink {
   text-decoration-style: dotted;
 }
+.md-editor .cm-wikilink-highlight::after {
+  content: " \201D";
+  font-size: 0.85em;
+  opacity: 0.7;
+}
 .md-editor .cm-link-raw,
 .md-editor .cm-link-raw .cm-link,
 .md-editor .cm-wikilink-raw {
   color: var(--accent);
   cursor: text;
+}
+.md-editor .cm-block-widget {
+  margin: 6px 0;
+  cursor: text;
+}
+.md-editor .cm-table-wrap {
+  overflow-x: auto;
+}
+.md-editor .cm-table-wrap table {
+  border-collapse: collapse;
+  font-size: 0.94em;
+}
+.md-editor .cm-table-wrap th,
+.md-editor .cm-table-wrap td {
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+.md-editor .cm-table-wrap th {
+  background: var(--surface-2);
+  font-weight: 700;
+}
+.md-editor .cm-image {
+  display: block;
+  max-width: 100%;
+  max-height: 70vh;
+  margin: 6px 0;
+  border-radius: 6px;
+  cursor: text;
+}
+.md-editor .cm-image-missing {
+  color: var(--muted);
+  font-style: italic;
+}
+.md-editor .cm-embed {
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  background: var(--surface);
+}
+.item-words:not(.is-note) .md-editor .cm-embed {
+  background: var(--bg);
+}
+.md-editor .cm-embed blockquote {
+  margin: 0;
+  font-size: 1.02em;
+  white-space: pre-wrap;
+}
+.md-editor .cm-embed p {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+}
+.md-editor .cm-embed blockquote + p {
+  color: var(--muted);
+}
+.md-editor .cm-embed-source {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 0.9em;
+}
+.md-editor .cm-embed > .cm-embed-source:first-child {
+  margin: 0;
+  font-weight: 700;
+}
+.md-editor .cm-embed.is-loading {
+  color: var(--muted);
+}
+.md-editor .cm-embed.is-missing {
+  border-left-color: var(--border);
+  color: var(--muted);
+  font-style: italic;
 }
 .md-editor .cm-tooltip {
   overflow: hidden;

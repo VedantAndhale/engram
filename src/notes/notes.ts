@@ -1,8 +1,8 @@
 import type { ReaderDB } from "../db/db";
 import { folderCtx } from "../folders/registry";
-import type { Item } from "../model";
+import type { Annotation, Item } from "../model";
 import { createItem, renameItem, setItemBody } from "../store/actions";
-import { linksIn, retarget, sameTitle, today } from "./links";
+import { type EmbedData, type HighlightChoice, highlightRef, linksIn, parseTarget, retarget, sameTitle, today } from "./links";
 
 /*
  * Notes link to each other by title, the way Obsidian does: [[Title]] or [[Title|shown text]].
@@ -14,7 +14,8 @@ export async function findByTitle(db: ReaderDB, title: string): Promise<Item | u
 }
 
 /** The item a [[link]] names. A link to something that doesn't exist yet makes a new note. */
-export async function openOrCreate(folder: string, title: string): Promise<Item> {
+export async function openOrCreate(folder: string, target: string): Promise<Item> {
+  const { title } = parseTarget(target);
   const found = await findByTitle(folderCtx(folder).db, title);
   return found ?? createItem(folder, { type: "note", title: title.trim() });
 }
@@ -56,6 +57,38 @@ export async function backlinks(db: ReaderDB, title: string, exceptId: string): 
   return db.items
     .filter((i) => !i.deleted && i.id !== exceptId && !!i.body?.includes("[[") && linksIn(i.body).some((t) => sameTitle(t, title)))
     .toArray();
+}
+
+async function quotesOf(db: ReaderDB, id: string): Promise<Annotation[]> {
+  return (await db.annotations.where("doc").equals(id).toArray())
+    .filter((a) => !a.deleted && a.quote?.trim())
+    .sort((a, b) => a.page - b.page || a.createdAt - b.createdAt);
+}
+
+/** The highlights in the item a title names, for linking to one of them. */
+export async function highlightsOf(db: ReaderDB, title: string): Promise<HighlightChoice[]> {
+  const item = await findByTitle(db, title);
+  if (!item) return [];
+  return (await quotesOf(db, item.id)).map((a) => ({ ref: highlightRef(a.id), quote: a.quote!.trim(), page: a.page || undefined }));
+}
+
+/** The highlight a link's #^ref names, if it's still there. */
+export async function findHighlight(db: ReaderDB, itemId: string, ref: string): Promise<Annotation | undefined> {
+  return (await quotesOf(db, itemId)).find((a) => highlightRef(a.id) === ref);
+}
+
+/** What ![[Title]] or ![[Title#^ref]] shows. Null when nothing has that title. */
+export async function resolveEmbed(db: ReaderDB, target: string): Promise<EmbedData | null> {
+  const { title, ref } = parseTarget(target);
+  const item = await findByTitle(db, title);
+  if (!item) return null;
+  if (ref) {
+    const a = await findHighlight(db, item.id, ref);
+    return a ? { title: item.title, quote: a.quote!.trim(), note: a.note?.trim() || undefined, page: a.page || undefined } : { title: item.title, missing: true };
+  }
+  const words = item.body?.trim();
+  const excerpt = words ? words.slice(0, 320) + (words.length > 320 ? "…" : "") : (await quotesOf(db, item.id))[0]?.quote?.trim();
+  return { title: item.title, excerpt };
 }
 
 /** Start a note from a highlight: the quote, where it came from, and room for your thoughts. */
