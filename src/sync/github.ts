@@ -1,14 +1,12 @@
 import { base64ToUtf8, blobToBase64, utf8ToBase64 } from "../lib/util";
 import type { RepoRef } from "../model";
 
-/** The signed-in GitHub account. One token serves every folder repository. */
+/** The signed-in GitHub account. One token, from Sign in with GitHub, serves every folder repository. */
 export interface Account {
   token: string;
   login: string;
   name?: string;
   avatarUrl?: string;
-  /** Fine-grained tokens (github_pat_…) only reach repos the user owns; classic ones also reach shared repos. */
-  tokenKind: "fine-grained" | "classic" | "other";
 }
 
 export interface RepoSummary {
@@ -24,12 +22,6 @@ export interface RepoSummary {
 
 /** Description written on every folder repo. Discovery looks for it, then confirms with reader.json. */
 export const FOLDER_DESCRIPTION_PREFIX = "Reader folder: ";
-
-export function tokenKind(token: string): Account["tokenKind"] {
-  if (token.startsWith("github_pat_")) return "fine-grained";
-  if (token.startsWith("ghp_")) return "classic";
-  return "other";
-}
 
 export class GitHubError extends Error {
   constructor(
@@ -123,7 +115,7 @@ export class GitHub {
     return (await (await this.request(path, opts)).json()) as T;
   }
 
-  /** The token's user, plus the classic-token scopes (empty for fine-grained tokens). */
+  /** The token's user, plus the scopes it was granted at sign-in. */
   async getUser() {
     const res = await this.request("/user");
     const user = (await res.json()) as { login: string; avatar_url: string; name: string | null };
@@ -152,8 +144,7 @@ export class GitHub {
   }
 
   /**
-   * Create a private repository for a folder. Needs "Administration: write" on a fine-grained
-   * token (with "All repositories" access, so the new repo is covered) or "repo" on a classic one.
+   * Create a private repository for a folder (needs the "repo" scope granted at sign-in).
    * `auto_init` gives it a first commit, which the Git Data API needs.
    */
   createRepo(name: string, folderName: string) {

@@ -166,7 +166,7 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
           <span>{s.message}</span>
           {s.state === "auth" && (
             <button className="btn btn-small" onClick={() => navigate({ name: "setup" })}>
-              Update token
+              Sign in again
             </button>
           )}
         </div>

@@ -1,7 +1,9 @@
+// First: it takes a returning GitHub sign-in out of the address before the router reads it.
+import { takeSignIn } from "./sync/signin";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { registerSW } from "virtual:pwa-register";
-import { startFolders, visibleFolders } from "./folders/registry";
+import { completeSignIn, startFolders, visibleFolders } from "./folders/registry";
 import "./lib/install"; // listen for the install prompt before it fires
 import { evictCache } from "./store/actions";
 import "./styles/app.css";
@@ -18,6 +20,8 @@ startFolders()
         <App />
       </StrictMode>,
     );
+    const signIn = takeSignIn();
+    if (signIn) void completeSignIn(signIn);
     await evictCache((await visibleFolders()).map((f) => f.id));
   })
   .catch((e) => {

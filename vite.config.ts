@@ -19,7 +19,8 @@ export default defineConfig({
       workbox: {
         globPatterns: ["**/*.{js,mjs,css,html,svg,png,woff2}"],
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
-        navigateFallbackDenylist: [/^\/pdfjs\//],
+        // /api and /.well-known belong to the MCP server; its sign-in pages are navigations too.
+        navigateFallbackDenylist: [/^\/pdfjs\//, /^\/api\//, /^\/\.well-known\//],
         runtimeCaching: [
           {
             urlPattern: ({ url }) => url.pathname.includes("/pdfjs/"),
@@ -47,4 +48,6 @@ export default defineConfig({
     }),
   ],
   build: { target: "es2022" },
+  // Sign-in lives in the server (npm run mcp); in production it shares the app's domain.
+  server: { proxy: { "/api": "http://localhost:8787", "/.well-known": "http://localhost:8787" } },
 });

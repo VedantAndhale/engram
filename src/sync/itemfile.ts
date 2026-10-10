@@ -1,5 +1,5 @@
-import { ITEM_TYPES, type Annotation, type Item, type ItemType } from "../model";
-import { pdfPath } from "./paths";
+import { ITEM_TYPES, type Annotation, type Item, type ItemType } from "../model.js";
+import { pdfPath } from "./paths.js";
 
 /*
  * One item as one Markdown file, readable by people and agents without the app:

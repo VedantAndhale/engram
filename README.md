@@ -34,21 +34,23 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173. To sync, choose **Connect GitHub** in the sidebar and paste a
-personal access token. The app explains which kind of token to create and why.
+Open http://localhost:5173. To sync, choose **Connect GitHub** in the sidebar, then **Sign in with
+GitHub**. Sign-in needs the server running too (`npm run mcp`) and a GitHub OAuth App: see
+[mcp/README.md](mcp/README.md).
 
 ```bash
 npm run build
 ```
 
-The build in `dist/` is a static site. It uses relative paths and hash routing, so it runs at a
-domain root, on a subpath, or on any static host.
+The build in `dist/` is a static site with relative paths and hash routing. Sign-in and MCP need the
+function in `api/`, so deploy on Vercel at a domain root.
 
 ### Deploy on Vercel
 
 Import the repository in Vercel. It detects Vite: build command `npm run build`, output directory
-`dist`. No environment variables are needed, because the app talks to GitHub straight from the
-browser with the token you give it.
+`dist`, and serves `api/mcp.ts` as a function. Set `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` and
+`MCP_SECRET` (see [mcp/README.md](mcp/README.md)). After sign-in, the app talks to GitHub straight
+from the browser; the server only swaps GitHub's sign-in code for a token and stores nothing.
 
 ## How your data is stored
 
@@ -57,7 +59,7 @@ browser with the token you give it.
 | Your browser (IndexedDB) | Documents, annotations, search index, reading positions |
 | Your GitHub repo, one per folder | `library.json`, `pdfs/<sha256>.pdf`, `annotations/<sha256>.json`, `positions/<user>.json` |
 
-Your token stays in your browser and is sent only to `api.github.com`.
+Your GitHub sign-in stays in your browser and is sent only to `api.github.com`.
 
 ## Tech
 

@@ -1,0 +1,82 @@
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import { authorizationServer, authorize, callback, githubToken, login, origin, protectedResource, register, token } from "./oauth.js";
+import { createServer } from "./server.js";
+
+/*
+ * Every request Engram's server answers, as one fetch-style handler: the MCP endpoint, the
+ * OAuth discovery documents and the sign-in steps (for the app and for MCP clients). Runs as
+ * one Vercel function (see vercel.json for the routes) and under mcp/dev.ts locally.
+ */
+
+const CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+  "Access-Control-Allow-Headers": "Authorization, Content-Type, Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-ID",
+  "Access-Control-Expose-Headers": "Mcp-Session-Id, WWW-Authenticate",
+};
+
+/** Which endpoint: Vercel passes it as ?route= (see vercel.json); locally it's the path. */
+function routeOf(url: URL): string {
+  const r = url.searchParams.get("route");
+  if (r) return r;
+  const p = url.pathname.replace(/\/+$/, "");
+  if (p.startsWith("/.well-known/oauth-protected-resource")) return "protected-resource";
+  if (p.startsWith("/.well-known/oauth-authorization-server")) return "authorization-server";
+  const m = /^\/api\/oauth\/(\w+)$/.exec(p);
+  return m ? m[1] : "mcp";
+}
+
+async function route(req: Request): Promise<Response> {
+  if (req.method === "OPTIONS") return new Response(null, { status: 204 });
+  switch (routeOf(new URL(req.url))) {
+    case "protected-resource":
+      return protectedResource(req);
+    case "authorization-server":
+      return authorizationServer(req);
+    case "register":
+      return req.method === "POST" ? register(req) : new Response(null, { status: 405 });
+    case "authorize":
+      return authorize(req);
+    case "login":
+      return login(req);
+    case "callback":
+      return callback(req);
+    case "token":
+      return req.method === "POST" ? token(req) : new Response(null, { status: 405 });
+    case "mcp":
+      return mcp(req);
+    default:
+      return new Response("Not found", { status: 404 });
+  }
+}
+
+async function mcp(req: Request): Promise<Response> {
+  const gh = await githubToken(req);
+  if (!gh) {
+    return new Response(JSON.stringify({ error: "invalid_token", error_description: "Sign in with GitHub to use Engram." }), {
+      status: 401,
+      headers: {
+        "Content-Type": "application/json",
+        "WWW-Authenticate": `Bearer resource_metadata="${origin(req)}/.well-known/oauth-protected-resource"`,
+      },
+    });
+  }
+  // Stateless: no sessions, so any instance can answer any request.
+  const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+  const server = createServer(gh);
+  await server.connect(transport);
+  return transport.handleRequest(req);
+}
+
+export async function handle(req: Request): Promise<Response> {
+  let res: Response;
+  try {
+    res = await route(req);
+  } catch (e) {
+    console.error(e);
+    res = new Response(JSON.stringify({ error: "server_error", error_description: e instanceof Error ? e.message : String(e) }), { status: 500, headers: { "Content-Type": "application/json" } });
+  }
+  const headers = new Headers(res.headers);
+  for (const [k, v] of Object.entries(CORS)) headers.set(k, v);
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+}

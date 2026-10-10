@@ -3,11 +3,13 @@ import { appDb, folderDbName, ReaderDB } from "../db/db";
 import { uid } from "../lib/util";
 import type { Folder, RepoRef } from "../model";
 import { LibrarySearch, type SearchHit } from "../search/index";
-import { getAccount, saveAccount } from "../sync/account";
+import { toast } from "../store/ui";
+import { getAccount, saveAccount, useAccount, type SignInStatus } from "../sync/account";
 import { type Attention, getFolderSync, recordWrites, SyncEngine } from "../sync/engine";
-import { FOLDER_DESCRIPTION_PREFIX, GitHub, GitHubError, tokenKind, type RepoSummary } from "../sync/github";
+import { FOLDER_DESCRIPTION_PREFIX, GitHub, GitHubError, type RepoSummary } from "../sync/github";
 import { parseFolderFile } from "../sync/merge";
 import { FOLDER_FILE } from "../sync/paths";
+import type { SignInReturn } from "../sync/signin";
 
 /** Everything needed to work inside one folder: its database, its sync engine and its search index. */
 export interface FolderCtx {
@@ -140,7 +142,7 @@ function repoSlug(name: string) {
   return `reader-${slug || "folder"}`;
 }
 
-/** Friendly explanation for the usual reason repo creation fails: the token can't do it. */
+/** Friendly explanation for the usual reason repo creation fails: the sign-in can't do it. */
 export class RepoPermissionError extends Error {}
 
 async function createRepoFor(folder: Folder): Promise<void> {
@@ -157,11 +159,7 @@ async function createRepoFor(folder: Folder): Promise<void> {
       // 422: a repository with that name already exists, so try the next suffix.
       if (e instanceof GitHubError && e.status === 422) continue;
       if (e instanceof GitHubError && (e.status === 403 || e.status === 404) && !e.isRateLimit) {
-        throw new RepoPermissionError(
-          account.tokenKind === "fine-grained"
-            ? 'Your token can\'t create repositories. On GitHub, edit the token: set Repository access to "All repositories" and Administration to "Read and write".'
-            : 'Your token can\'t create repositories. It needs the "repo" scope.',
-        );
+        throw new RepoPermissionError("GitHub didn't let Engram create a repository. Sign in again and approve repository access.");
       }
       throw e;
     }
@@ -249,9 +247,7 @@ export async function adoptRepo(input: string): Promise<Folder> {
   } catch (e) {
     if (e instanceof GitHubError && (e.status === 404 || e.status === 403)) {
       throw new Error(
-        account.tokenKind === "fine-grained"
-          ? "Can't open that repository. Fine-grained tokens only reach repositories you own; for one shared with you, use a classic token."
-          : "Can't open that repository. Check the name and that you've accepted the invitation.",
+        "Can't open that repository. Check the name and that you've accepted the invitation. If an organization owns it, the organization may need to approve Engram.",
       );
     }
     throw e;
@@ -283,27 +279,23 @@ export async function adoptRepo(input: string): Promise<Folder> {
 export interface ConnectResult {
   login: string;
   found: number;
-  /** Set when folders couldn't get repositories, usually because of token permissions. */
+  /** Set when folders couldn't get repositories, usually because of missing permissions. */
   repoProblem: string | null;
 }
 
-/** Check a pasted token, save it, then link every folder to its repository. */
-export async function connectAccount(rawToken: string): Promise<ConnectResult> {
-  const token = rawToken.trim();
-  const kind = tokenKind(token);
+/** Check the token from Sign in with GitHub, save it, then link every folder to its repository. */
+async function connectAccount(token: string): Promise<ConnectResult> {
   const gh = new GitHub(token);
   let user: Awaited<ReturnType<GitHub["getUser"]>>;
   try {
     user = await gh.getUser();
   } catch (e) {
-    if (e instanceof GitHubError && e.status === 401) throw new Error("GitHub didn't accept that token. Check it was copied in full.");
+    if (e instanceof GitHubError && e.status === 401) throw new Error("GitHub didn't accept the sign-in. Try again.");
     if (e instanceof GitHubError && e.status === 0) throw new Error("Can't reach GitHub. Check your connection.");
     throw e;
   }
-  if (kind === "classic" && !user.scopes.includes("repo")) {
-    throw new Error('This classic token is missing the "repo" scope, which private repositories need.');
-  }
-  saveAccount({ token, login: user.login, name: user.name ?? undefined, avatarUrl: user.avatar_url, tokenKind: kind });
+  if (!user.scopes.includes("repo")) throw new Error("Engram needs access to your private repositories. Sign in again and approve it.");
+  saveAccount({ token, login: user.login, name: user.name ?? undefined, avatarUrl: user.avatar_url });
 
   const found = await discoverFolders();
   // A brand-new device starts with an empty "My library". If this account already has
@@ -316,6 +308,21 @@ export async function connectAccount(rawToken: string): Promise<ConnectResult> {
   for (const f of await visibleFolders()) await folderCtx(f.id).sync.attach(f.repo);
   const repoProblem = await ensureRepos();
   return { login: user.login, found, repoProblem };
+}
+
+/** Finish a sign-in that came back from GitHub (see sync/signin.ts); the GitHub page shows how it went. */
+export async function completeSignIn(r: SignInReturn) {
+  const set = (signIn: SignInStatus | null) => useAccount.setState({ signIn });
+  if ("error" in r) return set({ state: "error", message: r.error });
+  set({ state: "busy" });
+  try {
+    const { login, repoProblem } = await connectAccount(r.token);
+    if (repoProblem) return set({ state: "repoProblem", login, message: repoProblem });
+    set(null);
+    toast(`Signed in as ${login}.`);
+  } catch (e) {
+    set({ state: "error", message: e instanceof Error ? e.message : String(e) });
+  }
 }
 
 /** Sign out on this device. Folders and their files stay here; they reconnect when you sign in again. */

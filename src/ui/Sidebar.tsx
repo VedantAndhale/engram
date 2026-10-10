@@ -119,7 +119,7 @@ export function Sidebar({ active, onNavigate }: { active?: string; onNavigate?: 
         {authError && (
           <button className="nav-item warn" onClick={() => navigate({ name: "setup" })}>
             <AlertTriangle size={16} />
-            <span>GitHub token stopped working</span>
+            <span>Sign in to GitHub again</span>
           </button>
         )}
         <button className={`nav-item ${route.name === "setup" ? "active" : ""}`} onClick={() => navigate({ name: "setup" })}>

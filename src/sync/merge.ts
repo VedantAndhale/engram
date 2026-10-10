@@ -1,5 +1,6 @@
 import { appDb, type ReaderDB } from "../db/db";
 import { newer, type Annotation, type Folder, type Item, type Position } from "../model";
+import { buildIndex, serializeIndex } from "./indexfile";
 import { parseItem, serializeItem } from "./itemfile";
 import { itemPath } from "./paths";
 
@@ -75,6 +76,13 @@ export async function serializeItemFile(db: ReaderDB, path: string): Promise<str
   const item = await db.items.where("path").equals(path).first();
   if (!item) return null;
   return serializeItem(item, await db.annotations.where("doc").equals(item.id).toArray());
+}
+
+/** index.json, rebuilt from everything in the folder. */
+export async function serializeIndexFile(folderId: string, db: ReaderDB): Promise<string | null> {
+  const f = await appDb.folders.get(folderId);
+  if (!f) return null;
+  return serializeIndex(buildIndex({ id: f.id, name: f.name }, await db.items.toArray(), await db.annotations.toArray()));
 }
 
 export async function serializePositions(db: ReaderDB, user: string): Promise<string> {

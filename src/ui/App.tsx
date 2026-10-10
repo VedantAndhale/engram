@@ -127,8 +127,9 @@ export function App() {
   const welcomed = useHabit((s) => s.welcomed);
   useEffect(() => {
     if (welcomed || !folders) return;
-    // Saving from the bookmark or the share sheet comes first; welcome can wait.
-    if (useUI.getState().route.name === "save" || useUI.getState().quickAdd) return;
+    // Saving from the bookmark or the share sheet, or coming back from GitHub sign-in, comes first; welcome can wait.
+    const at = useUI.getState().route.name;
+    if (at === "save" || at === "setup" || useUI.getState().quickAdd) return;
     void (async () => {
       for (const f of folders) {
         if (await folderCtx(f.id).db.items.filter((d) => !d.deleted).count()) return setHabit({ welcomed: true });

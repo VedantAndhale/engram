@@ -3,6 +3,8 @@
  * PDFs are stored once each by content hash. Positions are small per-person JSON.
  */
 export const FOLDER_FILE = "reader.json";
+/** The search index agents read (see sync/indexfile.ts). Written by the app, never merged. */
+export const INDEX_FILE = "index.json";
 export const positionsPath = (login: string) => `positions/${login}.json`;
 export const pdfPath = (doc: string) => `pdfs/${doc}.pdf`;
 
@@ -32,6 +34,7 @@ export function itemPath(id: string, title: string, addedAt: number): string {
 export type PathKind =
   | { kind: "folder" }
   | { kind: "item" }
+  | { kind: "index" }
   | { kind: "positions"; user: string }
   | { kind: "pdf"; doc: string }
   | { kind: "legacyLibrary" }
@@ -40,6 +43,7 @@ export type PathKind =
 
 export function parsePath(path: string): PathKind {
   if (path === FOLDER_FILE) return { kind: "folder" };
+  if (path === INDEX_FILE) return { kind: "index" };
   if (/^items\/\d{4}\/\d{2}\/[^/]+\.md$/.test(path)) return { kind: "item" };
   let m = /^positions\/([A-Za-z0-9-]+)\.json$/.exec(path);
   if (m) return { kind: "positions", user: m[1] };
@@ -53,8 +57,8 @@ export function parsePath(path: string): PathKind {
 
 export const isLegacy = (path: string) => parsePath(path).kind.startsWith("legacy");
 
-/** Push order: the folder marker first, then PDFs before the items that point at them. */
+/** Push order: the folder marker first, then PDFs before the items that point at them, the index last. */
 export function pathPriority(path: string): number {
   const k = parsePath(path).kind;
-  return k === "folder" ? -1 : k === "pdf" ? 0 : k === "item" ? 1 : 3;
+  return k === "folder" ? -1 : k === "pdf" ? 0 : k === "item" ? 1 : k === "index" ? 4 : 3;
 }

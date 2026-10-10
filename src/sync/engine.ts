@@ -12,13 +12,21 @@ import {
   mergeMyPositions,
   mergePeerPositions,
   serializeFolder,
+  serializeIndexFile,
   serializeItemFile,
   serializePositions,
 } from "./merge";
-import { FOLDER_FILE, isLegacy, parsePath, pathPriority, pdfPath, positionsPath } from "./paths";
+import { FOLDER_FILE, INDEX_FILE, isLegacy, parsePath, pathPriority, pdfPath, positionsPath } from "./paths";
 
-/** Bumped when the repository layout changes; 2 is one Markdown file per item. */
-const LAYOUT = 2;
+/** Bumped when the repository layout changes; 2 is one Markdown file per item, 3 adds index.json. */
+const LAYOUT = 3;
+
+/**
+ * The index trails item edits: a burst of edits costs one index write, at most every couple of
+ * minutes, so agents see changes soon without spending GitHub's write budget on every keystroke.
+ */
+const INDEX_DELAY_MS = 30_000;
+const INDEX_MAX_WAIT_MS = 120_000;
 
 export type SyncState = "local" | "synced" | "syncing" | "pending" | "offline" | "error" | "auth";
 
@@ -150,13 +158,15 @@ export class SyncEngine {
         dueAt: Math.min(now + delayMs, firstAt + maxWaitMs),
       });
     });
-    await this.refreshPending();
+    if (parsePath(path).kind === "item") await this.markDirty(INDEX_FILE, INDEX_DELAY_MS, INDEX_MAX_WAIT_MS);
+    else await this.refreshPending();
   }
 
   async markEverythingDirty() {
     const db = this.db;
     const login = getAccount()?.login;
     await this.markDirty(FOLDER_FILE, 0);
+    await this.markDirty(INDEX_FILE, 0);
     for (const item of await db.items.toArray()) {
       if (item.type === "pdf" && !item.deleted && (await db.blobs.get(item.id))) await this.markDirty(pdfPath(item.id), 0);
       await this.markDirty(item.path, 0);
@@ -244,7 +254,7 @@ export class SyncEngine {
       if (e.isAuth) {
         this.backoffUntil = Date.now() + 60_000;
         useAccount.setState({ authError: true });
-        set({ state: "auth", message: "Your GitHub token expired or was revoked." });
+        set({ state: "auth", message: "GitHub stopped accepting Engram's sign-in. Sign in again; changes are safe on this device." });
         return;
       }
       if (e.isRateLimit) {
@@ -259,7 +269,7 @@ export class SyncEngine {
       }
       if (e.status === 404 || e.status === 403) {
         this.backoffUntil = Date.now() + 60_000;
-        set({ state: "error", message: "Can't reach this folder's repository. Check the token's repository access." });
+        set({ state: "error", message: "Can't reach this folder's repository. Check you still have access to it on GitHub." });
         return;
       }
     }
@@ -299,7 +309,7 @@ export class SyncEngine {
       const p = parsePath(entry.path);
       if (p.kind === "other") continue;
       shas[entry.path] = entry.sha;
-      if (this.remote.shas[entry.path] === entry.sha || p.kind === "pdf") continue;
+      if (this.remote.shas[entry.path] === entry.sha || p.kind === "pdf" || p.kind === "index") continue;
       const text = await gh.getBlobText(entry.sha);
       if (p.kind === "folder") {
         if (await mergeFolder(this.folderId, text)) await this.markDirty(entry.path, 1_000);
@@ -307,6 +317,8 @@ export class SyncEngine {
         const r = await mergeItemFile(db, entry.path, text);
         if (r?.localAhead) await this.markDirty(r.path, 1_000);
         if (r?.orphan) this.orphans.add(r.orphan);
+        // Usually the writer's own index already covers this, and then the push is skipped.
+        await this.markDirty(INDEX_FILE, INDEX_DELAY_MS, INDEX_MAX_WAIT_MS);
       } else if (p.kind === "legacyLibrary") {
         for (const path of await mergeLegacyLibrary(db, text)) await this.markDirty(path, 1_000);
       } else if (p.kind === "legacyAnnotations") {
@@ -362,6 +374,7 @@ export class SyncEngine {
     const p = parsePath(path);
     if (p.kind === "folder") return serializeFolder(this.folderId);
     if (p.kind === "item") return serializeItemFile(this.db, path);
+    if (p.kind === "index") return serializeIndexFile(this.folderId, this.db);
     if (p.kind === "positions") return serializePositions(this.db, p.user);
     return null;
   }
@@ -428,6 +441,7 @@ export class SyncEngine {
 function commitMessage(path: string) {
   const p = parsePath(path);
   if (p.kind === "folder") return "Update folder details";
+  if (p.kind === "index") return "Update search index";
   if (p.kind === "positions") return `Update reading position (${p.user})`;
   return `Update ${path.split("/").pop()}`;
 }
@@ -439,6 +453,7 @@ This private repository is one folder of an Engram library: what you saved, your
 - \`reader.json\`: the folder's id and name
 - \`items/<year>/<month>/<title>-<id>.md\`: one Markdown file per item. The front matter holds its
   details, the body holds your own words, and its highlights follow at the end.
+- \`index.json\`: your notes and highlights in one compact file, for agents to search (rebuilt by the app)
 - \`pdfs/<sha256>.pdf\`: each PDF, stored once and listed in its item's \`attachments\`
 - \`positions/<github-user>.json\`: where each person is in each document
 
