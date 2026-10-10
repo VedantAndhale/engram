@@ -39,7 +39,7 @@ export function Reader({ folder, doc, page: startPage, find: startFind }: { fold
   const { db } = folderCtx(folder.id);
   const { account } = useAccount();
   const syncState = useFolderSync(folder.id);
-  const meta = useLiveQuery(() => db.docs.get(doc), [doc]);
+  const meta = useLiveQuery(() => db.items.get(doc), [doc]);
   const annotations = useLiveQuery(async () => (await db.annotations.where("doc").equals(doc).toArray()).filter((a) => !a.deleted), [doc]) ?? [];
   const peers = useLiveQuery(async () => (await db.peers.where("doc").equals(doc).toArray()).filter((p) => p.user !== account?.login), [doc, account?.login]) ?? [];
 

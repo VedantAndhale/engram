@@ -47,7 +47,7 @@ export function Search({ q, onOpenSidebar }: { q: string; onOpenSidebar: () => v
         const key = `${h.folder}:${h.doc}`;
         let g = byDoc.get(key);
         if (!g) {
-          const meta = await folderCtx(h.folder).db.docs.get(h.doc);
+          const meta = await folderCtx(h.folder).db.items.get(h.doc);
           g = { key, folder: h.folder, folderName: names.get(h.folder) ?? "", doc: h.doc, title: meta?.title ?? "Untitled", hits: [] };
           byDoc.set(key, g);
         }

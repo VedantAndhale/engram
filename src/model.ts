@@ -22,19 +22,36 @@ export interface Folder {
   hidden?: boolean;
 }
 
-/** A document in the library. Keyed by the SHA-256 of the PDF bytes, so the same file is stored once. */
-export interface DocMeta {
-  hash: string;
+export const ITEM_TYPES = ["pdf", "article", "post", "tweet", "thread", "bookmark", "video", "note", "quote"] as const;
+export type ItemType = (typeof ITEM_TYPES)[number];
+
+/**
+ * One thing in the brain: a PDF, an article, a post, a note. Each is one Markdown file in the
+ * folder's repository (see sync/itemfile.ts). A PDF item's id is the SHA-256 of its bytes, so
+ * the same file is stored once; every other item gets a random id.
+ */
+export interface Item {
+  id: string;
+  type: ItemType;
   title: string;
-  fileName: string;
-  size: number;
-  pages: number;
+  sourceUrl?: string;
+  /** Markdown: your own words about the item. */
+  body?: string;
+  /** Topics the reader is growing in that this item belongs to. */
+  topics?: string[];
+  /** PDF items only: the original file. The bytes live at pdfs/<id>.pdf. */
+  fileName?: string;
+  size?: number;
+  pages?: number;
   addedAt: number;
   addedBy?: string;
   updatedAt: number;
   deleted?: boolean;
-  /** Topics the reader is growing in that this document belongs to. */
-  topics?: string[];
+  /**
+   * The item's file in the repository. Chosen once when the item is made and never moved,
+   * so every device writes to the same file. Not part of the file itself.
+   */
+  path: string;
 }
 
 /** A rectangle in page-relative units (0..1 of page width / height), so it is zoom-independent. */

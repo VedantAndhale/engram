@@ -1,5 +1,5 @@
 import { folderCtx, visibleFolders } from "../folders/registry";
-import type { Annotation, DocMeta, Folder, Review } from "../model";
+import type { Annotation, Item, Folder, Review } from "../model";
 import { updateAnnotation } from "../store/actions";
 
 const DAY = 86_400_000;
@@ -13,7 +13,7 @@ const INTERVALS = [1, 3, 7, 16, 35, 90];
 export interface Card {
   key: string;
   folder: Folder;
-  doc: DocMeta;
+  doc: Item;
   /** Every stored annotation for this passage; the first one carries the page to open at. */
   parts: Annotation[];
   quote: string;
@@ -32,7 +32,7 @@ export async function allCards(): Promise<Card[]> {
   const cards: Card[] = [];
   for (const folder of await visibleFolders()) {
     const { db } = folderCtx(folder.id);
-    const docs = new Map((await db.docs.toArray()).filter((d) => !d.deleted).map((d) => [d.hash, d]));
+    const docs = new Map((await db.items.toArray()).filter((d) => !d.deleted && d.type === "pdf").map((d) => [d.id, d]));
     const groups = new Map<string, Annotation[]>();
     for (const a of await db.annotations.toArray()) {
       if (!reviewable(a) || !docs.has(a.doc)) continue;

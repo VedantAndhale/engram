@@ -2,6 +2,8 @@
 
 A second brain that lives in your own GitHub account.
 
+**Try it:** [engram.vedant.me](https://engram.vedant.me/)
+
 Engram is a local-first web app for reading and keeping what matters. Today it is a calm PDF reader:
 highlight, write notes and draw on any PDF, then find it all again with full-text search. Every
 folder syncs to its own private GitHub repository, so your library is on every device and nothing

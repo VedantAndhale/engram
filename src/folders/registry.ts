@@ -310,7 +310,7 @@ export async function connectAccount(rawToken: string): Promise<ConnectResult> {
   // folders, drop the empty placeholder instead of making a second repository for it.
   if (found > 0) {
     for (const f of await visibleFolders()) {
-      if (!f.repo && (await folderCtx(f.id).db.docs.count()) === 0) await removeFolder(f.id);
+      if (!f.repo && (await folderCtx(f.id).db.items.count()) === 0) await removeFolder(f.id);
     }
   }
   for (const f of await visibleFolders()) await folderCtx(f.id).sync.attach(f.repo);

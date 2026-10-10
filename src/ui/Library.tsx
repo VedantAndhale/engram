@@ -3,8 +3,8 @@ import { Copy, Ellipsis, FileText, LoaderCircle, Menu as MenuIcon, Pencil, Tag, 
 import { useEffect, useRef, useState } from "react";
 import { folderCtx, renameFolder, setAttention, visibleFolders } from "../folders/registry";
 import { formatBytes, timeAgo } from "../lib/util";
-import type { DocMeta, Folder } from "../model";
-import { addPdf, copyDoc, removeDoc, renameDoc, restoreDoc, setDocTopics } from "../store/actions";
+import type { Item, Folder } from "../model";
+import { addPdf, copyItem, removeItem, renameItem, restoreItem, setItemTopics } from "../store/actions";
 import { setHabit, useHabit } from "../habit/prefs";
 import { TopicsDialog } from "./habit";
 import { navigate, rememberFolder, toast } from "../store/ui";
@@ -18,7 +18,7 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
   const s = useFolderSync(folder.id);
   const account = useAccount((a) => a.account);
   const [sort, setSort] = useState<Sort>(() => (localStorage.getItem("reader.sort") as Sort) ?? "recent");
-  const [dialog, setDialog] = useState<{ kind: "rename" | "copy" | "topics"; doc: DocMeta } | { kind: "renameFolder" } | null>(null);
+  const [dialog, setDialog] = useState<{ kind: "rename" | "copy" | "topics"; doc: Item } | { kind: "renameFolder" } | null>(null);
   const topics = useHabit((h) => h.topics);
   const [adding, setAdding] = useState(0);
   const [dragging, setDragging] = useState(false);
@@ -30,7 +30,7 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
     setAttention(folder.id, "open");
   }, [folder.id]);
 
-  const docs = useLiveQuery(() => db.docs.filter((d) => !d.deleted).toArray(), [db]);
+  const docs = useLiveQuery(() => db.items.filter((d) => !d.deleted && d.type === "pdf").toArray(), [db]);
   const positions = useLiveQuery(async () => new Map((await db.positions.toArray()).map((p) => [p.doc, p])), [db]);
   const thumbs = useLiveQuery(async () => new Map((await db.thumbs.toArray()).map((t) => [t.hash, t.dataUrl])), [db]);
   const notes = useLiveQuery(async () => {
@@ -44,8 +44,8 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
   const sorted = [...(docs ?? [])].sort((a, b) => {
     if (sort === "title") return a.title.localeCompare(b.title);
     if (sort === "added") return b.addedAt - a.addedAt;
-    const ra = positions?.get(a.hash)?.updatedAt ?? a.addedAt;
-    const rb = positions?.get(b.hash)?.updatedAt ?? b.addedAt;
+    const ra = positions?.get(a.id)?.updatedAt ?? a.addedAt;
+    const rb = positions?.get(b.id)?.updatedAt ?? b.addedAt;
     return rb - ra;
   });
 
@@ -104,7 +104,7 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
     };
   });
 
-  const docMenu = (e: React.MouseEvent, d: DocMeta) =>
+  const docMenu = (e: React.MouseEvent, d: Item) =>
     menu.open(e, [
       { label: "Rename", icon: <Pencil size={15} />, run: () => setDialog({ kind: "rename", doc: d }) },
       { label: "Topics", icon: <Tag size={15} />, run: () => setDialog({ kind: "topics", doc: d }) },
@@ -114,8 +114,8 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
         icon: <Trash2 size={15} />,
         danger: true,
         run: async () => {
-          await removeDoc(folder.id, d.hash);
-          toast(`Removed "${d.title}".`, { action: { label: "Undo", run: () => void restoreDoc(folder.id, d.hash) } });
+          await removeItem(folder.id, d.id);
+          toast(`Removed "${d.title}".`, { action: { label: "Undo", run: () => void restoreItem(folder.id, d.id) } });
         },
       },
     ]);
@@ -190,19 +190,19 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
       ) : (
         <ul className="doc-grid">
           {sorted.map((d) => {
-            const pos = positions?.get(d.hash);
-            const progress = pos && d.pages > 1 ? (pos.page - 1 + pos.offset) / d.pages : 0;
-            const n = notes?.get(d.hash) ?? 0;
+            const pos = positions?.get(d.id);
+            const progress = pos && (d.pages ?? 1) > 1 ? (pos.page - 1 + pos.offset) / d.pages! : 0;
+            const n = notes?.get(d.id) ?? 0;
             return (
-              <li key={d.hash}>
+              <li key={d.id}>
                 <a
                   className="doc-card"
-                  href={`#/f/${folder.id}/doc/${d.hash}`}
+                  href={`#/f/${folder.id}/doc/${d.id}`}
                   onContextMenu={(e) => docMenu(e, d)}
                 >
                   <div className="cover">
-                    {thumbs?.get(d.hash) ? (
-                      <img src={thumbs.get(d.hash)} alt="" loading="lazy" />
+                    {thumbs?.get(d.id) ? (
+                      <img src={thumbs.get(d.id)} alt="" loading="lazy" />
                     ) : (
                       <div className="cover-placeholder">
                         <FileText size={28} strokeWidth={1.4} />
@@ -220,7 +220,7 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
                       {d.title}
                     </span>
                     <span className="doc-meta">
-                      {pos ? `p. ${pos.page} of ${d.pages} · ${timeAgo(pos.updatedAt)}` : `${d.pages} pages · ${formatBytes(d.size)}`}
+                      {pos ? `p. ${pos.page} of ${d.pages} · ${timeAgo(pos.updatedAt)}` : `${d.pages ?? "?"} pages · ${formatBytes(d.size ?? 0)}`}
                       {n > 0 && ` · ${n} note${n === 1 ? "" : "s"}`}
                     </span>
                     {d.topics?.length ? <span className="doc-topics">{d.topics.join(" · ")}</span> : null}
@@ -251,7 +251,7 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
           initial={dialog.doc.title}
           action="Rename"
           onClose={() => setDialog(null)}
-          onSubmit={(t) => renameDoc(folder.id, dialog.doc.hash, t)}
+          onSubmit={(t) => renameItem(folder.id, dialog.doc.id, t)}
         />
       )}
       {dialog?.kind === "renameFolder" && (
@@ -272,7 +272,7 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
           options={topics}
           initial={dialog.doc.topics ?? []}
           onSave={async (chosen) => {
-            await setDocTopics(folder.id, dialog.doc.hash, chosen);
+            await setItemTopics(folder.id, dialog.doc.id, chosen);
             // A topic first typed here becomes one of the reader's topics too.
             const added = chosen.filter((t) => !topics.includes(t));
             if (added.length) setHabit({ topics: [...topics, ...added] });
@@ -284,7 +284,7 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
   );
 }
 
-function CopyDialog({ from, doc, onClose }: { from: Folder; doc: DocMeta; onClose: () => void }) {
+function CopyDialog({ from, doc, onClose }: { from: Folder; doc: Item; onClose: () => void }) {
   const folders = useLiveQuery(visibleFolders, []) ?? [];
   const [busy, setBusy] = useState(false);
   const others = folders.filter((f) => f.id !== from.id);
@@ -303,7 +303,7 @@ function CopyDialog({ from, doc, onClose }: { from: Folder; doc: DocMeta; onClos
                   disabled={busy}
                   onClick={async () => {
                     setBusy(true);
-                    const ok = await copyDoc(from.id, f.id, doc.hash).catch(() => false);
+                    const ok = await copyItem(from.id, f.id, doc.id).catch(() => false);
                     toast(ok ? `Copied to ${f.name}.` : "Couldn't copy: the PDF isn't on this device and GitHub can't be reached.");
                     onClose();
                   }}

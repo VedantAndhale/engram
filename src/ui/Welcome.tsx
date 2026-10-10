@@ -2,7 +2,7 @@ import { ArrowRight, LoaderCircle, Upload } from "lucide-react";
 import { useRef, useState } from "react";
 import { visibleFolders } from "../folders/registry";
 import { setHabit, SUGGESTED_TOPICS, useHabit } from "../habit/prefs";
-import { addPdf, setDocTopics } from "../store/actions";
+import { addPdf, setItemTopics } from "../store/actions";
 import { lastFolder, navigate, toast } from "../store/ui";
 import { ReminderSetup, TopicPicker } from "./habit";
 
@@ -27,7 +27,7 @@ export function Welcome() {
       const folder = folders.find((f) => f.id === lastFolder()) ?? folders[0];
       const hash = await addPdf(folder.id, file);
       // With one topic chosen, the first document clearly belongs to it.
-      if (topics.length === 1) await setDocTopics(folder.id, hash, topics);
+      if (topics.length === 1) await setItemTopics(folder.id, hash, topics);
       finish({ folder: folder.id, doc: hash });
     } catch (e) {
       console.error(e);

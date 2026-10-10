@@ -52,7 +52,7 @@ export class LibrarySearch {
     const q = query.trim();
     if (!q) return [];
     const words = q.toLowerCase().split(/\s+/);
-    const live = new Set((await this.db.docs.filter((d) => !d.deleted).primaryKeys()) as string[]);
+    const live = new Set((await this.db.items.filter((d) => !d.deleted).primaryKeys()) as string[]);
 
     // Highlights and notes are small, so a direct scan is always fresh, including edits that just synced in.
     const annotations = await this.db.annotations

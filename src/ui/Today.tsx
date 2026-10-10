@@ -35,10 +35,10 @@ export function Today({ onOpenSidebar }: { onOpenSidebar: () => void }) {
     for (const f of await visibleFolders()) {
       const { db } = folderCtx(f.id);
       const pos = new Map((await db.positions.toArray()).map((p) => [p.doc, p]));
-      for (const d of await db.docs.toArray()) {
-        if (d.deleted) continue;
-        const p = pos.get(d.hash);
-        out.push({ folder: f.id, hash: d.hash, title: d.title, page: p?.page ?? 1, pages: d.pages, at: p?.updatedAt ?? 0, topics: d.topics ?? [] });
+      for (const d of await db.items.toArray()) {
+        if (d.deleted || d.type !== "pdf") continue;
+        const p = pos.get(d.id);
+        out.push({ folder: f.id, hash: d.id, title: d.title, page: p?.page ?? 1, pages: d.pages ?? 1, at: p?.updatedAt ?? 0, topics: d.topics ?? [] });
       }
     }
     return out;
@@ -54,7 +54,7 @@ export function Today({ onOpenSidebar }: { onOpenSidebar: () => void }) {
   const growth = topics.map((t) => {
     const docs = library.filter((d) => d.topics.includes(t));
     const hashes = new Set(docs.map((d) => d.hash));
-    return { topic: t, docs: docs.length, highlights: cards.filter((c) => hashes.has(c.doc.hash)).length };
+    return { topic: t, docs: docs.length, highlights: cards.filter((c) => hashes.has(c.doc.id)).length };
   });
   const offerBackup = !account && now - firstUse > WEEK && cards.length > 0;
 
@@ -224,7 +224,7 @@ function ReviewCard({ card, index, total, onRated }: { card: Card; index: number
         <span className="muted">
           Review {index + 1} of {total}
         </span>
-        <a className="muted" href={`#/f/${card.folder.id}/doc/${card.doc.hash}?page=${card.parts[0].page}`}>
+        <a className="muted" href={`#/f/${card.folder.id}/doc/${card.doc.id}?page=${card.parts[0].page}`}>
           {card.doc.title} · p. {card.parts[0].page}
         </a>
       </div>

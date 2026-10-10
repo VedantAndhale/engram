@@ -47,7 +47,7 @@ export function App() {
     if (welcomed || !folders) return;
     void (async () => {
       for (const f of folders) {
-        if (await folderCtx(f.id).db.docs.filter((d) => !d.deleted).count()) return setHabit({ welcomed: true });
+        if (await folderCtx(f.id).db.items.filter((d) => !d.deleted).count()) return setHabit({ welcomed: true });
       }
       navigate({ name: "welcome" }, { replace: true });
     })();

@@ -1,10 +1,12 @@
 import { appDb, type ReaderDB } from "../db/db";
-import { newer, type Annotation, type DocMeta, type Folder, type Position } from "../model";
+import { newer, type Annotation, type Folder, type Item, type Position } from "../model";
+import { parseItem, serializeItem } from "./itemfile";
+import { itemPath } from "./paths";
 
 /*
- * Each synced file is a set of items with an id and an updatedAt. Merging is per item:
- * the newer edit wins, and deletions are tombstones. Merging is order-independent, so two
- * devices (or two people) writing at the same time always converge without losing anything.
+ * Each synced record has an id and an updatedAt. Merging is per record: the newer edit wins,
+ * and deletions are tombstones. Merging is order-independent, so two devices (or two people)
+ * writing at the same time always converge without losing anything.
  */
 
 /** reader.json: marks a repository as a Reader folder and carries its id and name. */
@@ -24,11 +26,15 @@ export function parseFolderFile(text: string): FolderFile | null {
   }
 }
 
-interface LibraryFile {
-  format: "reader/library@1";
-  docs: DocMeta[];
+/** The first layout's document record, before items. */
+interface LegacyDoc extends Omit<Item, "id" | "type" | "path"> {
+  hash: string;
 }
-interface AnnotationsFile {
+interface LegacyLibraryFile {
+  format: "reader/library@1";
+  docs: LegacyDoc[];
+}
+interface LegacyAnnotationsFile {
   format: "reader/annotations@1";
   doc: string;
   items: Annotation[];
@@ -64,14 +70,11 @@ export async function mergeFolder(folderId: string, text: string): Promise<boole
   return local.updatedAt > remote.updatedAt || local.name !== remote.name;
 }
 
-export async function serializeLibrary(db: ReaderDB): Promise<string> {
-  const docs = (await db.docs.toArray()).sort(byKey((d) => d.hash));
-  return stable({ format: "reader/library@1", docs } satisfies LibraryFile);
-}
-
-export async function serializeAnnotations(db: ReaderDB, doc: string): Promise<string> {
-  const items = (await db.annotations.where("doc").equals(doc).toArray()).sort(byKey((a) => a.id));
-  return stable({ format: "reader/annotations@1", doc, items } satisfies AnnotationsFile);
+/** The Markdown file for the item stored at `path`, or null if no item lives there. */
+export async function serializeItemFile(db: ReaderDB, path: string): Promise<string | null> {
+  const item = await db.items.where("path").equals(path).first();
+  if (!item) return null;
+  return serializeItem(item, await db.annotations.where("doc").equals(item.id).toArray());
 }
 
 export async function serializePositions(db: ReaderDB, user: string): Promise<string> {
@@ -80,10 +83,10 @@ export async function serializePositions(db: ReaderDB, user: string): Promise<st
 }
 
 /**
- * Merge a remote item list into a local table. Returns true if the local side has
+ * Merge a remote record list into a local table. Returns true if the local side has
  * something the remote lacks (so this file still needs a push).
  */
-async function mergeItems<T extends { updatedAt: number }>(
+async function mergeRecords<T extends { updatedAt: number }>(
   remote: T[],
   local: T[],
   key: (t: T) => string,
@@ -104,29 +107,84 @@ async function mergeItems<T extends { updatedAt: number }>(
   return false;
 }
 
-export async function mergeLibrary(db: ReaderDB, text: string): Promise<boolean> {
-  const file = JSON.parse(text) as LibraryFile;
-  return db.transaction("rw", db.docs, async () =>
-    mergeItems(file.docs ?? [], await db.docs.toArray(), (d) => d.hash, (items) => db.docs.bulkPut(items)),
-  );
+export interface ItemMerge {
+  id: string;
+  /** Where this item lives now. */
+  path: string;
+  /** This device has changes the file lacks, so the file at `path` needs a push. */
+  localAhead: boolean;
+  /**
+   * Set when two files hold the same item (two devices picked different paths, e.g. after a
+   * rename raced a migration). The smaller path wins everywhere; this one should be removed.
+   */
+  orphan?: string;
 }
 
-export async function mergeAnnotations(db: ReaderDB, doc: string, text: string): Promise<boolean> {
-  const file = JSON.parse(text) as AnnotationsFile;
-  return db.transaction("rw", db.annotations, async () =>
-    mergeItems(
+/** Merge one item file from the repository. Returns null if the file isn't an Engram item. */
+export async function mergeItemFile(db: ReaderDB, path: string, text: string): Promise<ItemMerge | null> {
+  const parsed = parseItem(text, path);
+  if (!parsed) return null;
+  const { item, annotations } = parsed;
+  return db.transaction("rw", db.items, db.annotations, async () => {
+    const local = await db.items.get(item.id);
+    let orphan: string | undefined;
+    let canonical = path;
+    if (local && local.path !== path) {
+      canonical = local.path < path ? local.path : path;
+      orphan = canonical === path ? local.path : path;
+      if (canonical !== local.path) await db.items.update(item.id, { path: canonical });
+    }
+    const localItem = local ? { ...local, path: canonical } : undefined;
+    const itemAhead = await mergeRecords([{ ...item, path: canonical }], localItem ? [localItem] : [], (i) => i.id, (r) =>
+      db.items.bulkPut(r),
+    );
+    const annAhead = await mergeRecords(
+      annotations,
+      await db.annotations.where("doc").equals(item.id).toArray(),
+      (a) => a.id,
+      (r) => db.annotations.bulkPut(r),
+    );
+    return { id: item.id, path: canonical, localAhead: itemAhead || annAhead || canonical !== path, orphan };
+  });
+}
+
+/**
+ * Merge a first-layout library.json. Old folders, and tabs still running the old app, write
+ * these; they keep merging in until every device is on items. Returns the item paths to push.
+ */
+export async function mergeLegacyLibrary(db: ReaderDB, text: string): Promise<string[]> {
+  const file = JSON.parse(text) as LegacyLibraryFile;
+  return db.transaction("rw", db.items, async () => {
+    const dirty: string[] = [];
+    for (const { hash, ...d } of file.docs ?? []) {
+      const local = await db.items.get(hash);
+      const remote: Item = { id: hash, type: "pdf", ...d, path: local?.path ?? itemPath(hash, d.title, d.addedAt) };
+      if (local && local.body) remote.body = local.body; // the old format had no body
+      if (!local || newer(remote, local)) await db.items.put(remote);
+      dirty.push(remote.path);
+    }
+    return dirty;
+  });
+}
+
+/** Merge a first-layout annotations/<doc>.json. Returns the item path to push, if the item is known. */
+export async function mergeLegacyAnnotations(db: ReaderDB, doc: string, text: string): Promise<string | null> {
+  const file = JSON.parse(text) as LegacyAnnotationsFile;
+  return db.transaction("rw", db.items, db.annotations, async () => {
+    await mergeRecords(
       (file.items ?? []).filter((a) => a.doc === doc),
       await db.annotations.where("doc").equals(doc).toArray(),
       (a) => a.id,
       (items) => db.annotations.bulkPut(items),
-    ),
-  );
+    );
+    return (await db.items.get(doc))?.path ?? null;
+  });
 }
 
 export async function mergeMyPositions(db: ReaderDB, text: string): Promise<boolean> {
   const file = JSON.parse(text) as PositionsFile;
   return db.transaction("rw", db.positions, async () =>
-    mergeItems(file.positions ?? [], await db.positions.toArray(), (p) => p.doc, (items) => db.positions.bulkPut(items)),
+    mergeRecords(file.positions ?? [], await db.positions.toArray(), (p) => p.doc, (items) => db.positions.bulkPut(items)),
   );
 }
 

@@ -5,17 +5,20 @@ import { getAccount, useAccount } from "./account";
 import { GitHub, GitHubError } from "./github";
 import {
   gitBlobSha,
-  mergeAnnotations,
   mergeFolder,
-  mergeLibrary,
+  mergeItemFile,
+  mergeLegacyAnnotations,
+  mergeLegacyLibrary,
   mergeMyPositions,
   mergePeerPositions,
-  serializeAnnotations,
   serializeFolder,
-  serializeLibrary,
+  serializeItemFile,
   serializePositions,
 } from "./merge";
-import { FOLDER_FILE, LIBRARY, annotationsPath, parsePath, pathPriority, pdfPath, positionsPath } from "./paths";
+import { FOLDER_FILE, isLegacy, parsePath, pathPriority, pdfPath, positionsPath } from "./paths";
+
+/** Bumped when the repository layout changes; 2 is one Markdown file per item. */
+const LAYOUT = 2;
 
 export type SyncState = "local" | "synced" | "syncing" | "pending" | "offline" | "error" | "auth";
 
@@ -82,6 +85,8 @@ export class SyncEngine {
   private forcePull = true;
   private backoffUntil = 0;
   private failures = 0;
+  /** Duplicate item files found while pulling, to remove in the next tidy-up commit. */
+  private orphans = new Set<string>();
   attention: Attention = "background";
 
   constructor(
@@ -95,6 +100,12 @@ export class SyncEngine {
 
   /** Point the engine at the folder's repository, or detach it (no repo, or signed out). */
   async attach(repo: RepoRef | undefined) {
+    if ((await this.db.kvGet<number>("layout")) !== LAYOUT) {
+      // First run after an upgrade: changes queued for the old files belong in item files now.
+      await this.db.outbox.filter((r) => isLegacy(r.path)).delete();
+      await this.markEverythingDirty();
+      await this.db.kvSet("layout", LAYOUT);
+    }
     const account = getAccount();
     if (!repo || !account) {
       this.gh = null;
@@ -146,10 +157,9 @@ export class SyncEngine {
     const db = this.db;
     const login = getAccount()?.login;
     await this.markDirty(FOLDER_FILE, 0);
-    await this.markDirty(LIBRARY, 0);
-    for (const doc of await db.docs.toArray()) {
-      if (!doc.deleted && (await db.blobs.get(doc.hash))) await this.markDirty(pdfPath(doc.hash), 0);
-      if (await db.annotations.where("doc").equals(doc.hash).count()) await this.markDirty(annotationsPath(doc.hash), 0);
+    for (const item of await db.items.toArray()) {
+      if (item.type === "pdf" && !item.deleted && (await db.blobs.get(item.id))) await this.markDirty(pdfPath(item.id), 0);
+      await this.markDirty(item.path, 0);
     }
     if (login && (await db.positions.count())) await this.markDirty(positionsPath(login), 0);
   }
@@ -208,8 +218,8 @@ export class SyncEngine {
     this.running = true;
     if (due.length > 0 || this.forcePull) setFolderSync(this.folderId, { state: "syncing" });
     try {
-      if (pullDue) await this.pull();
       let throttled = false;
+      if (pullDue && (await this.pull())) throttled = !(await this.tidy());
       for (const row of due) throttled = !(await this.push(row.path, row.rev, keepalive)) || throttled;
       this.failures = 0;
       const pending = await this.db.outbox.count();
@@ -262,55 +272,96 @@ export class SyncEngine {
     await this.db.kvSet("remote", this.remote);
   }
 
-  private async pull() {
+  /** Fetch and merge what changed. Returns true if the repository still has files to tidy away. */
+  private async pull(): Promise<boolean> {
     const gh = this.gh!;
     const db = this.db;
     this.lastPull = Date.now();
     const force = this.forcePull;
     this.forcePull = false;
     const head = await gh.getHead(force ? undefined : this.remote.etag);
-    if (head === null) return;
+    if (head === null) return false;
     if (head === "empty") {
       // An adopted repository with no commits yet; the Git Data API needs at least one.
       await gh.putFile("README.md", README, undefined, "Set up Engram folder");
       recordWrites(1);
       this.forcePull = true;
-      return;
+      return false;
     }
     if (head.sha === this.remote.head) {
       this.remote.etag = head.etag;
-      return;
+      return this.needsTidy();
     }
     const tree = await gh.getTree(head.sha);
     const login = getAccount()?.login;
+    const shas: Record<string, string> = {};
     for (const entry of tree) {
-      if (this.remote.shas[entry.path] === entry.sha) continue;
       const p = parsePath(entry.path);
       if (p.kind === "other") continue;
-      if (p.kind !== "pdf") {
-        const text = await gh.getBlobText(entry.sha);
-        let localAhead = false;
-        if (p.kind === "folder") localAhead = await mergeFolder(this.folderId, text);
-        else if (p.kind === "library") localAhead = await mergeLibrary(db, text);
-        else if (p.kind === "annotations") localAhead = await mergeAnnotations(db, p.doc, text);
-        else if (p.kind === "positions") {
-          if (p.user === login) localAhead = await mergeMyPositions(db, text);
-          else await mergePeerPositions(db, p.user, text);
-        }
-        if (localAhead) await this.markDirty(entry.path, 1_000);
+      shas[entry.path] = entry.sha;
+      if (this.remote.shas[entry.path] === entry.sha || p.kind === "pdf") continue;
+      const text = await gh.getBlobText(entry.sha);
+      if (p.kind === "folder") {
+        if (await mergeFolder(this.folderId, text)) await this.markDirty(entry.path, 1_000);
+      } else if (p.kind === "item") {
+        const r = await mergeItemFile(db, entry.path, text);
+        if (r?.localAhead) await this.markDirty(r.path, 1_000);
+        if (r?.orphan) this.orphans.add(r.orphan);
+      } else if (p.kind === "legacyLibrary") {
+        for (const path of await mergeLegacyLibrary(db, text)) await this.markDirty(path, 1_000);
+      } else if (p.kind === "legacyAnnotations") {
+        const path = await mergeLegacyAnnotations(db, p.doc, text);
+        if (path) await this.markDirty(path, 1_000);
+      } else if (p.kind === "positions") {
+        if (p.user === login) {
+          if (await mergeMyPositions(db, text)) await this.markDirty(entry.path, 1_000);
+        } else await mergePeerPositions(db, p.user, text);
       }
-      this.remote.shas[entry.path] = entry.sha;
     }
-    this.remote.head = head.sha;
-    this.remote.etag = head.etag;
+    this.remote = { ...this.remote, head: head.sha, etag: head.etag, shas };
     await this.saveRemote();
+    return this.needsTidy();
+  }
+
+  private needsTidy() {
+    for (const path of this.orphans) if (!this.remote.shas[path]) this.orphans.delete(path);
+    return this.orphans.size > 0 || Object.keys(this.remote.shas).some(isLegacy);
+  }
+
+  /**
+   * Move the repository onto the current layout in one commit: write every item file that
+   * differs, and delete the old-layout files and duplicate item files. Runs right after a pull,
+   * so everything in the old files has already been merged in. Returns false if deferred.
+   */
+  private async tidy(): Promise<boolean> {
+    const gh = this.gh!;
+    const db = this.db;
+    if (!canWrite(3)) return false;
+    const files: { path: string; text: string | null }[] = [];
+    for (const item of await db.items.toArray()) {
+      const text = await serializeItemFile(db, item.path);
+      if (text !== null && (await gitBlobSha(text)) !== this.remote.shas[item.path]) files.push({ path: item.path, text });
+    }
+    const gone = Object.keys(this.remote.shas).filter((p) => isLegacy(p) || this.orphans.has(p));
+    for (const path of gone) files.push({ path, text: null });
+    const legacy = gone.some(isLegacy);
+    const ok = await gh.commitFiles(files, legacy ? "Move to one Markdown file per item" : "Remove duplicate item files", this.remote.head!);
+    recordWrites(3);
+    this.forcePull = true;
+    if (!ok) return true; // someone pushed meanwhile: pull again next tick and retry
+    for (const f of files) {
+      if (f.text === null) delete this.remote.shas[f.path];
+      else this.remote.shas[f.path] = await gitBlobSha(f.text);
+    }
+    this.orphans.clear();
+    await this.saveRemote();
+    return true;
   }
 
   private async serialize(path: string): Promise<string | null> {
     const p = parsePath(path);
     if (p.kind === "folder") return serializeFolder(this.folderId);
-    if (p.kind === "library") return serializeLibrary(this.db);
-    if (p.kind === "annotations") return serializeAnnotations(this.db, p.doc);
+    if (p.kind === "item") return serializeItemFile(this.db, path);
     if (p.kind === "positions") return serializePositions(this.db, p.user);
     return null;
   }
@@ -318,8 +369,10 @@ export class SyncEngine {
   private async mergeInto(path: string, text: string) {
     const p = parsePath(path);
     if (p.kind === "folder") await mergeFolder(this.folderId, text);
-    else if (p.kind === "library") await mergeLibrary(this.db, text);
-    else if (p.kind === "annotations") await mergeAnnotations(this.db, p.doc, text);
+    else if (p.kind === "item") {
+      const r = await mergeItemFile(this.db, path, text);
+      if (r?.orphan) this.orphans.add(r.orphan);
+    }
     else if (p.kind === "positions") await mergeMyPositions(this.db, text);
   }
 
@@ -331,7 +384,7 @@ export class SyncEngine {
     if (p.kind === "pdf") {
       if (!this.remote.shas[path]) {
         const blob = await db.blobs.get(p.doc);
-        const meta = await db.docs.get(p.doc);
+        const meta = await db.items.get(p.doc);
         if (blob && !meta?.deleted) {
           if (!canWrite(4)) return false;
           this.remote.shas[path] = await gh.putBinary(path, blob.data, `Add ${meta?.title ?? "PDF"}`);
@@ -375,19 +428,18 @@ export class SyncEngine {
 function commitMessage(path: string) {
   const p = parsePath(path);
   if (p.kind === "folder") return "Update folder details";
-  if (p.kind === "annotations") return "Update highlights and notes";
   if (p.kind === "positions") return `Update reading position (${p.user})`;
-  return "Update library";
+  return `Update ${path.split("/").pop()}`;
 }
 
 const README = `# Engram folder
 
-This private repository is one folder of an Engram library: PDFs, highlights, notes, ink and reading positions.
+This private repository is one folder of an Engram library: what you saved, your highlights and notes, and reading positions.
 
 - \`reader.json\`: the folder's id and name
-- \`library.json\`: the list of documents
-- \`pdfs/<sha256>.pdf\`: each PDF, stored once
-- \`annotations/<sha256>.json\`: highlights, notes and drawings for one PDF
+- \`items/<year>/<month>/<title>-<id>.md\`: one Markdown file per item. The front matter holds its
+  details, the body holds your own words, and its highlights follow at the end.
+- \`pdfs/<sha256>.pdf\`: each PDF, stored once and listed in its item's \`attachments\`
 - \`positions/<github-user>.json\`: where each person is in each document
 
 The app manages these files. Editing them by hand is safe but rarely needed.

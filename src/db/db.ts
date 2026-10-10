@@ -1,5 +1,6 @@
 import Dexie, { type EntityTable } from "dexie";
-import type { Annotation, DocMeta, Folder, PeerPosition, Position } from "../model";
+import type { Annotation, Folder, Item, PeerPosition, Position } from "../model";
+import { itemPath } from "../sync/paths";
 
 export interface BlobRow {
   hash: string;
@@ -34,7 +35,7 @@ export interface OutboxRow {
  * (or two people's repos) without their notes ever mixing.
  */
 export class ReaderDB extends Dexie {
-  docs!: EntityTable<DocMeta, "hash">;
+  items!: EntityTable<Item, "id">;
   blobs!: EntityTable<BlobRow, "hash">;
   thumbs!: EntityTable<ThumbRow, "hash">;
   annotations!: EntityTable<Annotation, "id">;
@@ -57,6 +58,16 @@ export class ReaderDB extends Dexie {
       kv: "&key",
       outbox: "&path, dueAt",
     });
+    // Documents become items of any type, each with its own file in the repository.
+    this.version(2)
+      .stores({ items: "&id, updatedAt, path" })
+      .upgrade(async (tx) => {
+        const docs = await tx.table("docs").toArray();
+        await tx.table("items").bulkPut(
+          docs.map(({ hash, ...d }) => ({ id: hash, type: "pdf", ...d, path: itemPath(hash, d.title, d.addedAt) })),
+        );
+      });
+    this.version(3).stores({ docs: null });
   }
 
   async kvGet<T>(key: string): Promise<T | undefined> {

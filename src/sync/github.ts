@@ -275,6 +275,40 @@ export class GitHub {
     }
     throw new GitHubError(409, "Could not upload after several retries");
   }
+
+  /**
+   * Write and delete many text files in one commit (text `null` deletes). Costs three writes
+   * however many files change, so a whole folder can move to a new layout at once.
+   * Returns false if the base commit moved on; the caller pulls and tries again.
+   */
+  async commitFiles(files: { path: string; text: string | null }[], message: string, base: string): Promise<boolean> {
+    const commit = await this.json<{ tree: { sha: string } }>(`${this.repoPath}/git/commits/${base}`);
+    const tree = await this.json<{ sha: string }>(`${this.repoPath}/git/trees`, {
+      method: "POST",
+      body: {
+        base_tree: commit.tree.sha,
+        tree: files.map((f) =>
+          f.text === null
+            ? { path: f.path, mode: "100644", type: "blob", sha: null }
+            : { path: f.path, mode: "100644", type: "blob", content: f.text },
+        ),
+      },
+    });
+    const newCommit = await this.json<{ sha: string }>(`${this.repoPath}/git/commits`, {
+      method: "POST",
+      body: { message, tree: tree.sha, parents: [base] },
+    });
+    try {
+      await this.request(`${this.repoPath}/git/refs/heads/${this.cfg.branch}`, {
+        method: "PATCH",
+        body: { sha: newCommit.sha, force: false },
+      });
+      return true;
+    } catch (e) {
+      if (e instanceof GitHubError && e.status === 422) return false;
+      throw e;
+    }
+  }
 }
 
 function encodePath(path: string) {
