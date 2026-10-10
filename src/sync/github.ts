@@ -231,6 +231,15 @@ export class GitHub {
     return body.content.sha;
   }
 
+  /** Delete a file in one commit. Already gone counts as done. */
+  async deleteFile(path: string, sha: string, message: string): Promise<void> {
+    try {
+      await this.request(`${this.repoPath}/contents/${encodePath(path)}`, { method: "DELETE", body: { message, sha, branch: this.cfg.branch } });
+    } catch (e) {
+      if (!(e instanceof GitHubError && e.status === 404)) throw e;
+    }
+  }
+
   /**
    * Upload a binary (PDF) through the Git Data API, which handles files up to 100 MB.
    * Returns the blob sha.

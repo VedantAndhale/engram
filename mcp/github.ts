@@ -2,9 +2,9 @@ import { INDEX_FILE } from "../src/sync/paths.js";
 import { parseIndex, type IndexFile } from "../src/sync/indexfile.js";
 
 /*
- * The server's whole view of GitHub: which repos are Engram folders, and their files. It reads
- * with the caller's own token and keeps nothing but an ETag cache in memory, so repeated reads
- * come back 304 and don't count against the caller's rate limit.
+ * The server's whole view of GitHub: which repos are Engram folders, their files, and adding
+ * inbox files. It uses the caller's own token and keeps nothing but an ETag cache in memory,
+ * so repeated reads come back 304 and don't count against the caller's rate limit.
  */
 
 /** Must match FOLDER_DESCRIPTION_PREFIX in src/sync/github.ts (not imported: that file is browser code). */
@@ -103,6 +103,27 @@ export class GitHubReader {
   file(f: FolderRepo, path: string): Promise<string | null> {
     const p = path.split("/").map(encodeURIComponent).join("/");
     return this.get(`/repos/${f.owner}/${f.repo}/contents/${p}?ref=${encodeURIComponent(f.branch)}`, "application/vnd.github.raw+json");
+  }
+
+  /**
+   * Add a new file in one commit. The only write this server makes, and only for inbox/ files:
+   * without a sha GitHub refuses to overwrite, so an existing file can never be replaced.
+   */
+  async create(f: FolderRepo, path: string, text: string, message: string): Promise<void> {
+    if (!path.startsWith("inbox/")) throw new Error("Agents only write to inbox/.");
+    const p = path.split("/").map(encodeURIComponent).join("/");
+    const res = await fetch(`${API}/repos/${f.owner}/${f.repo}/contents/${p}`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${this.token}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "engram-mcp",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ message, content: Buffer.from(text, "utf8").toString("base64"), branch: f.branch }),
+    });
+    if (!res.ok) throw new GitHubError(res.status, res.status === 401 ? "GitHub no longer accepts this sign-in. Reconnect Engram in your app." : `GitHub refused the save (${res.status}).`);
   }
 
   /** Every folder with its index. A folder the app hasn't indexed yet has index null. */

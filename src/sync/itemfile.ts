@@ -1,4 +1,5 @@
 import { ITEM_TYPES, type Annotation, type Item, type ItemType } from "../model.js";
+import { highlightRef } from "../notes/links.js";
 import { pdfPath } from "./paths.js";
 
 /*
@@ -21,6 +22,8 @@ import { pdfPath } from "./paths.js";
  *   <!-- engram:highlights … -->
  *   ## Highlights
  *   > The quoted text
+ *
+ *   ^a1b2c3   (the block id Obsidian links to)
  *   …
  *   <!-- engram:annotation {"id":…} -->
  *
@@ -46,6 +49,8 @@ export function serializeItem(item: Item, annotations: Annotation[]): string {
     ["id", item.id],
     ["type", item.type],
     ["title", item.title],
+    // Obsidian finds files by name; the alias lets [[Title]] reach "title-1a2b3c4d.md".
+    ["aliases", [item.title]],
     ["source_url", item.sourceUrl],
     ["captured_at", iso(item.addedAt)],
     ["added_by", item.addedBy],
@@ -76,6 +81,8 @@ export function serializeItem(item: Item, annotations: Annotation[]): string {
       out += "\n";
       if (!a.deleted && a.kind === "highlight" && a.quote?.trim()) {
         out += a.quote.trim().split(/\r?\n/).map((l) => `> ${l}`).join("\n") + "\n";
+        // Obsidian's block id for a quote: on its own line, so [[Title#^ref]] and embeds work there too.
+        out += `\n^${highlightRef(a.id)}\n`;
         if (a.page > 0) out += `\n— page ${a.page}\n`;
         if (a.note?.trim()) out += `\n${a.note.trim()}\n`;
         out += "\n";

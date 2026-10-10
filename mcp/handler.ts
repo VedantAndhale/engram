@@ -1,5 +1,5 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { authorizationServer, authorize, callback, githubToken, login, origin, protectedResource, register, token } from "./oauth.js";
+import { authorizationServer, authorize, callback, caller, login, origin, protectedResource, register, token } from "./oauth.js";
 import { createServer } from "./server.js";
 
 /*
@@ -51,8 +51,8 @@ async function route(req: Request): Promise<Response> {
 }
 
 async function mcp(req: Request): Promise<Response> {
-  const gh = await githubToken(req);
-  if (!gh) {
+  const who = await caller(req);
+  if (!who) {
     return new Response(JSON.stringify({ error: "invalid_token", error_description: "Sign in with GitHub to use Engram." }), {
       status: 401,
       headers: {
@@ -63,7 +63,7 @@ async function mcp(req: Request): Promise<Response> {
   }
   // Stateless: no sessions, so any instance can answer any request.
   const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
-  const server = createServer(gh);
+  const server = createServer(who.token, origin(req), who.agent);
   await server.connect(transport);
   return transport.handleRequest(req);
 }

@@ -3,6 +3,7 @@ import type { ReaderDB } from "../db/db";
 import type { RepoRef } from "../model";
 import { getAccount, useAccount } from "./account";
 import { GitHub, GitHubError } from "./github";
+import { parseInbox } from "./inboxfile";
 import {
   gitBlobSha,
   mergeFolder,
@@ -324,12 +325,18 @@ export class SyncEngine {
       } else if (p.kind === "legacyAnnotations") {
         const path = await mergeLegacyAnnotations(db, p.doc, text);
         if (path) await this.markDirty(path, 1_000);
+      } else if (p.kind === "inbox") {
+        // Agents' files never change once made; one you already decided on stays decided.
+        const sent = parseInbox(text);
+        if (sent && !(await db.inbox.get(entry.path))) await db.inbox.put({ path: entry.path, entry: sent });
       } else if (p.kind === "positions") {
         if (p.user === login) {
           if (await mergeMyPositions(db, text)) await this.markDirty(entry.path, 1_000);
         } else await mergePeerPositions(db, p.user, text);
       }
     }
+    // Inbox files gone from the repo were decided elsewhere (or here, and the delete went through).
+    await db.inbox.filter((r) => !shas[r.path]).delete();
     this.remote = { ...this.remote, head: head.sha, etag: head.etag, shas };
     await this.saveRemote();
     return this.needsTidy();
@@ -394,7 +401,19 @@ export class SyncEngine {
     const gh = this.gh!;
     const db = this.db;
     const p = parsePath(path);
-    if (p.kind === "pdf") {
+    if (p.kind === "inbox") {
+      // The app only ever deletes inbox files, once you've accepted or dismissed them.
+      const row = await db.inbox.get(path);
+      const sha = this.remote.shas[path];
+      if (row?.resolved && sha) {
+        if (!canWrite(1)) return false;
+        await gh.deleteFile(path, sha, `Inbox: ${row.resolved} ${row.entry.title ?? row.entry.targetTitle ?? "item"}`);
+        recordWrites(1);
+        delete this.remote.shas[path];
+        await this.saveRemote();
+      }
+      if (row?.resolved) await db.inbox.delete(path);
+    } else if (p.kind === "pdf") {
       if (!this.remote.shas[path]) {
         const blob = await db.blobs.get(p.doc);
         const meta = await db.items.get(p.doc);
@@ -458,4 +477,7 @@ This private repository is one folder of an Engram library: what you saved, your
 - \`positions/<github-user>.json\`: where each person is in each document
 
 The app manages these files. Editing them by hand is safe but rarely needed.
+
+To browse this folder in Obsidian, clone the repository and open it as a vault: \`[[Title]]\` links,
+highlight links (\`[[Title#^a1b2c3]]\`) and embeds work there too.
 `;

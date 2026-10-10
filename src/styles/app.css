@@ -1543,6 +1543,48 @@ input[type="time"] {
   align-items: stretch;
   padding: 22px 24px;
 }
+.agent-inbox {
+  align-items: stretch;
+}
+.inbox-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.inbox-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+}
+.inbox-entry:first-child {
+  padding-top: 2px;
+  border-top: 0;
+}
+.inbox-what {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+.inbox-why {
+  font-style: italic;
+}
+.inbox-text {
+  white-space: pre-wrap;
+  color: var(--muted);
+}
+.inbox-meta {
+  font-size: 13px;
+}
+.inbox-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
 .continue {
   display: flex;
   flex-direction: column;

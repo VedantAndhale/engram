@@ -1,5 +1,6 @@
 import Dexie, { type EntityTable } from "dexie";
 import type { Annotation, Folder, Item, PeerPosition, Position } from "../model";
+import type { InboxEntry } from "../sync/inboxfile";
 import { itemPath } from "../sync/paths";
 
 export interface BlobRow {
@@ -19,6 +20,12 @@ export interface PageTextRow {
 export interface KvRow {
   key: string;
   value: unknown;
+}
+/** Something an agent sent (an inbox/ file). Once you decide, sync deletes the file, then the row. */
+export interface InboxRow {
+  path: string;
+  entry: InboxEntry;
+  resolved?: "accepted" | "dismissed";
 }
 /** A remote path with local changes waiting to be pushed. `rev` bumps on every change. */
 export interface OutboxRow {
@@ -44,6 +51,7 @@ export class ReaderDB extends Dexie {
   pageText!: Dexie.Table<PageTextRow, [string, number]>;
   kv!: EntityTable<KvRow, "key">;
   outbox!: EntityTable<OutboxRow, "path">;
+  inbox!: EntityTable<InboxRow, "path">;
 
   constructor(name: string) {
     super(name);
@@ -68,6 +76,8 @@ export class ReaderDB extends Dexie {
         );
       });
     this.version(3).stores({ docs: null });
+    // What agents sent (inbox/ files), until you accept or dismiss it.
+    this.version(4).stores({ inbox: "&path" });
   }
 
   async kvGet<T>(key: string): Promise<T | undefined> {

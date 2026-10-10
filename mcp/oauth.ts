@@ -137,9 +137,9 @@ export async function authorize(req: Request) {
   const dest = to.protocol === "http:" || to.protocol === "https:" ? to.host : to.protocol.slice(0, -1);
   return page(
     "Connect to Engram",
-    `<p><strong>${who}</strong> wants to read your Engram library: your notes, highlights and saved items.</p>
+    `<p><strong>${who}</strong> wants to use your Engram library: read your notes, highlights and saved items, and send things to your inbox for you to accept.</p>
 <p>It will reach your library through <strong>${esc(dest)}</strong>. Only continue if you started this from that app.</p>
-<p class="small">Next, GitHub asks you to authorize Engram. Engram reads your folder repositories and never writes to them in this version. You can revoke access any time in GitHub → Settings → Applications.</p>
+<p class="small">Next, GitHub asks you to authorize Engram. Agents never change your items: what they send waits in your inbox until you accept it. You can revoke access any time in GitHub → Settings → Applications.</p>
 <form method="post" action="${esc(origin(req))}/api/oauth/authorize">
   <input type="hidden" name="pending" value="${esc(pending)}">
   <button type="submit">Continue with GitHub</button>
@@ -205,7 +205,7 @@ export async function callback(req: Request) {
   }
   const r = await exchange(req, code);
   if (!("token" in r)) return page("GitHub sign-in failed", `<p>${esc(r.error)}</p>`, 502);
-  back.searchParams.set("code", await seal("code", { t: r.token, challenge: pending.challenge, redirectUri: pending.redirectUri }, 5 * MINUTE));
+  back.searchParams.set("code", await seal("code", { t: r.token, c: pending.clientName, challenge: pending.challenge, redirectUri: pending.redirectUri }, 5 * MINUTE));
   return redirect(back.toString());
 }
 
@@ -231,20 +231,24 @@ export async function token(req: Request) {
   const raw = await req.text();
   const p = type.includes("application/json") ? new URLSearchParams(Object.entries(JSON.parse(raw || "{}") as Record<string, string>)) : new URLSearchParams(raw);
   if (p.get("grant_type") !== "authorization_code") return oauthError("unsupported_grant_type", "Only authorization_code is supported; tokens don't expire.");
-  const code = await unseal<{ t: string; challenge: string; redirectUri: string }>("code", p.get("code") ?? "");
+  const code = await unseal<{ t: string; c?: string; challenge: string; redirectUri: string }>("code", p.get("code") ?? "");
   if (!code) return oauthError("invalid_grant", "The code is invalid or expired.");
   if (p.get("redirect_uri") && p.get("redirect_uri") !== code.redirectUri) return oauthError("invalid_grant", "redirect_uri doesn't match.");
   const verifier = p.get("code_verifier") ?? "";
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
   if (!verifier || Buffer.from(digest).toString("base64url") !== code.challenge) return oauthError("invalid_grant", "PKCE check failed.");
-  return json({ access_token: TOKEN_PREFIX + (await seal("token", { t: code.t })), token_type: "Bearer" });
+  return json({ access_token: TOKEN_PREFIX + (await seal("token", { t: code.t, c: code.c })), token_type: "Bearer" });
 }
 
-/** The GitHub token behind a request. Only access tokens from this server's sign-in are accepted. */
-export async function githubToken(req: Request): Promise<string | null> {
+/**
+ * Who is calling: the GitHub token behind the request, and the app's name as it registered
+ * (recorded on inbox files). Only access tokens from this server's sign-in are accepted.
+ */
+export async function caller(req: Request): Promise<{ token: string; agent?: string } | null> {
   const m = /^Bearer\s+(\S+)$/i.exec(req.headers.get("authorization") ?? "");
   if (!m?.[1].startsWith(TOKEN_PREFIX)) return null;
-  return (await unseal<{ t: string }>("token", m[1].slice(TOKEN_PREFIX.length)))?.t ?? null;
+  const sealed = await unseal<{ t: string; c?: string }>("token", m[1].slice(TOKEN_PREFIX.length));
+  return sealed ? { token: sealed.t, agent: sealed.c } : null;
 }
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);

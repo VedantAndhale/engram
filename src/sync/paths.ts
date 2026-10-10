@@ -35,6 +35,7 @@ export type PathKind =
   | { kind: "folder" }
   | { kind: "item" }
   | { kind: "index" }
+  | { kind: "inbox" }
   | { kind: "positions"; user: string }
   | { kind: "pdf"; doc: string }
   | { kind: "legacyLibrary" }
@@ -44,6 +45,7 @@ export type PathKind =
 export function parsePath(path: string): PathKind {
   if (path === FOLDER_FILE) return { kind: "folder" };
   if (path === INDEX_FILE) return { kind: "index" };
+  if (/^inbox\/[^/]+\.md$/.test(path)) return { kind: "inbox" };
   if (/^items\/\d{4}\/\d{2}\/[^/]+\.md$/.test(path)) return { kind: "item" };
   let m = /^positions\/([A-Za-z0-9-]+)\.json$/.exec(path);
   if (m) return { kind: "positions", user: m[1] };

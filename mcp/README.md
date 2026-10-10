@@ -1,18 +1,21 @@
 # Engram server
 
 Two jobs, one Vercel function: **Sign in with GitHub** for the Engram app, and an MCP server that
-lets any MCP client (Claude, ChatGPT, Cursor, VS Code…) search your Engram library (read-only for now).
+lets any MCP client (Claude, ChatGPT, Cursor, VS Code…) search your Engram library and send things to its inbox.
 
 It stores nothing. It reads your folder repositories through the GitHub API with your own sign-in,
-and answers from each folder's `index.json`, which the app writes when it syncs.
+and answers from each folder's `index.json`, which the app writes when it syncs. Its only write is
+a new file in a folder's `inbox/`, which waits there until you accept or dismiss it in the app.
 
 | Tool | What it does |
 | --- | --- |
-| `search` | Titles, topics, your notes and highlights, across every folder |
+| `search` | Titles, topics, your notes and highlights, across every folder; takes extra phrasings in `also` |
 | `read_item` | One item in full; text saved from the source comes back fenced and marked untrusted |
 | `list_recent` | Newest saved or edited items |
 | `get_highlights` | One item's highlights, or the latest across your library |
 | `quiz_me` | Highlights due for review, for your agent to test you on |
+| `save_item` | Sends a link or some text to your inbox, with why it's worth keeping |
+| `append_note` | Suggests lines for your notes on one item, waiting in your inbox |
 
 ## Set up (once)
 

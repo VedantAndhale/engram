@@ -11,6 +11,7 @@ import { lastFolder, navigate, openQuickAdd } from "../store/ui";
 import { useAccount } from "../sync/account";
 import { BookmarkletCard } from "./Capture";
 import { ReminderDialog, TopicsDialog } from "./habit";
+import { AgentInbox } from "./Inbox";
 
 const PER_SESSION = 3;
 const WEEK = 7 * 86_400_000;
@@ -95,6 +96,8 @@ export function Today({ onOpenSidebar }: { onOpenSidebar: () => void }) {
             />
           )}
         </section>
+
+        <AgentInbox />
 
         <div className="today-grid">
           <section className="today-card">
