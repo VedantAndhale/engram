@@ -967,7 +967,6 @@ main {
 }
 .ink-layer.active {
   pointer-events: auto;
-  touch-action: pan-x pan-y;
   cursor: crosshair;
 }
 .pages.tool-eraser .ink-layer.active {
@@ -979,6 +978,11 @@ main {
 }
 .pages.tool-highlight .textLayer {
   cursor: text;
+}
+/* With a tool out, touches on a page belong to the tool and two fingers scroll (ui/reader/touch.ts). The margins still scroll. */
+.pages:not(.tool-select) .page {
+  touch-action: none;
+  -webkit-touch-callout: none;
 }
 .textLayer .find-hit {
   background: rgb(255 170 0 / 0.35);
@@ -2264,23 +2268,126 @@ input[type="time"] {
 .backlinks a {
   font: 16px var(--serif);
 }
-.item-content summary {
-  cursor: pointer;
-  font-weight: 600;
+/* A saved article, for reading (ui/reader/ArticleView.tsx). */
+.article-tools {
+  position: sticky;
+  top: 52px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
 }
-.item-content .hint {
-  margin: 8px 0;
+.article .hint {
+  margin-top: 12px;
 }
-.saved-text {
-  max-height: 60vh;
-  overflow-y: auto;
-  padding: 12px 16px;
+.article-text {
+  font: var(--article-size, 18px) / 1.65 var(--serif);
+  overflow-wrap: break-word;
+}
+.article-text > :first-child {
+  margin-top: 16px;
+}
+.article-text p,
+.article-text ul,
+.article-text ol,
+.article-text blockquote,
+.article-text pre,
+.article-text .table-wrap {
+  margin: 0 0 1em;
+}
+.article-text h2,
+.article-text h3,
+.article-text h4,
+.article-text h5,
+.article-text h6 {
+  margin: 1.6em 0 0.5em;
+  font-family: var(--serif);
+  line-height: 1.3;
+}
+.article-text h2 {
+  font-size: 1.4em;
+}
+.article-text h3 {
+  font-size: 1.2em;
+}
+.article-text h4,
+.article-text h5,
+.article-text h6 {
+  font-size: 1em;
+}
+.article-text ul,
+.article-text ol {
+  padding-left: 1.5em;
+}
+.article-text li > p,
+.article-text li > ul,
+.article-text li > ol {
+  margin: 0.25em 0;
+}
+.article-text blockquote {
+  padding-left: 1em;
+  border-left: 3px solid var(--border);
+  color: var(--muted);
+}
+.article-text a {
+  color: var(--accent);
+}
+.article-text img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 1em auto;
+  border-radius: 4px;
+}
+.article-text code {
+  padding: 0.1em 0.3em;
+  border-radius: 4px;
+  background: var(--surface);
+  font-size: 0.85em;
+}
+.article-text pre {
+  padding: 12px 14px;
+  overflow-x: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
-  font: 15px/1.6 var(--serif);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+.article-text pre code {
+  padding: 0;
+  background: none;
+}
+.article-text hr {
+  margin: 2em 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+.article-text .table-wrap {
+  overflow-x: auto;
+}
+.article-text table {
+  border-collapse: collapse;
+  font-size: 0.85em;
+}
+.article-text th,
+.article-text td {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+/* With the highlighter out, a finger on the text highlights and two fingers scroll (ui/reader/touch.ts). */
+.article-text.tool-highlight {
+  cursor: text;
+  touch-action: none;
+  -webkit-touch-callout: none;
+}
+::highlight(hl-picked) {
+  background-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  text-decoration: underline 2px var(--accent);
 }
 @media (max-width: 760px) {
   .item-body {

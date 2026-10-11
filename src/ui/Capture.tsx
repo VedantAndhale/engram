@@ -220,6 +220,7 @@ export function SavePage() {
         url: page.data.url,
         title,
         text: page.data.text,
+        html: page.data.html || undefined,
         selection: page.data.selection,
         type,
         words,

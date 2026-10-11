@@ -2,6 +2,7 @@ import { memo, useEffect, useRef, useState } from "react";
 import { pdfjsLib, type PDFDoc } from "../../lib/pdf";
 import type { Annotation } from "../../model";
 import { hitsStroke, inkPath, INK_UNITS } from "../../reader/geometry";
+import { penSeen } from "./touch";
 
 export type Tool = "select" | "highlight" | "ink" | "eraser";
 
@@ -169,8 +170,16 @@ export const PageView = memo(function PageView(p: Props) {
 
 function InkLayer(p: Props & { strokes: Annotation[] }) {
   const ref = useRef<SVGSVGElement>(null);
-  const [live, setLive] = useState<number[] | null>(null);
+  // The stroke being drawn goes straight to its path element once per frame, not through React,
+  // so a long stroke stays as quick as a short one.
+  const livePath = useRef<SVGPathElement>(null);
+  const frame = useRef(0);
   const drawing = useRef<{ id: number; points: number[] } | null>(null);
+  const showLive = (points: number[] | null) => {
+    cancelAnimationFrame(frame.current);
+    if (!points) return livePath.current?.setAttribute("d", "");
+    frame.current = requestAnimationFrame(() => livePath.current?.setAttribute("d", inkPath(points, p.inkSize, true)));
+  };
   const aspect = p.size.h / p.size.w;
   const active = p.tool === "ink" || p.tool === "eraser";
 
@@ -186,9 +195,14 @@ function InkLayer(p: Props & { strokes: Annotation[] }) {
 
   const onDown = (e: React.PointerEvent) => {
     if (!active || (e.pointerType === "mouse" && e.button !== 0)) return;
-    // With a pen available, fingers keep scrolling and only the pen draws.
-    if (e.pointerType === "touch" && penSeen) return;
-    if (e.pointerType === "pen") penSeen = true;
+    // A second finger means scrolling (see touch.ts): drop the stroke the first one started.
+    if (e.pointerType === "touch" && drawing.current) {
+      drawing.current = null;
+      showLive(null);
+      return;
+    }
+    // Once a pen has been used, fingers scroll and only the pen draws.
+    if (e.pointerType === "touch" && penSeen()) return;
     e.preventDefault();
     ref.current!.setPointerCapture(e.pointerId);
     if (p.tool === "eraser") {
@@ -198,7 +212,7 @@ function InkLayer(p: Props & { strokes: Annotation[] }) {
     }
     const [x, y] = toUnits(e);
     drawing.current = { id: e.pointerId, points: [x, y, pressure(e)] };
-    setLive(drawing.current.points);
+    showLive(drawing.current.points);
   };
 
   const onMove = (e: React.PointerEvent) => {
@@ -213,14 +227,14 @@ function InkLayer(p: Props & { strokes: Annotation[] }) {
         Math.round(pressure(ev) * 100) / 100,
       );
     }
-    setLive([...d.points]);
+    showLive(d.points);
   };
 
   const onUp = (e: React.PointerEvent) => {
     const d = drawing.current;
     if (!d || d.id !== e.pointerId) return;
     drawing.current = null;
-    setLive(null);
+    showLive(null);
     if (p.tool === "ink" && d.points.length >= 3) p.onInk(p.page, d.points);
   };
 
@@ -237,12 +251,10 @@ function InkLayer(p: Props & { strokes: Annotation[] }) {
       {p.strokes.map((s) => (
         <path key={s.id} d={inkPath(s.points!, s.size ?? 4)} fill={s.color} />
       ))}
-      {live && <path d={inkPath(live, p.inkSize, true)} fill={p.inkColor} />}
+      <path ref={livePath} fill={p.inkColor} />
     </svg>
   );
 }
-
-let penSeen = false;
 
 /** Mice and some touchscreens report 0 or 0.5 constantly; treat those as "no pressure data". */
 function pressure(e: PointerEvent | React.PointerEvent) {

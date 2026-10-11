@@ -1,10 +1,12 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { authorizationServer, authorize, callback, caller, login, origin, protectedResource, register, token } from "./oauth.js";
+import { page } from "./page.js";
 import { createServer } from "./server.js";
 
 /*
  * Every request Engram's server answers, as one fetch-style handler: the MCP endpoint, the
- * OAuth discovery documents and the sign-in steps (for the app and for MCP clients). Runs as
+ * OAuth discovery documents, the sign-in steps (for the app and for MCP clients) and fetching
+ * pages for the app to read. Runs as
  * one Vercel function (see vercel.json for the routes) and under mcp/dev.ts locally.
  */
 
@@ -22,6 +24,7 @@ function routeOf(url: URL): string {
   const p = url.pathname.replace(/\/+$/, "");
   if (p.startsWith("/.well-known/oauth-protected-resource")) return "protected-resource";
   if (p.startsWith("/.well-known/oauth-authorization-server")) return "authorization-server";
+  if (p === "/api/page") return "page";
   const m = /^\/api\/oauth\/(\w+)$/.exec(p);
   return m ? m[1] : "mcp";
 }
@@ -43,6 +46,8 @@ async function route(req: Request): Promise<Response> {
       return callback(req);
     case "token":
       return req.method === "POST" ? token(req) : new Response(null, { status: 405 });
+    case "page":
+      return page(req);
     case "mcp":
       return mcp(req);
     default:

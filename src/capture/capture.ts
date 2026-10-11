@@ -2,11 +2,12 @@ import { folderCtx } from "../folders/registry";
 import { cleanTopic } from "../habit/prefs";
 import { HIGHLIGHT_COLORS, type Item, type ItemType } from "../model";
 import { createItem, saveAnnotation, updateItem } from "../store/actions";
+import { extractArticle } from "./extract";
 
 /*
  * Saving things that aren't PDFs: links, quotes, notes, and pages sent by the bookmarklet or the
- * share sheet. Text from a page is someone else's words: it is kept as plain text, capped, and
- * never put where the app or an agent would treat it as instructions.
+ * share sheet. Text from a page is someone else's words: it is kept as Markdown or plain text
+ * (never HTML), capped, and never put where the app or an agent would treat it as instructions.
  */
 
 const MAX_CONTENT = 100_000;
@@ -116,6 +117,20 @@ function cleanText(text: string | undefined, max: number): string | undefined {
   return t || undefined;
 }
 
+/** An article as Markdown: like cleanText, but indentation (lists, code) is kept. */
+export function cleanMarkdown(text: string | undefined, max = MAX_CONTENT): string | undefined {
+  if (!text) return undefined;
+  const t = text
+    .replace(/\r\n?/g, "\n")
+    .replace(/[ \t]+$/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/<!--/g, "\\<!--")
+    .trim();
+  // Cut at a paragraph break, so a cap never leaves half a code fence or table row.
+  const cut = t.length > max ? t.slice(0, t.lastIndexOf("\n\n", max) > max / 2 ? t.lastIndexOf("\n\n", max) : max) : t;
+  return cut || undefined;
+}
+
 const cleanTopics = (topics: string[]) => [...new Set(topics.map(cleanTopic).filter(Boolean))];
 
 const highlightColor = () => localStorage.getItem("reader.hl") ?? HIGHLIGHT_COLORS[0].value;
@@ -127,8 +142,10 @@ async function addQuote(folder: string, doc: string, quote: string) {
 export interface PageCapture {
   url: string;
   title?: string;
-  /** Readable text of the page, from the bookmarklet. */
+  /** Readable text of the page, from older bookmarklets. */
   text?: string;
+  /** The whole page, from the bookmarklet: the article is picked out of it and kept as Markdown. */
+  html?: string;
   /** What the reader had selected on the page: kept as a highlight. */
   selection?: string;
   type?: ItemType;
@@ -151,16 +168,22 @@ export interface SaveResult {
 export async function saveLink(folder: string, c: PageCapture): Promise<SaveResult> {
   const { db } = folderCtx(folder);
   const url = cleanUrl(c.url);
-  const content = cleanText(c.text, MAX_CONTENT);
+  const article = c.html ? await extractArticle(c.html, c.url).catch(() => null) : null;
+  const markdown = cleanMarkdown(article?.markdown);
+  const content = markdown ?? cleanText(c.text, MAX_CONTENT);
+  const contentFormat = markdown ? ("markdown" as const) : undefined;
   const selection = cleanText(c.selection, MAX_QUOTE);
   const words = c.words?.trim();
   const topics = cleanTopics(c.topics ?? []);
-  const title = (cleanText(c.title, MAX_TITLE)?.replace(/\n/g, " ") ?? "") || titleFromUrl(url);
+  const title = (cleanText(c.title || article?.title, MAX_TITLE)?.replace(/\n/g, " ") ?? "") || titleFromUrl(url);
 
   const existing = await db.items.filter((i) => i.sourceUrl === url && !i.deleted).first();
   if (existing) {
     const patch: Partial<Item> = {};
-    if (content && content !== existing.content) patch.content = content;
+    if (content && content !== existing.content) {
+      // Formatted text is never replaced by plain text from an older bookmarklet.
+      if (contentFormat || existing.contentFormat !== "markdown") Object.assign(patch, { content, contentFormat });
+    }
     if (words) patch.body = existing.body?.trim() ? `${existing.body.trim()}\n\n${words}` : words;
     const merged = cleanTopics([...(existing.topics ?? []), ...topics]);
     if (merged.length !== (existing.topics?.length ?? 0)) patch.topics = merged;
@@ -171,6 +194,7 @@ export async function saveLink(folder: string, c: PageCapture): Promise<SaveResu
       const quotes = await db.annotations.where("doc").equals(existing.id).toArray();
       if (!quotes.some((a) => !a.deleted && a.quote?.trim() === selection)) await addQuote(folder, existing.id, selection);
     }
+    if (!contentFormat) fillLater(folder, existing.id);
     return { item: (await db.items.get(existing.id))!, existed: true };
   }
 
@@ -180,11 +204,16 @@ export async function saveLink(folder: string, c: PageCapture): Promise<SaveResu
     sourceUrl: url,
     body: words || undefined,
     content,
+    contentFormat,
     topics: topics.length ? topics : undefined,
   });
   if (selection) await addQuote(folder, item.id, selection);
+  if (!contentFormat) fillLater(folder, item.id);
   return { item, existed: false };
 }
+
+/** Fetch the article in the background when the save didn't bring it (see fetchpage.ts). */
+const fillLater = (folder: string, id: string) => void import("./fetchpage").then((m) => m.fillFromWeb(folder, id));
 
 /** Someone else's words worth keeping. The quote is a highlight, so it comes back in review. */
 export async function saveQuote(folder: string, q: { quote: string; source?: string; words?: string; topics?: string[] }): Promise<Item> {

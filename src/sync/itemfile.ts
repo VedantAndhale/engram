@@ -52,6 +52,7 @@ export function serializeItem(item: Item, annotations: Annotation[]): string {
     // Obsidian finds files by name; the alias lets [[Title]] reach "title-1a2b3c4d.md".
     ["aliases", [item.title]],
     ["source_url", item.sourceUrl],
+    ["content_format", item.content ? item.contentFormat : undefined],
     ["captured_at", iso(item.addedAt)],
     ["added_by", item.addedBy],
     ["topics", item.topics?.length ? item.topics : undefined],
@@ -134,6 +135,7 @@ export function parseItem(text: string, path: string): { item: Item; annotations
   if (str("source_url")) item.sourceUrl = str("source_url");
   if (body) item.body = body;
   if (content) item.content = content;
+  if (content && fm.content_format === "markdown") item.contentFormat = "markdown";
   if (topics.length) item.topics = topics;
   if (str("file_name")) item.fileName = str("file_name");
   if (num("size") !== undefined) item.size = num("size");

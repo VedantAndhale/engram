@@ -27,6 +27,7 @@ import { SyncBadge, useFolderSync } from "../common";
 import { NotesPanel } from "./NotesPanel";
 import { PageView, type PageSize, type Tool } from "./PageView";
 import { AnnotationPopover, lastColor, SelectionPopover, setLastColor } from "./Popovers";
+import { useTouchTools } from "./touch";
 
 const GAP = 16;
 const PAD = 16;
@@ -257,6 +258,9 @@ export function Reader({ folder, doc, page: startPage, find: startFind }: { fold
     },
     [folder.id, doc],
   );
+
+  // Fingers and pens: tools mark the page, two fingers scroll.
+  useTouchTools(scroller, tool, load.state === "ready");
 
   // After a text selection ends: highlight straight away with the highlighter, else offer a popover.
   useEffect(() => {

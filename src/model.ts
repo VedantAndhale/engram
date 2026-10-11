@@ -42,6 +42,8 @@ export interface Item {
    * else's words, so it is kept apart from the body and never treated as instructions.
    */
   content?: string;
+  /** "markdown" when `content` keeps the article's formatting; unset means plain text (older saves). */
+  contentFormat?: "markdown";
   /** Topics the reader is growing in that this item belongs to. */
   topics?: string[];
   /** PDF items only: the original file. The bytes live at pdfs/<id>.pdf. */
@@ -80,6 +82,12 @@ export interface Annotation {
   rects?: Rect[];
   /** Highlighted text, kept for the sidebar, search and export. */
   quote?: string;
+  /**
+   * Article highlights (page 0): the text just before and after the quote, so the reading view
+   * finds the right spot when a quote appears more than once or the article is saved again.
+   */
+  prefix?: string;
+  suffix?: string;
   note?: string;
   /** Ink stroke as flat [x, y, pressure, ...] in units where page width = 1000. */
   points?: number[];

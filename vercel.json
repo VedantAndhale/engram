@@ -5,6 +5,7 @@
     { "source": "/.well-known/oauth-protected-resource/:path*", "destination": "/api/mcp?route=protected-resource" },
     { "source": "/.well-known/oauth-authorization-server", "destination": "/api/mcp?route=authorization-server" },
     { "source": "/.well-known/oauth-authorization-server/:path*", "destination": "/api/mcp?route=authorization-server" },
+    { "source": "/api/page", "destination": "/api/mcp?route=page" },
     { "source": "/api/oauth/:action", "destination": "/api/mcp?route=:action" }
   ]
 }

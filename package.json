@@ -22,6 +22,7 @@
     "@lezer/highlight": "^1.2.5",
     "@lezer/markdown": "^1.8.0",
     "@modelcontextprotocol/sdk": "^1.32.1",
+    "@mozilla/readability": "^0.6.0",
     "dexie": "^4.4.6",
     "dexie-react-hooks": "^4.4.0",
     "katex": "^0.16.47",

@@ -1,7 +1,8 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { ArrowLeft, Ellipsis, ExternalLink, Link2, NotebookPen, Pencil, Tag, Trash2, X } from "lucide-react";
+import { AArrowDown, AArrowUp, ArrowLeft, Ellipsis, ExternalLink, Highlighter, Link2, NotebookPen, Pencil, Tag, Trash2, X } from "lucide-react";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { hostOf, itemHref, safeHref, TYPE_LABELS } from "../capture/capture";
+import { fillFromWeb } from "../capture/fetchpage";
 import { folderCtx } from "../folders/registry";
 import { parseTarget } from "../notes/links";
 import { backlinks, findHighlight, highlightsOf, noteFromHighlight, openOrCreate, renameWithLinks, resolveEmbed } from "../notes/notes";
@@ -11,6 +12,7 @@ import { deleteAnnotation, removeItem, restoreItem, setItemBody, setItemTopics }
 import { navigate, toast } from "../store/ui";
 import { PromptDialog, useMenu } from "./common";
 import { TopicsDialog } from "./habit";
+import { ArticleView, type ReadingPrefs } from "./reader/ArticleView";
 
 // CodeMirror is only needed once an item is open.
 const Editor = lazy(() => import("../editor/Editor"));
@@ -26,6 +28,10 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
   const topics = useHabit((h) => h.topics);
   const [dialog, setDialog] = useState<"rename" | "topics" | null>(null);
   const menu = useMenu();
+  const scroller = useRef<HTMLElement>(null);
+  const [highlighter, setHighlighter] = useState(false);
+  const [prefs, setPrefs] = useReadingPrefs();
+  const [fetching, setFetching] = useState(false);
 
   const linkedFrom = useLiveQuery(async () => (item ? backlinks(db, item.title, item.id) : []), [item?.title, item?.id]);
   const titles = useLiveQuery(async () => (await db.items.toArray()).filter((i) => !i.deleted && i.id !== id).map((i) => i.title), [id]);
@@ -60,6 +66,16 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
     },
     [folder.id, id],
   );
+
+  // A bare link, or an article saved as plain text, gets its formatted article from the web once.
+  const fillable = !!item && !item.deleted && item.type !== "note" && !!item.sourceUrl && item.contentFormat !== "markdown";
+  useEffect(() => {
+    if (!fillable) return;
+    let live = true;
+    setFetching(true);
+    void fillFromWeb(folder.id, id).finally(() => live && setFetching(false));
+    return () => void (live = false);
+  }, [fillable, folder.id, id]);
 
   useEffect(() => {
     if (item) document.title = `${item.title} · Engram`;
@@ -99,7 +115,7 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
     ]);
 
   return (
-    <main className="item-view">
+    <main className="item-view" ref={scroller}>
       <header className="topbar">
         <button className="icon-btn" aria-label={`Back to ${folder.name}`} onClick={() => navigate({ name: "library", folder: folder.id })}>
           <ArrowLeft size={20} />
@@ -136,6 +152,34 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
             {item.topics?.length ? "Change topics" : "Add topics"}
           </button>
         </p>
+
+        {item.content && !isNote && (
+          <section className="article" aria-label="Article">
+            <div className="article-tools">
+              <span className="field-label">From the page</span>
+              <div className="spacer" />
+              <button
+                className={`icon-btn ${highlighter ? "on" : ""}`}
+                aria-label="Highlighter"
+                title="Highlighter: selecting text highlights it"
+                aria-pressed={highlighter}
+                onClick={() => setHighlighter((h) => !h)}
+              >
+                <Highlighter size={17} />
+              </button>
+              <button className="icon-btn" aria-label="Smaller text" title="Smaller text" disabled={prefs.size <= 14} onClick={() => setPrefs({ ...prefs, size: prefs.size - 1 })}>
+                <AArrowDown size={17} />
+              </button>
+              <button className="icon-btn" aria-label="Larger text" title="Larger text" disabled={prefs.size >= 26} onClick={() => setPrefs({ ...prefs, size: prefs.size + 1 })}>
+                <AArrowUp size={17} />
+              </button>
+            </div>
+            <ArticleView folder={folder} item={item} annotations={quotes ?? []} scroller={scroller} highlighter={highlighter} prefs={prefs} />
+            {item.contentFormat !== "markdown" && !fetching && (
+              <p className="hint">Saved as plain text. Save the page again with Save to Engram to keep its formatting.</p>
+            )}
+          </section>
+        )}
 
         {!!quotes?.length && (
           <section className="item-quotes" aria-label="Highlights">
@@ -202,15 +246,10 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
           </section>
         )}
 
-        {item.content ? (
-          <details className="item-content">
-            <summary>Saved from the source</summary>
-            <p className="hint">The page's own words, as saved. Kept apart from yours.</p>
-            <div className="saved-text">{item.content}</div>
-          </details>
-        ) : (
-          href &&
-          !isNote && <p className="hint">Only the link is saved. Open the page and use Save to Engram to keep its text too.</p>
+        {!item.content && href && !isNote && (
+          <p className="hint">
+            {fetching ? "Getting the article from the page…" : "Only the link is saved. Open the page and use Save to Engram to keep its text too."}
+          </p>
         )}
       </article>
 
@@ -241,4 +280,23 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
       )}
     </main>
   );
+}
+
+const PREFS_KEY = "reader.article";
+
+/** Text size for articles, kept on this device. */
+function useReadingPrefs(): [ReadingPrefs, (p: ReadingPrefs) => void] {
+  const [prefs, set] = useState<ReadingPrefs>(() => {
+    try {
+      const p = JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}") as Partial<ReadingPrefs>;
+      return { size: typeof p.size === "number" ? Math.min(26, Math.max(14, p.size)) : 18, wide: p.wide === true };
+    } catch {
+      return { size: 18, wide: false };
+    }
+  });
+  const save = (p: ReadingPrefs) => {
+    localStorage.setItem(PREFS_KEY, JSON.stringify(p));
+    set(p);
+  };
+  return [prefs, save];
 }

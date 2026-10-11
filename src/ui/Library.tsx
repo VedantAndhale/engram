@@ -300,6 +300,13 @@ function ItemCard({ folder, item, notes, onMenu }: { folder: string; item: Item;
   let text = (item.type === "note" ? item.body : (item.content ?? item.body)) ?? "";
   // A note's first line is already its title.
   if (item.type === "note" && titleFromText(text) === item.title) text = text.trim().split(/\r?\n/).slice(1).join(" ");
+  // Formatted articles: images go, links keep their words.
+  if (item.type !== "note" && item.contentFormat === "markdown") {
+    text = text
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+      .replace(/\\(.)/g, "$1");
+  }
   const excerpt = text.replace(/[#>*_`]+/g, "").replace(/\s+/g, " ").trim().slice(0, 220);
   const host = hostOf(item.sourceUrl);
   return (

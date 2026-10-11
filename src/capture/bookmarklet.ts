@@ -10,6 +10,8 @@ export interface CaptureMessage {
   url: string;
   title: string;
   text: string;
+  /** The whole page, so Engram can keep the article's formatting. Empty from older bookmarklets. */
+  html: string;
   selection: string;
 }
 
@@ -33,6 +35,7 @@ function capture(app: string) {
     url: location.href,
     title: (og && og.content) || document.title,
     text: (root.innerText || "").slice(0, 200000),
+    html: document.documentElement.outerHTML.slice(0, 3000000),
     selection: String(getSelection() || "").slice(0, 20000),
   };
   const onMessage = (e: MessageEvent) => {
@@ -54,5 +57,5 @@ export function asCapture(data: unknown): CaptureMessage | null {
   const d = data as Record<string, unknown>;
   if (d.type !== "engram-capture" || typeof d.url !== "string" || !/^https?:\/\//i.test(d.url)) return null;
   const str = (v: unknown) => (typeof v === "string" ? v : "");
-  return { type: "engram-capture", url: d.url, title: str(d.title), text: str(d.text), selection: str(d.selection) };
+  return { type: "engram-capture", url: d.url, title: str(d.title), text: str(d.text), html: str(d.html), selection: str(d.selection) };
 }
