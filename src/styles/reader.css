@@ -41,6 +41,12 @@
   }
 }
 
+/* The reading view's preparation, beside the view switch while the pages are still on screen. */
+.reader-prep {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 /* A note in the panel: the jump button, and beside it a delete that stays faint until the row is used. */
 .note-row {
   display: flex;

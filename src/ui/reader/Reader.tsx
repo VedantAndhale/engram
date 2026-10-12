@@ -18,11 +18,11 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { folderCtx, setAttention } from "../../folders/registry";
 import { openPdf, type PDFDoc } from "../../lib/pdf";
 import { clamp } from "../../lib/util";
-import { INK_COLORS, type Annotation, type Folder, type Rect } from "../../model";
+import { INK_COLORS, type Annotation, type Folder } from "../../model";
 import { selectionRects } from "../../reader/geometry";
 import { loadOutline, type OutlineEntry } from "../../reader/outline";
-import { rectsForQuote } from "../../reader/quoteRects";
-import { reflowFor, type Reflow } from "../../reader/reflow";
+import { rectsForQuoteAcross } from "../../reader/quoteRects";
+import { REFLOW_VERSION, reflowFor, type Reflow } from "../../reader/reflow";
 import { deleteAnnotation, ensureThumb, indexDocument, loadPdfData, saveAnnotation, savePosition, updateAnnotation } from "../../store/actions";
 import { navigate, toast } from "../../store/ui";
 import { useAccount } from "../../sync/account";
@@ -82,8 +82,12 @@ export function Reader({
   const [findText, setFindText] = useState(startFind ?? "");
   const [selection, setSelection] = useState<{ anchor: DOMRect; text: string; rects: Map<number, Annotation["rects"]> } | null>(null);
   const [picked, setPicked] = useState<{ id: string; anchor: DOMRect; edit?: boolean } | null>(null);
-  // The reading view: the same document as flowing text. Its text is extracted the first time it is shown.
-  const [reading, setReading] = useState(() => localStorage.getItem("reader.view") === "reading" && !startFind);
+  // The reading view is the default; a reader who chose Page keeps it. The place left in the reading view is
+  // kept on this device, and a reader who has one goes back to it, since the text is already in the cache.
+  const prefersReading = useRef(localStorage.getItem("reader.view") !== "page");
+  const [reading, setReading] = useState(() => prefersReading.current && !startFind && !!readPlace(doc));
+  // Pages stay on screen only until the reading view can take over, or while find or the pen is open.
+  const autoPage = useRef(prefersReading.current && !startFind && !readPlace(doc));
   const [reflow, setReflow] = useState<Reflow | null>(null);
   const [prep, setPrep] = useState<{ done: number; total: number } | null>(null);
   const preparing = useRef(false);
@@ -168,7 +172,10 @@ export function Reader({
       if (reading) {
         // The element is passed in by the scroll listeners: on unmount the ref is already cleared.
         const block = el && readingBlockAt(el, probe);
-        return block ? { page: Number(block.dataset.page), offset: 0, block } : null;
+        if (!block || !el) return null;
+        // How far down the block the probe line is, so a place can be kept within a paragraph.
+        const top = block.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop;
+        return { page: Number(block.dataset.page), offset: 0, block, within: clamp((probe - top) / Math.max(1, block.offsetHeight), 0, 1) };
       }
       let lo = 0;
       let hi = sizes.length - 1;
@@ -206,18 +213,29 @@ export function Reader({
 
   // Restore the reading position once, after the first layout (and, in the reading view, once its text is in).
   const restored = useRef(false);
+  /** Puts the reading view back on the line the reader left: a block, and how far down it, a third of the way down the window. */
+  const restorePlace = (place: ReadingPlace) => {
+    const el = scroller.current;
+    const block = el?.querySelector<HTMLElement>(`.reflow-block[data-index="${place.block}"]`);
+    if (!el || !block) return;
+    const top = block.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop;
+    el.scrollTo({ top: top + place.within * block.offsetHeight - el.clientHeight / 3, behavior: "auto" });
+  };
   useEffect(() => {
     if (restored.current || load.state !== "ready" || !viewW || (reading && !reflow)) return;
     restored.current = true;
     void (async () => {
       if (startPage) return scrollToPage(startPage);
       const pos = await db.positions.get(doc);
+      // The place left in the reading view is used when it is no older than the synced position.
+      const place = readPlace(doc);
+      if (reading && place && place.at >= (pos?.updatedAt ?? 0)) return restorePlace(place);
       if (pos) scrollToPage(pos.page, pos.offset);
     })();
   }, [load.state, viewW, startPage, db, doc, scrollToPage, reading, reflow]);
 
   // Keep the same spot on screen when the zoom changes. The reading view keeps its block, which stays in place through a size change.
-  const anchor = useRef<{ page: number; offset: number; block?: HTMLElement } | null>(null);
+  const anchor = useRef<{ page: number; offset: number; block?: HTMLElement; within?: number } | null>(null);
   const prevScale = useRef(scale);
   useLayoutEffect(() => {
     const a = anchor.current;
@@ -241,7 +259,12 @@ export function Reader({
     const save = () => {
       if (!restored.current) return;
       const place = locateRef.current(el.scrollTop, el.clientHeight, el);
-      if (place) void savePosition(folder.id, doc, place.page, place.offset);
+      if (!place) return;
+      void savePosition(folder.id, doc, place.page, place.offset);
+      // In the reading view, the block and how far down it stay on this device, for the next open.
+      if (place.block && place.within !== undefined) {
+        localStorage.setItem(placeKey(doc), JSON.stringify({ version: REFLOW_VERSION, block: Number(place.block.dataset.index), within: place.within, at: Date.now() }));
+      }
     };
     const onScroll = () => {
       cancelAnimationFrame(frame);
@@ -372,14 +395,16 @@ export function Reader({
 
   // ---- Reading view -------------------------------------------------------------------------
 
-  // The first time the reading view is shown, its text is extracted. After that it stays in state.
+  // The text is extracted once, for a reader who prefers the reading view, while the pages stay on screen. A
+  // cached copy is used when there is one. After that it stays in state.
   useEffect(() => {
-    if (!reading || !pdf || reflow || preparing.current) return;
+    if (!(reading || prefersReading.current) || !pdf || reflow || preparing.current) return;
     preparing.current = true;
     setPrep({ done: 0, total: pdf.numPages });
     reflowFor(folder.id, doc, pdf, (done, total) => setPrep({ done, total }))
       .then(setReflow)
       .catch((e: unknown) => {
+        autoPage.current = false;
         setReading(false);
         toast(`Couldn't prepare the reading view. ${e instanceof Error ? e.message : String(e)}`);
       })
@@ -401,9 +426,22 @@ export function Reader({
     setPicked(null);
     // Pen and eraser need the pages, so they stay out of the reading view.
     if (next && (tool === "ink" || tool === "eraser")) setTool("select");
-    if (remember) localStorage.setItem("reader.view", next ? "reading" : "page");
+    // A switch the reader makes is remembered. One the app makes (find, the pen) is not, and comes back by itself.
+    autoPage.current = !next && !remember;
+    if (remember) {
+      localStorage.setItem("reader.view", next ? "reading" : "page");
+      prefersReading.current = next;
+    }
     setReading(next);
   };
+
+  // Once the text is ready, a reader who prefers the reading view moves to it, at the same place. Find and the pen
+  // hold the pages while they're open. A PDF with no text stays on the pages, where it can still be read.
+  useEffect(() => {
+    if (!autoPage.current || reading || !reflow || findOpen || tool === "ink" || tool === "eraser") return;
+    autoPage.current = false;
+    if (reflow.blocks.length) switchView(true, false);
+  }, [reflow, reading, findOpen, tool]);
 
   // Once the view can show a page (the reading view, once its text is in), go to the page the old view showed.
   useLayoutEffect(() => {
@@ -424,20 +462,15 @@ export function Reader({
       setLastColor(color);
       window.getSelection()?.removeAllRanges();
       setReadSel(null);
-      // A paragraph that runs over a page break is one block, on the page it starts on. Its second half
-      // is on the next page, so the quote is looked for on both.
-      let placed: { page: number; rects: Rect[] } | undefined;
-      for (const page of [sel.page, sel.page + 1]) {
-        if (page > pdf.numPages) break;
-        const rects = await rectsForQuote(pdf, page, sel.text);
-        if (rects) {
-          placed = { page, rects };
-          break;
-        }
+      // A passage can run over a page break, and is then saved once per page it touches, as a page-view selection is.
+      const parts = await rectsForQuoteAcross(pdf, sel.page, sel.text);
+      if (!parts) return void toast("Couldn't place that on the page. Try the page view.");
+      let first: Annotation | undefined;
+      for (const part of parts) {
+        const a = await saveAnnotation(folder.id, { doc, kind: "highlight", page: part.page, color, rects: part.rects, quote: sel.text });
+        first ??= a;
       }
-      if (!placed) return void toast("Couldn't place that on the page. Try the page view.");
-      const a = await saveAnnotation(folder.id, { doc, kind: "highlight", page: placed.page, color, rects: placed.rects, quote: sel.text });
-      if (askWhy) setPicked({ id: a.id, anchor: sel.anchor, edit: true });
+      if (askWhy && first) setPicked({ id: first.id, anchor: sel.anchor, edit: true });
     },
     [pdf, folder.id, doc],
   );
@@ -593,6 +626,11 @@ export function Reader({
             Reading
           </button>
         </div>
+        {!reading && prep && (
+          <span className="reader-prep muted" role="status">
+            Preparing the reading view, {prep.done} of {prep.total} pages
+          </span>
+        )}
 
         <div className="toolgroup" role="toolbar" aria-label="Tools">
           <ToolButton tool="select" cur={tool} set={setTool} label="Select (V)" icon={<MousePointer2 size={18} />} />
@@ -811,6 +849,26 @@ export function Reader({
 const EMPTY: Annotation[] = [];
 const EMPTY_TERMS: string[] = [];
 const NO_OUTLINE: OutlineEntry[] = [];
+
+/** Where the reading view was left: a block of the reflow, and how far down it, on this device. */
+interface ReadingPlace {
+  version: number;
+  block: number;
+  within: number;
+  at: number;
+}
+
+const placeKey = (doc: string) => `reader.place:${doc}`;
+
+/** The reading place for a document, if one was kept for the current extraction. */
+function readPlace(doc: string): ReadingPlace | null {
+  try {
+    const place = JSON.parse(localStorage.getItem(placeKey(doc)) ?? "null") as ReadingPlace | null;
+    return place?.version === REFLOW_VERSION ? place : null;
+  } catch {
+    return null;
+  }
+}
 
 function ToolButton({ tool, cur, set, label, icon }: { tool: Tool; cur: Tool; set: (t: Tool) => void; label: string; icon: React.ReactNode }) {
   return (

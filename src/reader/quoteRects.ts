@@ -45,9 +45,10 @@ interface Box {
 
 /**
  * Rectangles (0..1 of the page's width and height, top-left origin, as highlights are stored) that
- * cover the quote on one page. Null when the quote isn't on that page.
+ * cover the quote on one page. Null when the quote isn't on that page. `where` picks the occurrence
+ * when the quote appears more than once: the first, or the last (a passage that ends a page).
  */
-export async function rectsForQuote(pdf: PDFDoc, page: number, quote: string): Promise<Rect[] | null> {
+export async function rectsForQuote(pdf: PDFDoc, page: number, quote: string, where: "first" | "last" = "first"): Promise<Rect[] | null> {
   const wanted = squash(quote).text;
   if (!wanted) return null;
 
@@ -74,7 +75,7 @@ export async function rectsForQuote(pdf: PDFDoc, page: number, quote: string): P
   }
 
   const squashed = squash(text);
-  const start = squashed.text.indexOf(wanted);
+  const start = where === "last" ? squashed.text.lastIndexOf(wanted) : squashed.text.indexOf(wanted);
   if (start < 0) return null;
 
   // For each item the quote touches, the characters it covers, from the first to the last.
@@ -120,4 +121,50 @@ export async function rectsForQuote(pdf: PDFDoc, page: number, quote: string): P
     const y = unit(b.top, vp.height);
     return { x, y, w: unit(b.x1, vp.width) - x, h: unit(b.bottom, vp.height) - y };
   });
+}
+
+/**
+ * Where a passage sits when it may run over a page break: one part per page it touches, as a
+ * highlight is saved on each page of a page-view selection. It is looked for whole on the page the
+ * reading view says it starts on, then the page after and the page before, since a block can start
+ * on any of them. Null when no such pages hold it.
+ */
+export async function rectsForQuoteAcross(pdf: PDFDoc, page: number, quote: string): Promise<{ page: number; rects: Rect[] }[] | null> {
+  const wanted = squash(quote).text;
+  if (!wanted) return null;
+  const candidates = [page, page + 1, page - 1].filter((p) => p >= 1 && p <= pdf.numPages);
+  for (const p of candidates) {
+    const rects = await rectsForQuote(pdf, p, quote);
+    if (rects) return [{ page: p, rects }];
+  }
+  for (const p of candidates) {
+    if (p + 1 > pdf.numPages) continue;
+    const parts = await splitAcross(pdf, p, wanted);
+    if (parts) return parts;
+  }
+  return null;
+}
+
+/**
+ * A passage that starts on `page` and ends on the next one. The longest start of it that is on `page`
+ * is found first (the start only ever shortens to something still on the page, so a binary search
+ * works), and the rest must be at the top of the next page.
+ */
+async function splitAcross(pdf: PDFDoc, page: number, wanted: string): Promise<{ page: number; rects: Rect[] }[] | null> {
+  let lo = 1;
+  let hi = wanted.length - 1;
+  let head: Rect[] | null = null;
+  let cut = 0;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const rects = await rectsForQuote(pdf, page, wanted.slice(0, mid), "last");
+    if (rects) {
+      head = rects;
+      cut = mid;
+      lo = mid + 1;
+    } else hi = mid - 1;
+  }
+  if (!head) return null;
+  const tail = await rectsForQuote(pdf, page + 1, wanted.slice(cut), "first");
+  return tail ? [{ page, rects: head }, { page: page + 1, rects: tail }] : null;
 }

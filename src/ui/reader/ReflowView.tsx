@@ -96,7 +96,8 @@ export const ReflowView = memo(function ReflowView({ reflow, size, annotations, 
           const from = pageOf(range.startContainer);
           const to = pageOf(range.endContainer);
           if (from === null || to === null) return;
-          if (from !== to) return void toast("Select within one page to highlight");
+          // A passage may run over one page break, which highlightReading splits; a longer one can't be placed.
+          if (to > from + 1) return void toast("Select a shorter passage to highlight");
           const rects = Array.from(range.getClientRects());
           return onSelect({ text, page: from, anchor: rects[rects.length - 1] ?? range.getBoundingClientRect() });
         }
@@ -117,12 +118,17 @@ export const ReflowView = memo(function ReflowView({ reflow, size, annotations, 
 
   return (
     <div ref={ref} className="reflow" style={{ "--reflow-size": `${size}px` } as React.CSSProperties}>
+      {!!reflow.skipped?.length && (
+        <p className="reflow-status">
+          Couldn't read {reflow.skipped.length > 1 ? "pages" : "page"} {reflow.skipped.join(", ")}, so {reflow.skipped.length > 1 ? "they are" : "it is"} left out. The page view has {reflow.skipped.length > 1 ? "them" : "it"}.
+        </p>
+      )}
       {reflow.blocks.map((b, i) => {
         const Tag = b.kind === "p" ? "p" : b.level === 1 ? "h2" : b.level === 2 ? "h3" : "h4";
         return (
           <Fragment key={i}>
             {(i === 0 || reflow.blocks[i - 1].page !== b.page) && <div className="reflow-page">Page {b.page}</div>}
-            <Tag className="reflow-block" data-page={b.page}>
+            <Tag className="reflow-block" data-page={b.page} data-index={i}>
               {b.text}
             </Tag>
           </Fragment>

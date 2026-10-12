@@ -1,24 +1,36 @@
 /*
- * The reading view (ui/reader/ReflowView.tsx): the PDF's text as an article, in the column and type
- * of a saved article (article.css and .item-body in app.css).
+ * The reading view (ui/reader/ReflowView.tsx): the PDF's text set like a printed book. Paragraphs are
+ * justified and hyphenated, open with a first-line indent, and have no space between them. Headings
+ * sit on the left edge, and page numbers are small folios between paragraphs.
  */
 .reflow {
   position: relative; /* blocks measure their offsets from here (readingBlockAt) */
-  max-width: 720px;
+  /* About 70 characters a line, the measure of a printed page. */
+  max-width: min(34em, 760px);
   margin-inline: auto;
   padding: 16px 24px 96px;
   font: var(--reflow-size, 18px) / 1.65 var(--serif);
   overflow-wrap: break-word;
+  text-align: justify;
+  hyphens: auto;
+  -webkit-hyphens: auto;
 }
-.reflow-block {
-  margin: 0 0 0.9em;
+.reflow p.reflow-block {
+  margin: 0;
+  text-indent: 1.4em;
+}
+/* The first paragraph after a heading opens flush, as a book's first paragraph of a chapter does. */
+.reflow :is(h2, h3, h4).reflow-block + p.reflow-block {
+  text-indent: 0;
 }
 .reflow h2.reflow-block,
 .reflow h3.reflow-block,
 .reflow h4.reflow-block {
-  margin: 1.6em 0 0.5em;
+  margin: 1.6em 0 0.6em;
   font-weight: 600;
   line-height: 1.3;
+  text-align: left;
+  hyphens: manual;
 }
 .reflow h2.reflow-block {
   font-size: 1.4em;
@@ -29,9 +41,10 @@
 .reflow h4.reflow-block {
   font-size: 1em;
 }
-/* The "Page N" line where the page changes: quiet, and left out of a selection's copy. */
+/* The "Page N" folio where the page changes: small and centred, and left out of a selection's copy. */
 .reflow-page {
-  margin: 2em 0 1em;
+  margin: 1.4em 0 0.6em;
+  text-align: center;
   color: var(--muted);
   font-size: 12px;
   line-height: 1;

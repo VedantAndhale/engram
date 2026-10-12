@@ -8,7 +8,7 @@ import type { PDFDoc } from "../lib/pdf";
  */
 
 /** Changes whenever the extraction changes, so a cached reflow from an older version is rebuilt. */
-export const REFLOW_VERSION = 1;
+export const REFLOW_VERSION = 2;
 
 /** One paragraph or heading, in reading order, with the page it starts on (1-based). */
 export interface ReflowBlock {
@@ -23,6 +23,8 @@ export interface Reflow {
   version: number;
   pages: number;
   blocks: ReflowBlock[];
+  /** Pages whose text could not be read. They are left out, and the reader is told. */
+  skipped?: number[];
 }
 
 /** A word split at a line end: a letter, then a hyphen, and nothing after it. */
@@ -30,6 +32,8 @@ const SPLIT_WORD = /\p{L}[-­‐‑]$/u;
 const STARTS_LOWER = /^\p{Ll}/u;
 /** The end of a paragraph: . ! ? : or ), allowing a closing quote or bracket after it. */
 const ENDS_PARAGRAPH = /[.!?:)]["'’”»\]]*$/;
+/** A folio: a bare page number, "Page 3", "3 of 12", or a roman numeral. */
+const FOLIO = /^(page\s*)?\d+(\s*(of|\/)\s*\d+)?$|^[ivxlcdm]+$/i;
 /** The top and bottom 9 percent of a page, where running headers, footers and page numbers sit. */
 const EDGE = 0.09;
 
@@ -65,15 +69,22 @@ interface Line {
  */
 export async function extractReflow(pdf: PDFDoc, onProgress?: (done: number, total: number) => void): Promise<Reflow> {
   const pages: Line[][] = [];
+  const skipped: number[] = [];
   for (let n = 1; n <= pdf.numPages; n++) {
-    const page = await pdf.getPage(n);
-    const content = await page.getTextContent();
-    pages.push(linesOf(content.items, page.getViewport({ scale: 1 }), n));
-    page.cleanup();
+    // One page that won't read is left out, rather than failing the whole reading view.
+    try {
+      const page = await pdf.getPage(n);
+      const content = await page.getTextContent();
+      pages.push(linesOf(content.items, page.getViewport({ scale: 1 }), n));
+      page.cleanup();
+    } catch {
+      pages.push([]);
+      skipped.push(n);
+    }
     onProgress?.(n, pdf.numPages);
   }
   const kept = dropFurniture(pages);
-  return { version: REFLOW_VERSION, pages: pdf.numPages, blocks: layout(kept, bodySize(kept.flat())) };
+  return { version: REFLOW_VERSION, pages: pdf.numPages, blocks: layout(kept, bodySize(kept.flat())), ...(skipped.length ? { skipped } : {}) };
 }
 
 /**
@@ -144,25 +155,25 @@ function linesOf(items: Items, vp: Viewport, page: number): Line[] {
 const normalise = (text: string) => text.toLowerCase().replace(/\d/g, "#").replace(/\s+/g, " ").trim();
 
 /**
- * Drops running headers and footers that repeat down the document, and bare page numbers. Repeats
- * are only judged in documents of four pages or more: in a shorter one a repeated line is more
- * likely to be the text itself.
+ * Drops running headers and footers, and folios. A line in the top or bottom band of a page is a
+ * running head when it repeats in that band on other pages. A short document needs every readable
+ * page to carry it, since two pages can share a line by chance; a longer one needs a third of its
+ * pages, and at least three. Folios go wherever they sit in a band.
  */
 function dropFurniture(pages: Line[][]): Line[][] {
+  const readable = pages.filter((lines) => lines.length).length;
   const repeated = new Set<string>();
-  if (pages.length >= 4) {
+  if (readable >= 2) {
     const onPages = new Map<string, Set<number>>();
     for (const l of pages.flat()) {
       if (!l.edge) continue;
       const key = normalise(l.text);
       onPages.set(key, (onPages.get(key) ?? new Set<number>()).add(l.page));
     }
-    const least = Math.max(3, 0.3 * pages.length);
+    const least = readable >= 4 ? Math.max(3, 0.3 * readable) : readable;
     for (const [key, seen] of onPages) if (seen.size >= least) repeated.add(key);
   }
-  return pages.map((lines) =>
-    lines.filter((l) => !l.edge || (!/^\d+$/.test(l.text) && !repeated.has(normalise(l.text)))),
-  );
+  return pages.map((lines) => lines.filter((l) => !l.edge || (!FOLIO.test(l.text) && !repeated.has(normalise(l.text)))));
 }
 
 /** The most common size, each line counted by its length, so a few large headings don't win. */
@@ -204,11 +215,16 @@ function layout(pages: Line[][], body: number): ReflowBlock[] {
 
   /** Whether a body line carries on the paragraph before it, rather than starting a new one. */
   const continues = (text: string, prev: Line, line: Line) => {
-    // A paragraph that hasn't ended runs over the page break. The page's own margins don't apply there.
-    if (prev.page !== line.page) return !ENDS_PARAGRAPH.test(text);
+    // Over a page break a paragraph goes on unless its text ends a sentence. A line that starts in
+    // lower case always goes on, even after "et al." or a closing bracket. The page's margins don't apply there.
+    if (prev.page !== line.page) return STARTS_LOWER.test(line.text) || !ENDS_PARAGRAPH.test(text);
     if (line.y - prev.y > 1.6 * spacing) return false;
-    if (ENDS_PARAGRAPH.test(text) && prev.x1 - prev.x0 < 0.6 * widest[line.page - 1]) return false;
-    return line.x0 - margin[line.page - 1] <= 1.5 * body;
+    // A first line indented about an em starts a paragraph. A wrapped line sits on the margin.
+    if (line.x0 - margin[line.page - 1] > 0.5 * body) return false;
+    if (STARTS_LOWER.test(line.text)) return true;
+    // After a sentence, a short last line or a clear gap ends the paragraph. A wrapped line doesn't.
+    if (ENDS_PARAGRAPH.test(text) && (prev.x1 - prev.x0 < 0.6 * widest[line.page - 1] || line.y - prev.y > 1.2 * spacing)) return false;
+    return true;
   };
 
   const blocks: ReflowBlock[] = [];
