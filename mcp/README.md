@@ -29,6 +29,23 @@ a new file in a folder's `inbox/`, which waits there until you accept or dismiss
      every client out.
 3. Open Engram once on any device so each folder writes its `index.json`.
 
+## Sign-up list (optional)
+
+When someone signs in to the app, the server reads their primary verified GitHub email and records
+it with their login, name and sign-up date in an Airtable table you own. Signing in again updates
+the row. Without these variables nothing is recorded.
+
+1. Create an Airtable base with a table named `Signups` (or set `AIRTABLE_TABLE`). Add these fields:
+   `login` (single line text), `email` (email), `name` (single line text), `signed_up` (single line
+   text).
+2. Create a personal access token at airtable.com/create/tokens with `data.records:read` and
+   `data.records:write`, limited to that base.
+3. In Vercel, add `AIRTABLE_TOKEN` (the token) and `AIRTABLE_BASE_ID` (the base ID, starting `app`),
+   then redeploy.
+
+Airtable's free plan allows 1,000 records per base. Past that, sign-in still works and the server
+logs that a sign-up wasn't recorded, without the address.
+
 ## Connect a client
 
 Add `https://engram.vedant.me/api/mcp` as a remote MCP server. The client opens a page where you

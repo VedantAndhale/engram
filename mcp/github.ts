@@ -8,7 +8,8 @@ import { parseIndex, type IndexFile } from "../src/sync/indexfile.js";
  */
 
 /** Must match FOLDER_DESCRIPTION_PREFIX in src/sync/github.ts (not imported: that file is browser code). */
-const FOLDER_PREFIX = "Reader folder: ";
+const FOLDER_PREFIXES = ["Engram folder: ", "Reader folder: "]; // the second is repos made before the rename
+const folderPrefix = (description: string | null) => FOLDER_PREFIXES.find((p) => description?.startsWith(p));
 const API = "https://api.github.com";
 
 export class GitHubError extends Error {
@@ -84,15 +85,17 @@ export class GitHubReader {
     return (JSON.parse(body) as { login: string }).login;
   }
 
-  /** Every repo the token reaches that the app marked as a folder. */
+  /** Every repo this account owns that the app marked as a folder. Shared repos are not folders. */
   async folderRepos(): Promise<FolderRepo[]> {
+    const me = await this.login();
     const out: FolderRepo[] = [];
     for (let page = 1; page <= 10; page++) {
       const body = await this.get(`/user/repos?per_page=100&page=${page}&sort=full_name`);
       const repos = JSON.parse(body ?? "[]") as { name: string; owner: { login: string }; description: string | null; default_branch: string }[];
       for (const r of repos) {
-        if (!r.description?.startsWith(FOLDER_PREFIX)) continue;
-        out.push({ owner: r.owner.login, repo: r.name, branch: r.default_branch, name: r.description.slice(FOLDER_PREFIX.length).trim() || r.name });
+        const prefix = folderPrefix(r.description);
+        if (!prefix || r.owner.login !== me) continue;
+        out.push({ owner: r.owner.login, repo: r.name, branch: r.default_branch, name: r.description!.slice(prefix.length).trim() || r.name });
       }
       if (repos.length < 100) break;
     }

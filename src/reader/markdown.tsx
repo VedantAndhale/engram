@@ -32,6 +32,45 @@ const MARKS = new Set([
 
 const safeUrl = (u: string) => (/^https?:\/\//i.test(u) ? u : undefined);
 
+const HEADING = /^(?:ATX|Setext)Heading(\d)$/;
+/** The blocks that can hold a heading. Headings never sit inside a table, code or a paragraph. */
+const CONTAINERS = new Set(["Blockquote", "BulletList", "OrderedList", "ListItem"]);
+
+export interface ArticleHeading {
+  /** The id the rendered heading carries, so a contents link can scroll to it. */
+  id: string;
+  /** The Markdown depth, 1 to 6, not the rendered one: the outline keeps the real structure. */
+  level: number;
+  /** The heading's words, without its Markdown marks. */
+  text: string;
+}
+
+const headingId = (i: number) => `h-${i}`;
+
+/** Every heading in reading order. Rendering and the contents list both number headings this way. */
+function headingNodes(top: SyntaxNode): SyntaxNode[] {
+  const out: SyntaxNode[] = [];
+  const walk = (n: SyntaxNode) => {
+    for (const c of children(n)) {
+      if (HEADING.test(c.name)) out.push(c);
+      else if (CONTAINERS.has(c.name)) walk(c);
+    }
+  };
+  walk(top);
+  return out;
+}
+
+/** The article's headings for its contents list, with the ids ArticleBody gives them. */
+export function articleHeadings(text: string): ArticleHeading[] {
+  return headingNodes(md.parse(text).topNode)
+    .map((n, i) => ({
+      id: headingId(i),
+      level: Number(HEADING.exec(n.name)?.[1]),
+      text: plain(n, text).replace(/\s+/g, " ").trim(),
+    }))
+    .filter((h) => h.text !== "");
+}
+
 export function ArticleBody({ text, markdown }: { text: string; markdown: boolean }) {
   if (!markdown) {
     return (
@@ -47,7 +86,8 @@ export function ArticleBody({ text, markdown }: { text: string; markdown: boolea
     );
   }
   const tree = md.parse(text);
-  return <>{blocks(tree.topNode, text)}</>;
+  const ids = new Map<number, string>(headingNodes(tree.topNode).map((n, i): [number, string] => [n.from, headingId(i)]));
+  return <>{blocks(tree.topNode, text, ids)}</>;
 }
 
 function children(node: SyntaxNode): SyntaxNode[] {
@@ -56,35 +96,39 @@ function children(node: SyntaxNode): SyntaxNode[] {
   return out;
 }
 
-function blocks(node: SyntaxNode, src: string): ReactNode[] {
+function blocks(node: SyntaxNode, src: string, ids: Map<number, string>): ReactNode[] {
   return children(node)
     .filter((c) => !MARKS.has(c.name))
-    .map((c, i) => block(c, src, i));
+    .map((c, i) => block(c, src, i, ids));
 }
 
-function block(n: SyntaxNode, src: string, key: number): ReactNode {
-  const h = /^(?:ATX|Setext)Heading(\d)$/.exec(n.name);
+function block(n: SyntaxNode, src: string, key: number, ids: Map<number, string>): ReactNode {
+  const h = HEADING.exec(n.name);
   if (h) {
     const Tag = `h${Math.min(6, Number(h[1]) + 1)}` as "h2"; // the item's title is the page's h1
-    return <Tag key={key}>{inline(n, src)}</Tag>;
+    return (
+      <Tag key={key} id={ids.get(n.from)}>
+        {inline(n, src)}
+      </Tag>
+    );
   }
   switch (n.name) {
     case "Paragraph":
       return <p key={key}>{inline(n, src)}</p>;
     case "Blockquote":
-      return <blockquote key={key}>{blocks(n, src)}</blockquote>;
+      return <blockquote key={key}>{blocks(n, src, ids)}</blockquote>;
     case "BulletList":
-      return <ul key={key}>{blocks(n, src)}</ul>;
+      return <ul key={key}>{blocks(n, src, ids)}</ul>;
     case "OrderedList": {
       const start = parseInt(src.slice(n.from, n.to), 10);
       return (
         <ol key={key} start={start > 1 ? start : undefined}>
-          {blocks(n, src)}
+          {blocks(n, src, ids)}
         </ol>
       );
     }
     case "ListItem":
-      return <li key={key}>{blocks(n, src)}</li>;
+      return <li key={key}>{blocks(n, src, ids)}</li>;
     case "FencedCode": {
       const code = n.getChild("CodeText");
       return (
@@ -156,6 +200,21 @@ function inline(n: SyntaxNode, src: string, from = n.from, to = n.to): ReactNode
   const last = out.length - 1;
   if (typeof out[last] === "string") out[last] = (out[last] as string).replace(/\s+$/, "");
   return out;
+}
+
+/** A heading's words as a reader sees them: its marks and formatting dropped, its text kept. */
+function plain(n: SyntaxNode, src: string): string {
+  let out = "";
+  let pos = n.from;
+  for (const c of children(n)) {
+    out += src.slice(pos, c.from);
+    pos = c.to;
+    if (c.name === "Autolink") out += src.slice(c.from, c.to).replace(/^<|>$/g, "");
+    else if (c.name === "Escape") out += src.slice(c.from + 1, c.to);
+    else if (c.name === "Entity") out += decodeEntity(src.slice(c.from, c.to));
+    else if (!MARKS.has(c.name)) out += plain(c, src);
+  }
+  return out + src.slice(pos, n.to);
 }
 
 /** Text between a node's opening and closing marks. */

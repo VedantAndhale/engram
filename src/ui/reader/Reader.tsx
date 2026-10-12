@@ -5,6 +5,7 @@ import {
   ChevronUp,
   Eraser,
   Highlighter,
+  ListTree,
   MousePointer2,
   NotebookPen,
   PenLine,
@@ -19,12 +20,13 @@ import { openPdf, type PDFDoc } from "../../lib/pdf";
 import { clamp } from "../../lib/util";
 import { INK_COLORS, type Annotation, type Folder } from "../../model";
 import { selectionRects } from "../../reader/geometry";
+import { loadOutline, type OutlineEntry } from "../../reader/outline";
 import { deleteAnnotation, ensureThumb, indexDocument, loadPdfData, saveAnnotation, savePosition, updateAnnotation } from "../../store/actions";
 import { noteFromHighlight } from "../../notes/notes";
 import { navigate, toast } from "../../store/ui";
 import { useAccount } from "../../sync/account";
 import { SyncBadge, useFolderSync } from "../common";
-import { NotesPanel } from "./NotesPanel";
+import { NotesPanel, type PanelTab } from "./NotesPanel";
 import { PageView, type PageSize, type Tool } from "./PageView";
 import { AnnotationPopover, lastColor, SelectionPopover, setLastColor } from "./Popovers";
 import { useTouchTools } from "./touch";
@@ -35,7 +37,11 @@ const ZOOM_STEPS = [0.5, 0.67, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3];
 /** Fit-to-width stops growing past this, so lines stay readable on wide screens. */
 const MAX_FIT_WIDTH = 980;
 
-type Load = { state: "loading" } | { state: "missing" } | { state: "error"; message: string } | { state: "ready"; pdf: PDFDoc; sizes: PageSize[] };
+type Load =
+  | { state: "loading" }
+  | { state: "missing" }
+  | { state: "error"; message: string }
+  | { state: "ready"; pdf: PDFDoc; sizes: PageSize[]; outline: OutlineEntry[] };
 
 export function Reader({ folder, doc, page: startPage, find: startFind }: { folder: Folder; doc: string; page?: number; find?: string }) {
   const { db } = folderCtx(folder.id);
@@ -54,6 +60,7 @@ export function Reader({ folder, doc, page: startPage, find: startFind }: { fold
   const [inkColor, setInkColor] = useState(() => localStorage.getItem("reader.ink") ?? INK_COLORS[0]);
   const inkSize = 4;
   const [panel, setPanel] = useState(() => localStorage.getItem("reader.panel") === "1" && window.innerWidth > 900);
+  const [panelTab, setPanelTab] = useState<PanelTab>("all");
   const [findOpen, setFindOpen] = useState(!!startFind);
   const [findText, setFindText] = useState(startFind ?? "");
   const [selection, setSelection] = useState<{ anchor: DOMRect; text: string; rects: Map<number, Annotation["rects"]> } | null>(null);
@@ -71,6 +78,7 @@ export function Reader({ folder, doc, page: startPage, find: startFind }: { fold
         if (cancelled) return;
         if (!data) return setLoad({ state: "missing" });
         pdf = await openPdf(data);
+        const toc = await loadOutline(pdf);
         // Every page's size up front, so the scrollbar is right from the start.
         const sizes: PageSize[] = [];
         for (let i = 1; i <= pdf.numPages; i++) {
@@ -78,7 +86,7 @@ export function Reader({ folder, doc, page: startPage, find: startFind }: { fold
           sizes.push({ w: vp.width, h: vp.height });
         }
         if (cancelled) return;
-        setLoad({ state: "ready", pdf, sizes });
+        setLoad({ state: "ready", pdf, sizes, outline: toc });
         void ensureThumb(folder.id, doc, data);
         void indexDocument(folder.id, doc, data);
       } catch (e) {
@@ -106,6 +114,7 @@ export function Reader({ folder, doc, page: startPage, find: startFind }: { fold
   }, [load.state]);
 
   const sizes = load.state === "ready" ? load.sizes : [];
+  const outline = load.state === "ready" ? load.outline : NO_OUTLINE;
   const fit = useMemo(() => {
     const widest = Math.max(1, ...sizes.map((s) => s.w));
     return Math.max(0.2, Math.min(viewW - PAD * 2, MAX_FIT_WIDTH) / widest);
@@ -384,7 +393,7 @@ export function Reader({ folder, doc, page: startPage, find: startFind }: { fold
       else if (e.key === "h") setTool((t) => (t === "highlight" ? "select" : "highlight"));
       else if (e.key === "d") setTool((t) => (t === "ink" ? "select" : "ink"));
       else if (e.key === "e") setTool((t) => (t === "eraser" ? "select" : "eraser"));
-      else if (e.key === "n") togglePanel();
+      else if (e.key === "n") openNotes();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -395,6 +404,21 @@ export function Reader({ folder, doc, page: startPage, find: startFind }: { fold
       localStorage.setItem("reader.panel", p ? "0" : "1");
       return !p;
     });
+
+  // Notes always opens on All, so a Contents visit doesn't leave it showing the outline.
+  const openNotes = () => {
+    if (!panel) setPanelTab("all");
+    togglePanel();
+  };
+
+  // The Contents button opens the panel on its tab, or closes the panel when it is already showing that.
+  const openContents = () => {
+    if (panel && panelTab === "contents") togglePanel();
+    else {
+      setPanelTab("contents");
+      if (!panel) togglePanel();
+    }
+  };
 
   // ---- Render -------------------------------------------------------------------------------
 
@@ -407,7 +431,7 @@ export function Reader({ folder, doc, page: startPage, find: startFind }: { fold
   const near = (i: number) => tops[i + 1] > view.top - view.height && tops[i] < view.top + view.height * 2;
 
   return (
-    <div className={`reader ${panel ? "with-panel" : ""}`}>
+    <div className="reader">
       <header className="reader-bar">
         <button className="icon-btn" aria-label="Back to library" title="Back to library (Esc)" onClick={() => navigate({ name: "library", folder: folder.id })}>
           <ArrowLeft size={20} />
@@ -446,7 +470,7 @@ export function Reader({ folder, doc, page: startPage, find: startFind }: { fold
           </div>
         )}
 
-        <div className="toolgroup hide-narrow">
+        <div className="toolgroup reader-zoom">
           <button className="icon-btn" aria-label="Zoom out" title="Zoom out (Ctrl −)" onClick={() => changeZoom(-1)}>
             <ZoomOut size={18} />
           </button>
@@ -461,7 +485,12 @@ export function Reader({ folder, doc, page: startPage, find: startFind }: { fold
         <button className={`icon-btn ${findOpen ? "on" : ""}`} aria-label="Find in document" title="Find (Ctrl F)" onClick={() => setFindOpen((o) => !o)}>
           <SearchIcon size={18} />
         </button>
-        <button className={`icon-btn ${panel ? "on" : ""}`} aria-label="Notes" title="Notes (N)" onClick={togglePanel}>
+        {outline.length > 0 && (
+          <button className={`icon-btn ${panel && panelTab === "contents" ? "on" : ""}`} aria-label="Contents" title="Contents" onClick={openContents}>
+            <ListTree size={18} />
+          </button>
+        )}
+        <button className={`icon-btn ${panel ? "on" : ""}`} aria-label="Notes" title="Notes (N)" onClick={openNotes}>
           <NotebookPen size={18} />
           {annotations.length > 0 && <span className="count">{annotations.length}</span>}
         </button>
@@ -556,11 +585,18 @@ export function Reader({ folder, doc, page: startPage, find: startFind }: { fold
         </div>
         {panel && (
           <NotesPanel
-            title={title}
+            item={meta}
             annotations={annotations}
+            outline={outline}
+            tab={panelTab}
+            onTab={setPanelTab}
             me={account?.login}
             onJump={(a) => {
               scrollToPage(a.page, Math.max(0, (a.rects?.[0]?.y ?? 0) - 0.15), true);
+              if (window.innerWidth < 900) setPanel(false);
+            }}
+            onPage={(page) => {
+              scrollToPage(page, 0, true);
               if (window.innerWidth < 900) setPanel(false);
             }}
             onClose={togglePanel}
@@ -572,6 +608,8 @@ export function Reader({ folder, doc, page: startPage, find: startFind }: { fold
         <SelectionPopover
           anchor={selection.anchor}
           text={selection.text}
+          item={meta}
+          page={[...selection.rects.keys()][0]}
           onHighlight={(color) => void highlight(color, selection.rects, selection.text, true)}
           onClose={() => setSelection(null)}
         />
@@ -581,6 +619,7 @@ export function Reader({ folder, doc, page: startPage, find: startFind }: { fold
           key={picked.id}
           anchor={picked.anchor}
           annotation={pickedAnnotation}
+          item={meta}
           startEditing={picked.edit}
           onChange={changePicked}
           onDelete={() => void deleteWithUndo(picked.id, "Highlight")}
@@ -601,6 +640,7 @@ export function Reader({ folder, doc, page: startPage, find: startFind }: { fold
 
 const EMPTY: Annotation[] = [];
 const EMPTY_TERMS: string[] = [];
+const NO_OUTLINE: OutlineEntry[] = [];
 
 function ToolButton({ tool, cur, set, label, icon }: { tool: Tool; cur: Tool; set: (t: Tool) => void; label: string; icon: React.ReactNode }) {
   return (

@@ -143,6 +143,7 @@ export function ArticleView({
         <SelectionPopover
           anchor={selection.anchor}
           text={selection.range.toString()}
+          item={item}
           onHighlight={(color, withNote) => void highlight(color, selection.range, withNote)}
           onClose={() => setSelection(null)}
         />
@@ -151,6 +152,7 @@ export function ArticleView({
         <AnnotationPopover
           anchor={picked.anchor}
           annotation={pickedAnnotation}
+          item={item}
           startEditing={picked.edit}
           onChange={(patch) => void updateAnnotation(folder.id, pickedAnnotation.id, patch)}
           onDelete={async () => {

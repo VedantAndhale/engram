@@ -52,6 +52,11 @@ export function serializeItem(item: Item, annotations: Annotation[]): string {
     // Obsidian finds files by name; the alias lets [[Title]] reach "title-1a2b3c4d.md".
     ["aliases", [item.title]],
     ["source_url", item.sourceUrl],
+    ["author", item.author || undefined],
+    ["site_name", item.siteName || undefined],
+    ["description", item.description || undefined],
+    ["published", item.published || undefined],
+    ["source", item.source || undefined],
     ["content_format", item.content ? item.contentFormat : undefined],
     ["captured_at", iso(item.addedAt)],
     ["added_by", item.addedBy],
@@ -133,6 +138,11 @@ export function parseItem(text: string, path: string): { item: Item; annotations
   // Build in the same key order as the app does, so equal items compare equal.
   const item: Item = { id, type, title: str("title") ?? "Untitled", addedAt, updatedAt, path };
   if (str("source_url")) item.sourceUrl = str("source_url");
+  if (str("author")) item.author = str("author");
+  if (str("site_name")) item.siteName = str("site_name");
+  if (str("description")) item.description = str("description");
+  if (str("published")) item.published = str("published");
+  if (str("source")) item.source = str("source");
   if (body) item.body = body;
   if (content) item.content = content;
   if (content && fm.content_format === "markdown") item.contentFormat = "markdown";

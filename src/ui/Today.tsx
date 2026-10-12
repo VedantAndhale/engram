@@ -7,9 +7,11 @@ import { setHabit, useHabit } from "../habit/prefs";
 import { allCards, rate, saveWords, weekStats, type Card } from "../habit/review";
 import { timeAgo } from "../lib/util";
 import { dailyNote } from "../notes/notes";
+import type { ItemType } from "../model";
 import { lastFolder, navigate, openQuickAdd } from "../store/ui";
 import { useAccount } from "../sync/account";
 import { BookmarkletCard } from "./Capture";
+import { partlyRead } from "../reader/articlePosition";
 import { ReminderDialog, TopicsDialog } from "./habit";
 import { AgentInbox } from "./Inbox";
 
@@ -35,14 +37,26 @@ export function Today({ onOpenSidebar }: { onOpenSidebar: () => void }) {
   }, [cards, queue]);
 
   const library = useLiveQuery(async () => {
-    const out: { folder: string; hash: string; pdf: boolean; title: string; page: number; pages: number; at: number; topics: string[] }[] = [];
+    const out: { folder: string; hash: string; type: ItemType; pdf: boolean; title: string; page: number; pages: number; at: number; topics: string[]; articleRead?: number }[] = [];
     for (const f of await visibleFolders()) {
       const { db } = folderCtx(f.id);
       const pos = new Map((await db.positions.toArray()).map((p) => [p.doc, p]));
       for (const d of await db.items.toArray()) {
         if (d.deleted) continue;
         const p = pos.get(d.id);
-        out.push({ folder: f.id, hash: d.id, pdf: d.type === "pdf", title: d.title, page: p?.page ?? 1, pages: d.pages ?? 1, at: p?.updatedAt ?? 0, topics: d.topics ?? [] });
+        // An article part way through is read by its fraction, not by page.
+        out.push({
+          folder: f.id,
+          hash: d.id,
+          type: d.type,
+          pdf: d.type === "pdf",
+          title: d.title,
+          page: p?.page ?? 1,
+          pages: d.pages ?? 1,
+          at: p?.updatedAt ?? 0,
+          topics: d.topics ?? [],
+          articleRead: partlyRead(p) ? p.offset : undefined,
+        });
       }
     }
     return out;
@@ -54,7 +68,8 @@ export function Today({ onOpenSidebar }: { onOpenSidebar: () => void }) {
   const due = cards.filter((c) => c.due <= now).length;
   const current = cards.find((c) => c.key === queue[pos]);
   const stats = weekStats(cards, now);
-  const lastRead = library.filter((d) => d.pdf && d.at).sort((a, b) => b.at - a.at)[0];
+  // The last thing read: a PDF with a saved position, or an article part way through.
+  const lastRead = library.filter((d) => (d.pdf && d.at) || d.articleRead !== undefined).sort((a, b) => b.at - a.at)[0];
   const growth = topics.map((t) => {
     const docs = library.filter((d) => d.topics.includes(t));
     const hashes = new Set(docs.map((d) => d.hash));
@@ -106,10 +121,11 @@ export function Today({ onOpenSidebar }: { onOpenSidebar: () => void }) {
             </h2>
             {lastRead ? (
               <>
-                <a className="continue" href={`#/f/${lastRead.folder}/doc/${lastRead.hash}?page=${lastRead.page}`}>
+                <a className="continue" href={itemHref(lastRead.folder, { id: lastRead.hash, type: lastRead.type }, lastRead.page)}>
                   <strong>{lastRead.title}</strong>
                   <span className="muted">
-                    Page {lastRead.page} of {lastRead.pages} · {timeAgo(lastRead.at)}
+                    {lastRead.articleRead !== undefined ? `${Math.round(lastRead.articleRead * 100)}% read` : `Page ${lastRead.page} of ${lastRead.pages}`} ·{" "}
+                    {timeAgo(lastRead.at)}
                   </span>
                 </a>
                 <p className="hint">When a sentence matters, highlight it and write one line about why.</p>

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { asCapture, bookmarkletHref, READY, type CaptureMessage } from "../capture/bookmarklet";
 import {
   asUrl,
+  fetchedLater,
   hostOf,
   itemHref,
   saveLink,
@@ -67,6 +68,7 @@ function QuickAddDialog({ prefill }: { prefill: QuickAddPrefill }) {
   const [text, setText] = useState(prefill.text ?? "");
   const [chosenKind, setKind] = useState<CaptureKind | null>(null);
   const [title, setTitle] = useState(prefill.title ?? "");
+  const [source, setSource] = useState("");
   const [words, setWords] = useState("");
   const [topics, setTopics] = useState<string[]>([]);
   const [folderId, setFolderId] = useState(prefill.folder ?? lastFolder() ?? "");
@@ -84,7 +86,7 @@ function QuickAddDialog({ prefill }: { prefill: QuickAddPrefill }) {
       let item;
       let existed = false;
       if (kind === "link") ({ item, existed } = await saveLink(folder.id, { url: url!, title: title.trim() || undefined, words, topics }));
-      else if (kind === "quote") item = await saveQuote(folder.id, { quote: text, words, topics });
+      else if (kind === "quote") item = await saveQuote(folder.id, { quote: text, source, words, topics });
       else item = await saveNote(folder.id, { text, topics });
       rememberTopics(topics);
       closeQuickAdd();
@@ -145,6 +147,13 @@ function QuickAddDialog({ prefill }: { prefill: QuickAddPrefill }) {
           </label>
         )}
 
+        {kind === "quote" && (
+          <label>
+            <span>Source</span>
+            <input value={source} placeholder="A book, a speaker or a page (optional)" onChange={(e) => setSource(e.target.value)} />
+          </label>
+        )}
+
         {kind !== "note" && (
           <label>
             <span>In your own words</span>
@@ -160,7 +169,10 @@ function QuickAddDialog({ prefill }: { prefill: QuickAddPrefill }) {
         {folders && folder && <FolderSelect folders={folders} value={folder.id} onChange={setFolderId} />}
 
         {kind === "link" && url && (
-          <p className="hint">Only the link is saved from here. To keep the page's text too, use Save to Engram on the page itself.</p>
+          <p className="hint">
+            {fetchedLater(url) && "The page's text and details, like its author and date, are fetched in the background. "}To keep a passage you've
+            selected, use Save to Engram on the page.
+          </p>
         )}
 
         <footer>
@@ -222,6 +234,10 @@ export function SavePage() {
         text: page.data.text,
         html: page.data.html || undefined,
         selection: page.data.selection,
+        author: page.data.author,
+        siteName: page.data.siteName,
+        description: page.data.description,
+        published: page.data.published,
         type,
         words,
         topics,
@@ -309,8 +325,12 @@ export function SavePage() {
         </div>
         {folders && folder && <FolderSelect folders={folders} value={folder.id} onChange={setFolderId} />}
         <p className="hint">
-          {page.data.text.trim() ? `Keeps the page's text (${Math.round(page.data.text.length / 1000) || 1}k characters)` : "Keeps the link"}
-          {selection ? " and your selection as a highlight." : "."}
+          {page.data.text.trim()
+            ? `Keeps the page's text (${Math.round(page.data.text.length / 1000) || 1}k characters)`
+            : fetchedLater(page.data.url)
+              ? "Keeps the link. Its text and details are fetched in the background"
+              : "Keeps the link"}
+          {selection ? ", with your selection as a highlight." : "."}
         </p>
         <footer>
           <button type="button" className="btn" onClick={() => window.close()}>

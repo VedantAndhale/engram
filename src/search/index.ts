@@ -1,5 +1,6 @@
 import MiniSearch from "minisearch";
 import type { ReaderDB } from "../db/db";
+import type { Item } from "../model";
 
 export interface SearchHit {
   id: string;
@@ -65,10 +66,11 @@ export class LibrarySearch {
       .toArray();
 
     // Items that aren't PDFs (links, posts, quotes, notes) have no pages; scan their text directly.
+    // Topics are searched on every item, PDFs included, so a topic finds the documents filed under it.
     const items = await this.db.items
       .filter((i) => {
-        if (i.deleted || i.type === "pdf") return false;
-        const hay = `${i.title} ${i.body ?? ""} ${i.content ?? ""}`.toLowerCase();
+        if (i.deleted) return false;
+        const hay = itemText(i).join(" ").toLowerCase();
         return words.every((w) => hay.includes(w));
       })
       .limit(limit)
@@ -94,7 +96,7 @@ export class LibrarySearch {
         doc: i.id,
         page: 0,
         kind: "page",
-        text: [i.body, i.content, i.title].find((t) => t && words.some((w) => t.toLowerCase().includes(w))) ?? i.title,
+        text: itemText(i).find((t) => t && words.some((w) => t.toLowerCase().includes(w))) ?? i.title,
         terms: words,
       })),
       ...pages.map<SearchHit>((r) => ({
@@ -107,6 +109,12 @@ export class LibrarySearch {
       })),
     ];
   }
+}
+
+/** The text an item is searched by. A PDF's words live on its pages, so only its topics are kept here. */
+function itemText(i: Item): (string | undefined)[] {
+  const topics = (i.topics ?? []).join(", ");
+  return i.type === "pdf" ? [topics] : [i.body, i.content, i.title, topics];
 }
 
 /** A short excerpt around the first matching term. */

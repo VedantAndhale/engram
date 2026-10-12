@@ -6,7 +6,7 @@ import { LibrarySearch, type SearchHit } from "../search/index";
 import { toast } from "../store/ui";
 import { getAccount, saveAccount, useAccount, type SignInStatus } from "../sync/account";
 import { type Attention, getFolderSync, recordWrites, SyncEngine } from "../sync/engine";
-import { FOLDER_DESCRIPTION_PREFIX, GitHub, GitHubError, type RepoSummary } from "../sync/github";
+import { GitHub, GitHubError, isFolderDescription, type RepoSummary } from "../sync/github";
 import { parseFolderFile } from "../sync/merge";
 import { FOLDER_FILE } from "../sync/paths";
 import type { SignInReturn } from "../sync/signin";
@@ -139,7 +139,7 @@ function repoSlug(name: string) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 60);
-  return `reader-${slug || "folder"}`;
+  return `engram-${slug || "folder"}`;
 }
 
 /** Friendly explanation for the usual reason repo creation fails: the sign-in can't do it. */
@@ -193,8 +193,9 @@ export async function ensureRepos(): Promise<string | null> {
 }
 
 /**
- * Find folder repositories this account can reach: ones made on other devices, and ones
- * others shared with you. A repo counts only if its reader.json says it is a Reader folder.
+ * Find this account's folder repositories: ones made on other devices. Repositories owned by
+ * someone else are not folders here. A repo counts only if its description and reader.json say
+ * it is a folder.
  */
 export async function discoverFolders(): Promise<number> {
   const account = getAccount();
@@ -205,7 +206,7 @@ export async function discoverFolders(): Promise<number> {
   const byRepo = new Map(folders.filter((f) => f.repo).map((f) => [repoKey(f.repo!), f]));
   let added = 0;
   for (const r of repos) {
-    if (!r.description?.startsWith(FOLDER_DESCRIPTION_PREFIX)) continue;
+    if (r.owner.login !== account.login || !isFolderDescription(r.description)) continue;
     const known = byRepo.get(repoKey({ owner: r.owner.login, repo: r.name }));
     if (known) {
       if (known.isPrivate !== r.private) await appDb.folders.update(known.id, { isPrivate: r.private });
@@ -228,47 +229,6 @@ async function addFolderFromRepo(gh: GitHub, r: RepoSummary): Promise<Folder | n
     : { id: file.id, name: file.name, repo: ref, isPrivate: r.private, createdAt: Date.now(), updatedAt: file.updatedAt };
   await appDb.folders.put(folder);
   await folderCtx(folder.id).sync.attach(ref);
-  return folder;
-}
-
-/**
- * Add a repository someone shared with you, by "owner/name" or its GitHub URL.
- * Public repositories are refused: folders hold private reading.
- */
-export async function adoptRepo(input: string): Promise<Folder> {
-  const account = getAccount();
-  if (!account) throw new Error("Connect GitHub first.");
-  const m = /(?:github\.com\/)?([A-Za-z0-9-]+)\/([A-Za-z0-9._-]+?)(?:\.git)?\/?$/.exec(input.trim());
-  if (!m) throw new Error('Enter the repository as "owner/name" or paste its GitHub link.');
-  const gh = new GitHub(account.token);
-  let r: RepoSummary;
-  try {
-    r = await gh.getRepo(m[1], m[2]);
-  } catch (e) {
-    if (e instanceof GitHubError && (e.status === 404 || e.status === 403)) {
-      throw new Error(
-        "Can't open that repository. Check the name and that you've accepted the invitation. If an organization owns it, the organization may need to approve Engram.",
-      );
-    }
-    throw e;
-  }
-  if (!r.private) throw new Error("That repository is public. Make it private on GitHub, then add it.");
-  if (r.permissions && !r.permissions.push) throw new Error("You can read that repository but not write to it.");
-  const known = (await appDb.folders.toArray()).find((f) => f.repo && repoKey(f.repo) === repoKey({ owner: r.owner.login, repo: r.name }));
-  if (known) {
-    if (known.hidden) {
-      await appDb.folders.update(known.id, { hidden: false });
-      await folderCtx(known.id).sync.attach(known.repo);
-    }
-    return (await appDb.folders.get(known.id))!;
-  }
-  const fromMarker = await addFolderFromRepo(gh, r);
-  if (fromMarker) return fromMarker;
-  // A plain repository: turn it into a folder. The engine writes reader.json on first sync.
-  const now = Date.now();
-  const folder: Folder = { id: uid(), name: r.name.replace(/^reader-/, ""), repo: refOf(r), isPrivate: true, createdAt: now, updatedAt: now };
-  await appDb.folders.put(folder);
-  await folderCtx(folder.id).sync.attach(folder.repo);
   return folder;
 }
 

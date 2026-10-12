@@ -1,38 +1,61 @@
 import { Download, PenLine, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { timeAgo } from "../../lib/util";
-import type { Annotation } from "../../model";
+import type { Annotation, Item } from "../../model";
+import { downloadMarkdown, itemToMarkdown, markdownFilename } from "../../notes/export";
+import type { OutlineEntry } from "../../reader/outline";
+import "../../styles/reader.css";
 
-type Filter = "all" | "notes" | "ink";
+export type PanelTab = "contents" | "all" | "notes" | "ink";
+
+const TABS: { id: PanelTab; label: string }[] = [
+  { id: "contents", label: "Contents" },
+  { id: "all", label: "All" },
+  { id: "notes", label: "With notes" },
+  { id: "ink", label: "Drawings" },
+];
 
 export function NotesPanel({
-  title,
+  item,
   annotations,
+  outline,
+  tab,
+  onTab,
   me,
   onJump,
+  onPage,
   onClose,
 }: {
-  title: string;
+  item?: Item;
   annotations: Annotation[];
+  outline: OutlineEntry[];
+  tab: PanelTab;
+  onTab: (tab: PanelTab) => void;
   me?: string;
   onJump: (a: Annotation) => void;
+  onPage: (page: number) => void;
   onClose: () => void;
 }) {
-  const [filter, setFilter] = useState<Filter>("all");
+  // A PDF with no table of contents has no Contents tab at all.
+  const tabs = TABS.filter((t) => t.id !== "contents" || outline.length > 0);
   const list = useMemo(
     () =>
       annotations
-        .filter((a) => (filter === "notes" ? !!a.note : filter === "ink" ? a.kind === "ink" : true))
+        .filter((a) => (tab === "notes" ? !!a.note : tab === "ink" ? a.kind === "ink" : true))
         .sort((a, b) => a.page - b.page || (a.rects?.[0]?.y ?? 0) - (b.rects?.[0]?.y ?? 0) || a.createdAt - b.createdAt),
-    [annotations, filter],
+    [annotations, tab],
   );
 
+  const exportMarkdown = () => {
+    if (item) downloadMarkdown(markdownFilename(item.title), itemToMarkdown(item, annotations));
+  };
+
   return (
-    <aside className="notes-panel" aria-label="Highlights and notes">
+    <aside className="notes-panel" aria-label="Contents, highlights and notes">
       <header className="notes-head">
         <h2>Notes</h2>
         <div className="spacer" />
-        <button className="icon-btn" title="Export as Markdown" disabled={!annotations.length} onClick={() => exportMarkdown(title, annotations)}>
+        <button className="icon-btn" title="Export as Markdown" disabled={!item || !annotations.length} onClick={exportMarkdown}>
           <Download size={16} />
         </button>
         <button className="icon-btn" aria-label="Close notes" onClick={onClose}>
@@ -40,13 +63,24 @@ export function NotesPanel({
         </button>
       </header>
       <div className="seg" role="tablist">
-        {(["all", "notes", "ink"] as const).map((f) => (
-          <button key={f} role="tab" aria-selected={filter === f} className={filter === f ? "on" : ""} onClick={() => setFilter(f)}>
-            {f === "all" ? "All" : f === "notes" ? "With notes" : "Drawings"}
+        {tabs.map((t) => (
+          <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? "on" : ""} onClick={() => onTab(t.id)}>
+            {t.label}
           </button>
         ))}
       </div>
-      {list.length === 0 ? (
+      {tab === "contents" ? (
+        <ol className="notes-list">
+          {outline.map((e, i) => (
+            <li key={i}>
+              <button className="contents-item" style={{ "--depth": e.depth } as React.CSSProperties} onClick={() => onPage(e.page)}>
+                <span className="contents-title">{e.title}</span>
+                <span className="contents-page">{e.page}</span>
+              </button>
+            </li>
+          ))}
+        </ol>
+      ) : list.length === 0 ? (
         <p className="notes-empty">
           {annotations.length ? "Nothing matches this filter." : "Select text to highlight it. Your highlights and notes will show up here."}
         </p>
@@ -77,19 +111,4 @@ export function NotesPanel({
       )}
     </aside>
   );
-}
-
-function exportMarkdown(title: string, annotations: Annotation[]) {
-  const lines = [`# ${title}`, ""];
-  const sorted = annotations.filter((a) => a.kind === "highlight").sort((a, b) => a.page - b.page || (a.rects?.[0]?.y ?? 0) - (b.rects?.[0]?.y ?? 0));
-  for (const a of sorted) {
-    lines.push(`> ${(a.quote ?? "").replace(/\s+/g, " ").trim()}`, "");
-    if (a.note) lines.push(a.note, "");
-    lines.push(`— page ${a.page}`, "");
-  }
-  const blob = new Blob([lines.join("\n")], { type: "text/markdown" });
-  const url = URL.createObjectURL(blob);
-  const link = Object.assign(document.createElement("a"), { href: url, download: `${title.replace(/[\\/:*?"<>|]+/g, " ").trim() || "notes"}.md` });
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

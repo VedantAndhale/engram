@@ -4,7 +4,8 @@ import { hostOf, itemHref, titleFromText, TYPE_LABELS } from "../capture/capture
 import { useEffect, useRef, useState } from "react";
 import { folderCtx, renameFolder, setAttention, visibleFolders } from "../folders/registry";
 import { formatBytes, timeAgo } from "../lib/util";
-import type { Item, Folder } from "../model";
+import type { Item, Folder, Position } from "../model";
+import { partlyRead } from "../reader/articlePosition";
 import { addPdf, copyItem, removeItem, restoreItem, setItemTopics } from "../store/actions";
 import { renameWithLinks } from "../notes/notes";
 import { setHabit, useHabit } from "../habit/prefs";
@@ -12,6 +13,7 @@ import { TopicsDialog } from "./habit";
 import { navigate, openQuickAdd, rememberFolder, toast } from "../store/ui";
 import { useAccount } from "../sync/account";
 import { Modal, PrivateBadge, PromptDialog, SyncBadge, useFolderSync, useMenu } from "./common";
+import "../styles/library.css";
 
 type Sort = "recent" | "added" | "title";
 
@@ -20,6 +22,7 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
   const s = useFolderSync(folder.id);
   const account = useAccount((a) => a.account);
   const [sort, setSort] = useState<Sort>(() => (localStorage.getItem("reader.sort") as Sort) ?? "recent");
+  const [topicFilter, setTopicFilter] = useState<string | null>(null);
   const [dialog, setDialog] = useState<{ kind: "rename" | "copy" | "topics"; doc: Item } | { kind: "renameFolder" } | null>(null);
   const topics = useHabit((h) => h.topics);
   const [adding, setAdding] = useState(0);
@@ -50,6 +53,13 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
     const rb = positions?.get(b.id)?.updatedAt ?? b.addedAt;
     return rb - ra;
   });
+
+  // Topics in use, most used first. A topic that no longer appears on any item drops the filter.
+  const topicCounts = new Map<string, number>();
+  for (const d of docs ?? []) for (const t of d.topics ?? []) topicCounts.set(t, (topicCounts.get(t) ?? 0) + 1);
+  const topicList = [...topicCounts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const activeTopic = topicFilter && topicCounts.has(topicFilter) ? topicFilter : null;
+  const shown = activeTopic ? sorted.filter((d) => d.topics?.includes(activeTopic)) : sorted;
 
   const addFiles = async (files: Iterable<File>) => {
     const pdfs = [...files].filter((f) => f.type === "application/pdf" || /\.pdf$/i.test(f.name));
@@ -183,6 +193,21 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
         </div>
       )}
 
+      {topicList.length > 0 && (
+        <div className="chips topic-filter" role="group" aria-label="Filter by topic">
+          {topicList.map(([t, n]) => (
+            <button
+              key={t}
+              className={`chip ${activeTopic === t ? "on" : ""}`}
+              aria-pressed={activeTopic === t}
+              onClick={() => setTopicFilter(activeTopic === t ? null : t)}
+            >
+              {t} <span className="topic-count">{n}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {docs && sorted.length === 0 ? (
         <div className="empty">
           <FileText size={40} strokeWidth={1.4} />
@@ -199,8 +224,9 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
         </div>
       ) : (
         <ul className="doc-grid">
-          {sorted.map((d) => {
-            if (d.type !== "pdf") return <ItemCard key={d.id} folder={folder.id} item={d} notes={notes?.get(d.id) ?? 0} onMenu={(e) => docMenu(e, d)} />;
+          {shown.map((d) => {
+            if (d.type !== "pdf")
+              return <ItemCard key={d.id} folder={folder.id} item={d} position={positions?.get(d.id)} notes={notes?.get(d.id) ?? 0} onMenu={(e) => docMenu(e, d)} />;
             const pos = positions?.get(d.id);
             const progress = pos && (d.pages ?? 1) > 1 ? (pos.page - 1 + pos.offset) / d.pages! : 0;
             const n = notes?.get(d.id) ?? 0;
@@ -296,7 +322,7 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
 }
 
 /** A card for anything that isn't a PDF: its type, a few lines of it, and where it's from. */
-function ItemCard({ folder, item, notes, onMenu }: { folder: string; item: Item; notes: number; onMenu: (e: React.MouseEvent) => void }) {
+function ItemCard({ folder, item, position, notes, onMenu }: { folder: string; item: Item; position?: Position; notes: number; onMenu: (e: React.MouseEvent) => void }) {
   let text = (item.type === "note" ? item.body : (item.content ?? item.body)) ?? "";
   // A note's first line is already its title.
   if (item.type === "note" && titleFromText(text) === item.title) text = text.trim().split(/\r?\n/).slice(1).join(" ");
@@ -309,6 +335,7 @@ function ItemCard({ folder, item, notes, onMenu }: { folder: string; item: Item;
   }
   const excerpt = text.replace(/[#>*_`]+/g, "").replace(/\s+/g, " ").trim().slice(0, 220);
   const host = hostOf(item.sourceUrl);
+  const reading = partlyRead(position) ? position : undefined;
   return (
     <li>
       <a className="doc-card" href={itemHref(folder, item)} onContextMenu={onMenu}>
@@ -321,13 +348,20 @@ function ItemCard({ folder, item, notes, onMenu }: { folder: string; item: Item;
           ) : (
             host && <p className="cover-host">{host}</p>
           )}
+          {reading && (
+            <div className="progress" title={`${Math.round(reading.offset * 100)}% read`}>
+              <div style={{ width: `${reading.offset * 100}%` }} />
+            </div>
+          )}
         </div>
         <div className="doc-info">
           <span className="doc-title" title={item.title}>
             {item.title}
           </span>
           <span className="doc-meta">
-            {[hostOf(item.sourceUrl), timeAgo(item.addedAt)].filter(Boolean).join(" · ")}
+            {[hostOf(item.sourceUrl), reading ? `${Math.round(reading.offset * 100)}% read · ${timeAgo(reading.updatedAt)}` : timeAgo(item.addedAt)]
+              .filter(Boolean)
+              .join(" · ")}
             {notes > 0 && ` · ${notes} highlight${notes === 1 ? "" : "s"}`}
           </span>
           {item.topics?.length ? <span className="doc-topics">{item.topics.join(" · ")}</span> : null}

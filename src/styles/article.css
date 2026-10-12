@@ -1,0 +1,87 @@
+/* Contents for a saved article (ui/ArticleToc.tsx), and the layout that makes room for the rail. */
+
+/* Narrow screens: the contents fold up above the text. The rail is only shown on wide screens. */
+.toc-rail {
+  display: none;
+}
+.toc-inline {
+  margin: 0 0 1em;
+  font-size: 14px;
+}
+.toc-inline summary {
+  width: fit-content;
+  color: var(--muted);
+  font-weight: 600;
+  cursor: pointer;
+}
+.toc-inline .toc-list {
+  max-height: 50vh;
+  margin-top: 8px;
+  overflow-y: auto;
+}
+
+.toc-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.toc-list li {
+  padding-left: calc(var(--depth, 0) * 12px);
+}
+.toc-list button {
+  display: block;
+  width: 100%;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.4;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.toc-list button:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.toc-list button.on {
+  color: var(--accent);
+}
+
+/*
+ * Wide screens: the contents rail gets its own track on the right, and the reading column is centred
+ * in the space left beside it. ItemView adds .has-toc only when the rail is shown, which needs headings
+ * and a window of at least 1100px (RAIL_QUERY in ui/ArticleToc.tsx). The top bar lines up with the column.
+ */
+@media (min-width: 1100px) {
+  .item-view.has-toc > .item-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 224px;
+    align-items: start;
+  }
+  .item-view.has-toc > .item-layout > .item-body {
+    grid-column: 1;
+    min-width: 0;
+  }
+  .item-view.has-toc .toc-rail {
+    display: block;
+    grid-column: 2;
+    grid-row: 1;
+    position: sticky;
+    top: 72px;
+    width: 180px;
+    max-height: calc(100vh - 96px);
+    margin-left: 24px;
+    overflow-y: auto;
+  }
+  .toc-rail .field-label {
+    display: block;
+    margin-bottom: 6px;
+  }
+  .item-view.has-toc > .topbar {
+    padding-inline: max(24px, calc((100% - 224px - 720px) / 2 + 24px));
+  }
+}

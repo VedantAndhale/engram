@@ -51,7 +51,7 @@ export async function addPdf(folder: string, file: File): Promise<string> {
     await db.blobs.put({ hash, data: file, lastUsed: Date.now() });
     return hash;
   }
-  const { title, pages, thumb } = await inspectPdf(data, file.name);
+  const { title, pages, thumb, author, description } = await inspectPdf(data, file.name);
   const now = Date.now();
   const addedAt = existing?.addedAt ?? now;
   const item: Item = {
@@ -59,6 +59,8 @@ export async function addPdf(folder: string, file: File): Promise<string> {
     id: hash,
     type: "pdf",
     title: existing?.title ?? title,
+    author: existing?.author ?? author,
+    description: existing?.description ?? description,
     fileName: file.name,
     size: file.size,
     pages,

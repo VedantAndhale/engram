@@ -5,11 +5,13 @@ import { createRoot } from "react-dom/client";
 import { registerSW } from "virtual:pwa-register";
 import { completeSignIn, startFolders, visibleFolders } from "./folders/registry";
 import "./lib/install"; // listen for the install prompt before it fires
+import { startAnalytics } from "./analytics";
 import { evictCache } from "./store/actions";
 import "./styles/app.css";
 import { App } from "./ui/App";
 
 registerSW({ immediate: true });
+startAnalytics();
 
 void navigator.storage?.persist?.();
 

@@ -192,7 +192,7 @@ export function createServer(token: string, appUrl: string, agent = "An agent"):
       const lib = await library();
       const target = lib.folderForSave(folder);
       if (!target) return { ...text(`No folder to save into.${lib.notes(folder)}`), isError: true };
-      const entry: InboxEntry = { kind: "save", agent, createdAt: Date.now(), why, title: title?.trim() || url || undefined, sourceUrl: url, content: saved, text: note };
+      const entry: InboxEntry = { kind: "save", agent, createdAt: Date.now(), why, title: title?.trim() || undefined, sourceUrl: url, content: saved, text: note };
       const path = inboxPath(entry, crypto.randomUUID().slice(0, 6));
       await lib.gh.create(target, path, serializeInbox(entry), `Inbox: ${entry.title ?? "a save"} (from ${agent})`);
       return text(`Sent to the inbox of folder "${target.name}". The user accepts or dismisses it in Engram.`);

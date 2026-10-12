@@ -1,7 +1,7 @@
 import { folderCtx } from "../folders/registry";
 import type { Item } from "../model";
 import { updateItem } from "../store/actions";
-import { cleanMarkdown, titleFromUrl, typeForUrl } from "./capture";
+import { cleanMarkdown, missingDetails, READABLE, titleFromUrl, typeForUrl } from "./capture";
 import { extractArticle, type Extracted } from "./extract";
 
 /*
@@ -22,9 +22,6 @@ export async function fetchArticle(url: string): Promise<Extracted | null> {
   }
 }
 
-/** Types whose pages are worth reading in Engram; videos and tweets keep their own sites. */
-const READABLE: Item["type"][] = ["article", "bookmark", "post", "thread"];
-
 const tried = new Set<string>();
 
 /**
@@ -42,13 +39,17 @@ export async function fillFromWeb(folder: string, id: string): Promise<boolean> 
   if (!got || !markdown) return false;
   const now = await db.items.get(id);
   if (!now || now.deleted || now.contentFormat === "markdown") return false;
+  const patch: Partial<Item> = missingDetails(now, got);
   // A page behind a login or paywall comes back as something much shorter than what the
-  // bookmarklet saw; keep the fuller plain text then.
+  // bookmarklet saw; keep the fuller plain text then. The details still fill in.
   const plainLength = now.content?.replace(/\s/g, "").length ?? 0;
-  if (plainLength > 0 && markdown.replace(/[\s*_#>`[\]()\\-]/g, "").length < plainLength * 0.6) return false;
-  const patch: Partial<Item> = { content: markdown, contentFormat: "markdown" };
-  if (got.title && now.title === titleFromUrl(now.sourceUrl!)) patch.title = got.title.slice(0, 300);
-  if (now.type === "bookmark") patch.type = typeForUrl(now.sourceUrl!, markdown.length);
+  if (plainLength === 0 || markdown.replace(/[\s*_#>`[\]()\\-]/g, "").length >= plainLength * 0.6) {
+    patch.content = markdown;
+    patch.contentFormat = "markdown";
+    if (got.title && now.title === titleFromUrl(now.sourceUrl!)) patch.title = got.title.slice(0, 300);
+    if (now.type === "bookmark") patch.type = typeForUrl(now.sourceUrl!, markdown.length);
+  }
+  if (!Object.keys(patch).length) return false;
   await updateItem(folder, id, patch, 500);
   return true;
 }

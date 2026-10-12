@@ -35,6 +35,16 @@ export interface Item {
   type: ItemType;
   title: string;
   sourceUrl?: string;
+  /** Who wrote the saved page, when the page says so (byline or meta author). */
+  author?: string;
+  /** The site or publisher the page came from (og:site_name). */
+  siteName?: string;
+  /** The page's summary: meta description, or the excerpt Readability picks. */
+  description?: string;
+  /** When the source says it was published: an ISO 8601 date or timestamp. */
+  published?: string;
+  /** Free-text attribution the reader typed for a quote: a book, a speaker, a page. */
+  source?: string;
   /** Markdown: your own words about the item. */
   body?: string;
   /**

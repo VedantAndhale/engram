@@ -23,15 +23,21 @@ export function openPdf(data: ArrayBuffer) {
 
 export type PDFDoc = Awaited<ReturnType<typeof openPdf>>;
 
-/** Title, page count and a cover thumbnail, read once when a PDF is added. */
+/** Title, author, summary, page count and a cover thumbnail, read once when a PDF is added. */
 export async function inspectPdf(data: ArrayBuffer, fileName: string) {
   const pdf = await openPdf(data);
   try {
     let title = fileName.replace(/\.pdf$/i, "").replace(/[_]+/g, " ").trim();
+    let author: string | undefined;
+    let description: string | undefined;
     try {
       const meta = await pdf.getMetadata();
-      const t = (meta.info as { Title?: string })?.Title?.trim();
+      const info = meta.info as { Title?: string; Author?: string; Subject?: string } | undefined;
+      const t = info?.Title?.trim();
       if (t && t.length > 2 && !/^untitled|^microsoft word/i.test(t)) title = t;
+      // Producer is left out: it names the software that made the file, not who published it.
+      author = info?.Author?.trim() || undefined;
+      description = info?.Subject?.trim() || undefined;
     } catch {
       /* metadata is optional */
     }
@@ -43,7 +49,7 @@ export async function inspectPdf(data: ArrayBuffer, fileName: string) {
     canvas.height = Math.round(viewport.height);
     await page.render({ canvas, viewport }).promise;
     const thumb = canvas.toDataURL("image/jpeg", 0.82);
-    return { title, pages: pdf.numPages, thumb };
+    return { title, pages: pdf.numPages, thumb, author, description };
   } finally {
     void pdf.loadingTask.destroy();
   }

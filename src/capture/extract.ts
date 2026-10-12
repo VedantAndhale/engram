@@ -8,6 +8,13 @@
 export interface Extracted {
   title?: string;
   markdown: string;
+  /** Who wrote the article, from its byline. */
+  author?: string;
+  siteName?: string;
+  /** The page's summary, or the opening text Readability picks when the page has none. */
+  description?: string;
+  /** When it was published, as ISO 8601. */
+  published?: string;
 }
 
 /** The article in a page's HTML, or null if there's no readable article in it. */
@@ -23,7 +30,28 @@ export async function extractArticle(html: string, url: string): Promise<Extract
   const body = new DOMParser().parseFromString(`<base href="${encodeURI(url)}">${article.content}`, "text/html").body;
   const markdown = toMarkdown(body);
   if (markdown.replace(/\s/g, "").length < 200) return null;
-  return { title: article.title?.trim() || undefined, markdown };
+  return {
+    title: article.title?.trim() || undefined,
+    markdown,
+    // A byline is usually printed as "By Name"; the name is what's kept.
+    author: metaText(article.byline?.replace(/^by\s+/i, "")),
+    siteName: metaText(article.siteName),
+    description: metaText(article.excerpt),
+    published: isoDate(article.publishedTime),
+  };
+}
+
+const MAX_META = 500;
+
+/** A piece of page metadata on one line, capped; undefined when it's empty. */
+export function metaText(value: string | null | undefined): string | undefined {
+  return value?.replace(/\s+/g, " ").trim().slice(0, MAX_META).trim() || undefined;
+}
+
+/** A date from a page as ISO 8601; undefined when it doesn't parse as one. */
+export function isoDate(value: string | null | undefined): string | undefined {
+  const t = Date.parse(value ?? "");
+  return Number.isNaN(t) ? undefined : new Date(t).toISOString();
 }
 
 /** Markdown for a block of HTML. */

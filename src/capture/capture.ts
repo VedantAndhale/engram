@@ -2,7 +2,7 @@ import { folderCtx } from "../folders/registry";
 import { cleanTopic } from "../habit/prefs";
 import { HIGHLIGHT_COLORS, type Item, type ItemType } from "../model";
 import { createItem, saveAnnotation, updateItem } from "../store/actions";
-import { extractArticle } from "./extract";
+import { extractArticle, isoDate, metaText } from "./extract";
 
 /*
  * Saving things that aren't PDFs: links, quotes, notes, and pages sent by the bookmarklet or the
@@ -62,6 +62,12 @@ export function hostOf(url: string | undefined): string {
 }
 
 /** Guess an item's type from its address. */
+/** Types whose pages are worth reading in Engram; videos and tweets keep their own sites. */
+export const READABLE: ItemType[] = ["article", "bookmark", "post", "thread"];
+
+/** Whether a link's page is fetched in the background after saving (see fetchpage.ts). */
+export const fetchedLater = (url: string) => READABLE.includes(typeForUrl(url, 0));
+
 export function typeForUrl(url: string, contentLength = 0): ItemType {
   let u: URL;
   try {
@@ -148,6 +154,11 @@ export interface PageCapture {
   html?: string;
   /** What the reader had selected on the page: kept as a highlight. */
   selection?: string;
+  /** The page's own details, from its meta tags (the bookmarklet) or none. */
+  author?: string;
+  siteName?: string;
+  description?: string;
+  published?: string;
   type?: ItemType;
   /** Your own words, from the save box. */
   words?: string;
@@ -158,6 +169,19 @@ export interface SaveResult {
   item: Item;
   /** True when the link was already saved and this filled it in. */
   existed: boolean;
+}
+
+/** What a page says about itself. */
+export type PageDetails = Pick<Item, "author" | "siteName" | "description" | "published">;
+
+/** The details an item doesn't have yet. A value the reader or an earlier save set is never replaced. */
+export function missingDetails(item: Partial<PageDetails>, found: Partial<PageDetails>): Partial<PageDetails> {
+  const out: Partial<PageDetails> = {};
+  if (found.author && !item.author) out.author = found.author;
+  if (found.siteName && !item.siteName) out.siteName = found.siteName;
+  if (found.description && !item.description) out.description = found.description;
+  if (found.published && !item.published) out.published = found.published;
+  return out;
 }
 
 /**
@@ -176,8 +200,16 @@ export async function saveLink(folder: string, c: PageCapture): Promise<SaveResu
   const words = c.words?.trim();
   const topics = cleanTopics(c.topics ?? []);
   const title = (cleanText(c.title || article?.title, MAX_TITLE)?.replace(/\n/g, " ") ?? "") || titleFromUrl(url);
+  // The meta tags the bookmarklet read come first; Readability's guesses fill what they leave out.
+  const details: PageDetails = {
+    author: metaText(c.author) ?? article?.author,
+    siteName: metaText(c.siteName) ?? article?.siteName,
+    description: metaText(c.description) ?? article?.description,
+    published: isoDate(c.published) ?? article?.published,
+  };
 
-  const existing = await db.items.filter((i) => i.sourceUrl === url && !i.deleted).first();
+  // A quote can carry the page's address as its source. It is a quote, not the page, so it never matches.
+  const existing = await db.items.filter((i) => i.sourceUrl === url && i.type !== "quote" && !i.deleted).first();
   if (existing) {
     const patch: Partial<Item> = {};
     if (content && content !== existing.content) {
@@ -189,6 +221,7 @@ export async function saveLink(folder: string, c: PageCapture): Promise<SaveResu
     if (merged.length !== (existing.topics?.length ?? 0)) patch.topics = merged;
     if (existing.title === titleFromUrl(url) && title !== existing.title) patch.title = title;
     if (c.type && c.type !== existing.type) patch.type = c.type;
+    Object.assign(patch, missingDetails(existing, details));
     if (Object.keys(patch).length) await updateItem(folder, existing.id, patch, 500);
     if (selection) {
       const quotes = await db.annotations.where("doc").equals(existing.id).toArray();
@@ -202,6 +235,7 @@ export async function saveLink(folder: string, c: PageCapture): Promise<SaveResu
     type: c.type ?? typeForUrl(url, content?.length ?? 0),
     title,
     sourceUrl: url,
+    ...details,
     body: words || undefined,
     content,
     contentFormat,
@@ -219,11 +253,13 @@ const fillLater = (folder: string, id: string) => void import("./fetchpage").the
 export async function saveQuote(folder: string, q: { quote: string; source?: string; words?: string; topics?: string[] }): Promise<Item> {
   const quote = cleanText(q.quote, MAX_QUOTE) ?? "";
   const topics = cleanTopics(q.topics ?? []);
-  const source = q.source ? asUrl(q.source) : null;
+  // Where the quote is from: a web address is kept as a link, anything else as the reader's words.
+  const link = asUrl(q.source ?? "");
   const item = await createItem(folder, {
     type: "quote",
     title: titleFromText(quote),
-    sourceUrl: source ? cleanUrl(source) : undefined,
+    sourceUrl: link ? cleanUrl(link) : undefined,
+    source: link ? undefined : metaText(q.source)?.slice(0, MAX_TITLE),
     body: q.words?.trim() || undefined,
     topics: topics.length ? topics : undefined,
   });

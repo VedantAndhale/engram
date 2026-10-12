@@ -1,0 +1,98 @@
+/* The highlights page: filters over a list of cards, one card per highlight, edged in its colour. */
+
+.hl-filters,
+.hl-count,
+.hl-list {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 760px;
+  padding-left: 24px;
+  padding-right: 24px;
+}
+.hl-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-top: 4px;
+  padding-bottom: 12px;
+}
+.hl-search {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.hl-count {
+  margin: 0;
+  padding-bottom: 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.hl-list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding-top: 0;
+  padding-bottom: 48px;
+  list-style: none;
+}
+/* Without this a long source title sets the column's width, and the list runs past the page. */
+.hl-list > li {
+  min-width: 0;
+}
+.hl-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 18px 14px 20px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--hl);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  text-decoration: none;
+}
+.hl-card:hover {
+  background: var(--surface-2);
+}
+.hl-quote {
+  margin: 0;
+  font: 16px/1.55 var(--serif);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.hl-note {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.hl-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  color: var(--muted);
+  font-size: 12px;
+}
+.hl-meta > span + span::before {
+  content: "·";
+  margin: 0 6px;
+}
+.hl-source {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--text);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 760px) {
+  .hl-filters,
+  .hl-count,
+  .hl-list {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+}

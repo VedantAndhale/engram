@@ -1,7 +1,8 @@
 import { Copy, NotebookPen, StickyNote, Trash2 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { setHabit, useHabit } from "../../habit/prefs";
-import { HIGHLIGHT_COLORS, type Annotation } from "../../model";
+import { HIGHLIGHT_COLORS, type Annotation, type Item } from "../../model";
+import { citation } from "../../notes/export";
 
 /** A small floating panel pinned under (or above, if there's no room) an on-screen rectangle. */
 function Floating({ anchor, onClose, children, label }: { anchor: DOMRect; onClose: () => void; children: ReactNode; label: string }) {
@@ -61,11 +62,16 @@ function Swatches({ value, onPick }: { value?: string; onPick: (color: string) =
 export function SelectionPopover({
   anchor,
   text,
+  item,
+  page,
   onHighlight,
   onClose,
 }: {
   anchor: DOMRect;
   text: string;
+  /** With the item, Copy gives a citation; without it, the bare text. */
+  item?: Item;
+  page?: number;
   onHighlight: (color: string, withNote: boolean) => void;
   onClose: () => void;
 }) {
@@ -79,9 +85,11 @@ export function SelectionPopover({
         </button>
         <button
           className="icon-btn"
-          title="Copy"
+          title="Copy with citation"
           onClick={() => {
-            void navigator.clipboard?.writeText(text);
+            // A selection has no highlight yet, so it is cited as the highlight it would become.
+            const cited = item ? citation(item, { id: "", doc: item.id, kind: "highlight", page: page ?? 0, color: "", quote: text, createdAt: 0, updatedAt: 0 }) : text;
+            void navigator.clipboard?.writeText(cited);
             onClose();
           }}
         >
@@ -96,6 +104,7 @@ export function SelectionPopover({
 export function AnnotationPopover({
   anchor,
   annotation,
+  item,
   startEditing,
   onChange,
   onDelete,
@@ -104,6 +113,8 @@ export function AnnotationPopover({
 }: {
   anchor: DOMRect;
   annotation: Annotation;
+  /** With the item, Copy gives a citation; without it, the bare quote. */
+  item?: Item;
   startEditing?: boolean;
   onChange: (patch: Partial<Annotation>) => void;
   onDelete: () => void;
@@ -159,6 +170,18 @@ export function AnnotationPopover({
             }}
           >
             <NotebookPen size={16} />
+          </button>
+        )}
+        {!!annotation.quote?.trim() && (
+          <button
+            className="icon-btn"
+            title="Copy with citation"
+            onClick={() => {
+              void navigator.clipboard?.writeText(item ? citation(item, annotation) : (annotation.quote ?? ""));
+              close();
+            }}
+          >
+            <Copy size={16} />
           </button>
         )}
         <button className="icon-btn danger" title="Delete highlight" onClick={onDelete}>

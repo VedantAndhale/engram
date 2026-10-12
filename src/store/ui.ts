@@ -8,6 +8,7 @@ export type Route =
   | { name: "item"; folder: string; item: string }
   | { name: "save" }
   | { name: "search"; q?: string }
+  | { name: "highlights" }
   | { name: "setup" }
   | { name: "today" }
   | { name: "welcome" };
@@ -48,6 +49,7 @@ function parseHash(): Route {
   if (m) return { name: "library", folder: m[1] };
   if (path === "/search") return { name: "search", q: q.get("q") ?? undefined };
   if (path === "/setup") return { name: "setup" };
+  if (path === "/highlights") return { name: "highlights" };
   if (path === "/library") return { name: "library" };
   if (path === "/welcome") return { name: "welcome" };
   if (path === "/save") return { name: "save" };
@@ -72,6 +74,8 @@ export function routeHash(route: Route): string {
       return `#/search${q.size ? `?${q}` : ""}`;
     case "setup":
       return "#/setup";
+    case "highlights":
+      return "#/highlights";
     case "today":
       return "#/today";
     case "welcome":

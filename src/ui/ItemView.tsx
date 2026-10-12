@@ -1,17 +1,21 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { AArrowDown, AArrowUp, ArrowLeft, Ellipsis, ExternalLink, Highlighter, Link2, NotebookPen, Pencil, Tag, Trash2, X } from "lucide-react";
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { AArrowDown, AArrowUp, ArrowLeft, Copy, Download, Ellipsis, ExternalLink, Highlighter, Link2, NotebookPen, Pencil, Tag, Trash2, X } from "lucide-react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { hostOf, itemHref, safeHref, TYPE_LABELS } from "../capture/capture";
 import { fillFromWeb } from "../capture/fetchpage";
 import { folderCtx } from "../folders/registry";
+import { downloadMarkdown, itemToMarkdown, markdownFilename } from "../notes/export";
 import { parseTarget } from "../notes/links";
 import { backlinks, findHighlight, highlightsOf, noteFromHighlight, openOrCreate, renameWithLinks, resolveEmbed } from "../notes/notes";
 import { setHabit, useHabit } from "../habit/prefs";
+import { useArticlePosition } from "../reader/articlePosition";
+import { articleHeadings } from "../reader/markdown";
 import type { Folder } from "../model";
 import { deleteAnnotation, removeItem, restoreItem, setItemBody, setItemTopics } from "../store/actions";
 import { navigate, toast } from "../store/ui";
 import { PromptDialog, useMenu } from "./common";
 import { TopicsDialog } from "./habit";
+import { ArticleToc, useRailFits } from "./ArticleToc";
 import { ArticleView, type ReadingPrefs } from "./reader/ArticleView";
 
 // CodeMirror is only needed once an item is open.
@@ -82,6 +86,18 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
     return () => void (document.title = "Engram");
   }, [item?.title]);
 
+  // A saved text has a reading place and a contents list. Notes and bare links have neither.
+  const articleShown = !!item && !item.deleted && !!item.content && item.type !== "note";
+  useArticlePosition(folder.id, id, scroller, articleShown);
+  const headings = useMemo(
+    () => (item?.contentFormat === "markdown" && item.content ? articleHeadings(item.content) : []),
+    [item?.content, item?.contentFormat],
+  );
+
+  // One contents list at a time: the rail wide, the folded list narrow. Wide enough and it gets its own track.
+  const rail = useRailFits();
+  const tocOn = articleShown && headings.length >= 2;
+
   if (item === undefined) return <main className="item-view" />;
   if (!item || item.deleted) {
     return (
@@ -97,11 +113,31 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
 
   const href = safeHref(item.sourceUrl);
   const isNote = item.type === "note";
+  const byline = [item.author && `By ${item.author}`, item.siteName, item.source].filter(Boolean).join(" · ");
+  const published = item.published && publishedDay(item.published);
 
+  const asMarkdown = () => itemToMarkdown(item, quotes ?? []);
   const openMenu = (e: React.MouseEvent) =>
     menu.open(e, [
       { label: "Rename", icon: <Pencil size={15} />, run: () => setDialog("rename") },
       { label: "Topics", icon: <Tag size={15} />, run: () => setDialog("topics") },
+      {
+        label: "Copy as Markdown",
+        icon: <Copy size={15} />,
+        run: async () => {
+          try {
+            await navigator.clipboard.writeText(asMarkdown());
+            toast("Copied as Markdown.");
+          } catch {
+            toast("Couldn't copy. Download it instead.");
+          }
+        },
+      },
+      {
+        label: "Download as Markdown",
+        icon: <Download size={15} />,
+        run: () => downloadMarkdown(markdownFilename(item.title), asMarkdown()),
+      },
       {
         label: "Remove",
         icon: <Trash2 size={15} />,
@@ -115,7 +151,7 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
     ]);
 
   return (
-    <main className="item-view" ref={scroller}>
+    <main className={`item-view${tocOn && rail ? " has-toc" : ""}`} ref={scroller}>
       <header className="topbar">
         <button className="icon-btn" aria-label={`Back to ${folder.name}`} onClick={() => navigate({ name: "library", folder: folder.id })}>
           <ArrowLeft size={20} />
@@ -127,131 +163,138 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
         </button>
       </header>
 
-      <article className="item-body">
-        <p className="item-kicker">
-          <span className="type-pill">{TYPE_LABELS[item.type]}</span>
-          {href && (
-            <a href={href} target="_blank" rel="noreferrer noopener">
-              {hostOf(href)} <ExternalLink size={13} />
-            </a>
-          )}
-          <span className="muted">Saved {new Date(item.addedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</span>
-        </p>
-        <h1 className="item-title">
-          <button className="folder-title" title="Rename" onClick={() => setDialog("rename")}>
-            {item.title}
-          </button>
-        </h1>
-        <p className="item-topics">
-          {item.topics?.map((t) => (
-            <span key={t} className="chip on">
-              {t}
-            </span>
-          ))}
-          <button className="link" onClick={() => setDialog("topics")}>
-            {item.topics?.length ? "Change topics" : "Add topics"}
-          </button>
-        </p>
-
-        {item.content && !isNote && (
-          <section className="article" aria-label="Article">
-            <div className="article-tools">
-              <span className="field-label">From the page</span>
-              <div className="spacer" />
-              <button
-                className={`icon-btn ${highlighter ? "on" : ""}`}
-                aria-label="Highlighter"
-                title="Highlighter: selecting text highlights it"
-                aria-pressed={highlighter}
-                onClick={() => setHighlighter((h) => !h)}
-              >
-                <Highlighter size={17} />
-              </button>
-              <button className="icon-btn" aria-label="Smaller text" title="Smaller text" disabled={prefs.size <= 14} onClick={() => setPrefs({ ...prefs, size: prefs.size - 1 })}>
-                <AArrowDown size={17} />
-              </button>
-              <button className="icon-btn" aria-label="Larger text" title="Larger text" disabled={prefs.size >= 26} onClick={() => setPrefs({ ...prefs, size: prefs.size + 1 })}>
-                <AArrowUp size={17} />
-              </button>
-            </div>
-            <ArticleView folder={folder} item={item} annotations={quotes ?? []} scroller={scroller} highlighter={highlighter} prefs={prefs} />
-            {item.contentFormat !== "markdown" && !fetching && (
-              <p className="hint">Saved as plain text. Save the page again with Save to Engram to keep its formatting.</p>
+      <div className="item-layout">
+        <article className="item-body">
+          <p className="item-kicker">
+            <span className="type-pill">{TYPE_LABELS[item.type]}</span>
+            {byline && <span className="muted">{byline}</span>}
+            {href && (
+              <a href={href} target="_blank" rel="noreferrer noopener">
+                {hostOf(href)} <ExternalLink size={13} />
+              </a>
             )}
-          </section>
-        )}
-
-        {!!quotes?.length && (
-          <section className="item-quotes" aria-label="Highlights">
-            {quotes.map((q) => (
-              <figure key={q.id}>
-                <blockquote style={{ borderColor: q.color }}>{q.quote}</blockquote>
-                {q.note?.trim() && <figcaption>{q.note}</figcaption>}
-                <div className="quote-actions">
-                  <button
-                    className="icon-btn"
-                    aria-label="Make a note from this"
-                    title="Make a note from this"
-                    onClick={async () => {
-                      const note = await noteFromHighlight(folder.id, item, q.quote!);
-                      navigate({ name: "item", folder: folder.id, item: note.id });
-                    }}
-                  >
-                    <NotebookPen size={14} />
-                  </button>
-                  <button className="icon-btn" aria-label="Remove highlight" title="Remove highlight" onClick={() => void deleteAnnotation(folder.id, q.id)}>
-                    <X size={14} />
-                  </button>
-                </div>
-              </figure>
-            ))}
-          </section>
-        )}
-
-        <div className={`item-words ${isNote ? "is-note" : ""}`}>
-          {!isNote && <span className="field-label">In your own words</span>}
-          <Suspense fallback={<div className="md-editor md-loading" />}>
-            <Editor
-              key={id}
-              value={item.body ?? ""}
-              onChange={onWords}
-              titles={() => titlesRef.current}
-              openWiki={(t) => void openWiki(t)}
-              highlights={(t) => highlightsOf(db, t)}
-              embed={(t) => resolveEmbed(db, t)}
-              // An empty note, or one just made (from a link or a highlight), opens ready to write.
-              autoFocus={isNote && (!item.body || Date.now() - item.addedAt < 10_000)}
-              label={isNote ? "Note" : "In your own words"}
-              placeholder={
-                isNote
-                  ? "Write anything. Type / for headings, lists and to-dos, [[ to link to something you saved."
-                  : "What did you notice? Why does it matter to you? No chatbot can give this back to you."
-              }
-            />
-          </Suspense>
-        </div>
-
-        {!!linkedFrom?.length && (
-          <section className="backlinks" aria-label="Linked from">
-            <h2>
-              <Link2 size={15} /> Linked from
-            </h2>
-            <ul>
-              {linkedFrom.map((b) => (
-                <li key={b.id}>
-                  <a href={itemHref(folder.id, b)}>{b.title}</a>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
-
-        {!item.content && href && !isNote && (
-          <p className="hint">
-            {fetching ? "Getting the article from the page…" : "Only the link is saved. Open the page and use Save to Engram to keep its text too."}
+            {published && <span className="muted">Published {published}</span>}
+            <span className="muted">Saved {dayOf(item.addedAt)}</span>
           </p>
-        )}
-      </article>
+          <h1 className="item-title">
+            <button className="folder-title" title="Rename" onClick={() => setDialog("rename")}>
+              {item.title}
+            </button>
+          </h1>
+          <p className="item-topics">
+            {item.topics?.map((t) => (
+              <span key={t} className="chip on">
+                {t}
+              </span>
+            ))}
+            <button className="link" onClick={() => setDialog("topics")}>
+              {item.topics?.length ? "Change topics" : "Add topics"}
+            </button>
+          </p>
+
+          {item.content && !isNote && (
+            <section className="article" aria-label="Article">
+              <div className="article-tools">
+                <span className="field-label">From the page</span>
+                <div className="spacer" />
+                <button
+                  className={`icon-btn ${highlighter ? "on" : ""}`}
+                  aria-label="Highlighter"
+                  title="Highlighter: selecting text highlights it"
+                  aria-pressed={highlighter}
+                  onClick={() => setHighlighter((h) => !h)}
+                >
+                  <Highlighter size={17} />
+                </button>
+                <button className="icon-btn" aria-label="Smaller text" title="Smaller text" disabled={prefs.size <= 14} onClick={() => setPrefs({ ...prefs, size: prefs.size - 1 })}>
+                  <AArrowDown size={17} />
+                </button>
+                <button className="icon-btn" aria-label="Larger text" title="Larger text" disabled={prefs.size >= 26} onClick={() => setPrefs({ ...prefs, size: prefs.size + 1 })}>
+                  <AArrowUp size={17} />
+                </button>
+              </div>
+              {tocOn && !rail && <ArticleToc headings={headings} scroller={scroller} rail={false} />}
+              <ArticleView folder={folder} item={item} annotations={quotes ?? []} scroller={scroller} highlighter={highlighter} prefs={prefs} />
+              {item.contentFormat !== "markdown" && !fetching && (
+                <p className="hint">Saved as plain text. Save the page again with Save to Engram to keep its formatting.</p>
+              )}
+            </section>
+          )}
+
+          {!!quotes?.length && (
+            <section className="item-quotes" aria-label="Highlights">
+              {quotes.map((q) => (
+                <figure key={q.id}>
+                  <blockquote style={{ borderColor: q.color }}>{q.quote}</blockquote>
+                  {q.note?.trim() && <figcaption>{q.note}</figcaption>}
+                  <div className="quote-actions">
+                    <button
+                      className="icon-btn"
+                      aria-label="Make a note from this"
+                      title="Make a note from this"
+                      onClick={async () => {
+                        const note = await noteFromHighlight(folder.id, item, q.quote!);
+                        navigate({ name: "item", folder: folder.id, item: note.id });
+                      }}
+                    >
+                      <NotebookPen size={14} />
+                    </button>
+                    <button className="icon-btn" aria-label="Remove highlight" title="Remove highlight" onClick={() => void deleteAnnotation(folder.id, q.id)}>
+                      <X size={14} />
+                    </button>
+                  </div>
+                </figure>
+              ))}
+            </section>
+          )}
+
+          <div className={`item-words ${isNote ? "is-note" : ""}`}>
+            {!isNote && <span className="field-label">In your own words</span>}
+            <Suspense fallback={<div className="md-editor md-loading" />}>
+              <Editor
+                key={id}
+                value={item.body ?? ""}
+                onChange={onWords}
+                titles={() => titlesRef.current}
+                openWiki={(t) => void openWiki(t)}
+                highlights={(t) => highlightsOf(db, t)}
+                embed={(t) => resolveEmbed(db, t)}
+                // An empty note, or one just made (from a link or a highlight), opens ready to write.
+                autoFocus={isNote && (!item.body || Date.now() - item.addedAt < 10_000)}
+                label={isNote ? "Note" : "In your own words"}
+                placeholder={
+                  isNote
+                    ? "Write anything. Type / for headings, lists and to-dos, [[ to link to something you saved."
+                    : "What did you notice? Why does it matter to you? No chatbot can give this back to you."
+                }
+              />
+            </Suspense>
+          </div>
+
+          {!!linkedFrom?.length && (
+            <section className="backlinks" aria-label="Linked from">
+              <h2>
+                <Link2 size={15} /> Linked from
+              </h2>
+              <ul>
+                {linkedFrom.map((b) => (
+                  <li key={b.id}>
+                    <a href={itemHref(folder.id, b)}>{b.title}</a>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {!item.content && href && !isNote && (
+            <p className="hint">
+              {fetching ? "Getting the article from the page…" : "Only the link is saved. Open the page and use Save to Engram to keep its text too."}
+            </p>
+          )}
+        </article>
+
+        {tocOn && rail && <ArticleToc headings={headings} scroller={scroller} rail />}
+      </div>
 
       {menu.node}
       {dialog === "rename" && (
@@ -283,6 +326,19 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
 }
 
 const PREFS_KEY = "reader.article";
+const DAY = { month: "short", day: "numeric", year: "numeric" } as const;
+
+/** A date for the kicker. A date with no time is read as local time, so it doesn't slip back a day. */
+/** A page's published date is midnight UTC when the page gave only a day, so show its UTC calendar day. */
+function publishedDay(value: string): string | undefined {
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? undefined : d.toLocaleDateString(undefined, { ...DAY, timeZone: "UTC" });
+}
+
+function dayOf(value: number | string): string | undefined {
+  const d = typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T00:00`) : new Date(value);
+  return Number.isNaN(d.getTime()) ? undefined : d.toLocaleDateString(undefined, DAY);
+}
 
 /** Text size for articles, kept on this device. */
 function useReadingPrefs(): [ReadingPrefs, (p: ReadingPrefs) => void] {

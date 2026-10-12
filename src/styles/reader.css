@@ -1,0 +1,42 @@
+/* The PDF's table of contents, a tab of the notes panel (ui/reader/NotesPanel.tsx). */
+.contents-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  /* Each level of nesting steps in. Past six levels the indent stops, so deep outlines stay readable. */
+  padding: 6px 8px 6px calc(8px + min(var(--depth), 6) * 14px);
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: inherit;
+  text-align: left;
+}
+.contents-item:hover {
+  background: var(--surface-2);
+}
+.contents-title {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--serif);
+  font-size: 14px;
+  line-height: 1.4;
+}
+.contents-page {
+  flex: none;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * Between 760px and 1000px the sidebar takes its share of the window, so the header drops the page
+ * count and the zoom strip. Ctrl + and Ctrl − still zoom.
+ */
+@media (max-width: 1000px) {
+  .reader-title span,
+  .reader-zoom {
+    display: none;
+  }
+}

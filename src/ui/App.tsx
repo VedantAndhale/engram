@@ -7,6 +7,7 @@ import { closePalette, lastFolder, navigate, openPalette, openQuickAdd, openShor
 import { QuickAdd, SavePage } from "./Capture";
 import { Toasts } from "./common";
 import { ItemView } from "./ItemView";
+import { Highlights } from "./Highlights";
 import { Library } from "./Library";
 import { Palette } from "./Palette";
 import { Search } from "./Search";
@@ -58,7 +59,7 @@ export function App() {
         return;
       }
       if ((e.key !== "j" && e.key !== "k") || route.name === "reader" || document.querySelector(".modal")) return;
-      const all = [...document.querySelectorAll<HTMLElement>("main .doc-card, main .result")];
+      const all = [...document.querySelectorAll<HTMLElement>("main .doc-card, main .result, main .hl-card")];
       if (!all.length) return;
       e.preventDefault();
       const at = all.indexOf(document.activeElement as HTMLElement);
@@ -84,21 +85,22 @@ export function App() {
   }, []);
 
   // Saving is always one key or one paste away: "n" opens the save box, and pasting anywhere
-  // outside a text field opens it with what you pasted.
+  // outside a text field opens it with what you pasted. In the PDF reader "n" toggles the notes
+  // panel instead, so only paste (an idea that came up while reading) opens the save box there.
   useEffect(() => {
-    const away = () => {
+    const open = () => {
       const { route, quickAdd } = useUI.getState();
-      return !quickAdd && route.name !== "reader" && route.name !== "save" && route.name !== "welcome" && !document.querySelector(".modal");
+      return !quickAdd && route.name !== "save" && route.name !== "welcome" && !document.querySelector(".modal");
     };
     const typing = (t: EventTarget | null) => !!(t as HTMLElement | null)?.closest?.("input, textarea, select, [contenteditable]");
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "n" || e.metaKey || e.ctrlKey || e.altKey || typing(e.target) || !away()) return;
+      if (e.key !== "n" || e.metaKey || e.ctrlKey || e.altKey || typing(e.target) || useUI.getState().route.name === "reader" || !open()) return;
       e.preventDefault();
       openQuickAdd(folderOnScreen());
     };
     const onPaste = (e: ClipboardEvent) => {
       const text = e.clipboardData?.getData("text/plain").trim();
-      if (!text || typing(e.target) || !away()) return;
+      if (!text || typing(e.target) || !open()) return;
       e.preventDefault();
       openQuickAdd({ text, ...folderOnScreen() });
     };
@@ -164,27 +166,21 @@ export function App() {
     folders.find((f) => f.id === wanted) ??
     (wanted ? undefined : (folders.find((f) => f.id === lastFolder()) ?? folders[0]));
 
-  if (route.name === "reader" && folder) {
-    return (
-      <>
-        <Suspense fallback={<div className="loading-screen" />}>
-          <Reader key={`${folder.id}:${route.doc}`} folder={folder} doc={route.doc} page={route.page} find={route.find} />
-        </Suspense>
-        <Palette />
-        <Shortcuts />
-        <Toasts />
-      </>
-    );
-  }
-
+  // Every route renders inside the shell, so the sidebar and the save box are there on PDFs too.
   return (
     <div className={`shell ${drawer ? "drawer-open" : ""}`}>
       <Sidebar active={route.name === "library" ? folder?.id : undefined} onNavigate={() => setDrawer(false)} />
       <div className="drawer-scrim" onClick={() => setDrawer(false)} />
       {route.name === "today" ? (
         <Today onOpenSidebar={() => setDrawer(true)} />
+      ) : route.name === "highlights" ? (
+        <Highlights onOpenSidebar={() => setDrawer(true)} />
       ) : route.name === "search" ? (
         <Search q={route.q ?? ""} onOpenSidebar={() => setDrawer(true)} />
+      ) : route.name === "reader" && folder ? (
+        <Suspense fallback={<div className="loading-screen" />}>
+          <Reader key={`${folder.id}:${route.doc}`} folder={folder} doc={route.doc} page={route.page} find={route.find} />
+        </Suspense>
       ) : route.name === "item" && folder ? (
         <ItemView key={route.item} folder={folder} id={route.item} />
       ) : route.name === "setup" ? (
@@ -211,5 +207,5 @@ export function App() {
 /** The folder being looked at, so the save box saves there. */
 function folderOnScreen(): { folder?: string } {
   const r = useUI.getState().route;
-  return r.name === "library" || r.name === "item" ? { folder: r.folder } : {};
+  return r.name === "library" || r.name === "item" || r.name === "reader" ? { folder: r.folder } : {};
 }

@@ -1,0 +1,15 @@
+/* The library's topic filter: chips above the item grid, one topic at a time. */
+
+.topic-filter {
+  padding: 4px 24px 0;
+}
+.topic-count {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 760px) {
+  .topic-filter {
+    padding: 4px 12px 0;
+  }
+}

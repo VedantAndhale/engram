@@ -1,3 +1,4 @@
+import { recordSignup } from "./signups.js";
 import { seal, unseal } from "./seal.js";
 
 /*
@@ -15,6 +16,8 @@ import { seal, unseal } from "./seal.js";
 
 /** Private folder repos need GitHub's "repo" scope; OAuth Apps have no read-only scope for them. */
 const GITHUB_SCOPE = "repo";
+/** The app also reads the primary email, for the sign-up list (mcp/signups.ts). MCP clients don't get it. */
+const APP_SCOPE = "repo user:email";
 const TOKEN_PREFIX = "eg1.";
 const MINUTE = 60_000;
 
@@ -147,13 +150,13 @@ export async function authorize(req: Request) {
   );
 }
 
-async function toGitHub(req: Request, pending: Record<string, unknown>) {
+async function toGitHub(req: Request, pending: Record<string, unknown>, scope = GITHUB_SCOPE) {
   const clientId = process.env.GITHUB_CLIENT_ID;
   if (!clientId) return page("Not set up", "<p>This server has no GitHub OAuth App configured (GITHUB_CLIENT_ID).</p>", 500);
   const gh = new URL("https://github.com/login/oauth/authorize");
   gh.searchParams.set("client_id", clientId);
   gh.searchParams.set("redirect_uri", `${origin(req)}/api/oauth/callback`);
-  gh.searchParams.set("scope", GITHUB_SCOPE);
+  gh.searchParams.set("scope", scope);
   gh.searchParams.set("state", await seal("state", pending, 10 * MINUTE));
   return redirect(gh.toString());
 }
@@ -175,7 +178,7 @@ export async function login(req: Request) {
   if (returnTo.origin !== origin(req) || !/^[\w-]{16,128}$/.test(nonce)) return page("Bad sign-in link", "<p>Open Engram and choose Sign in with GitHub again.</p>", 400);
   returnTo.hash = "";
   returnTo.search = "";
-  return toGitHub(req, { app: true, returnTo: returnTo.toString(), nonce } satisfies AppPending);
+  return toGitHub(req, { app: true, returnTo: returnTo.toString(), nonce } satisfies AppPending, APP_SCOPE);
 }
 
 /** The app reads its sign-in from the fragment, which browsers never send to a server. */
@@ -193,6 +196,7 @@ export async function callback(req: Request) {
   if ("app" in pending) {
     if (!code) return backToApp(pending, { error: "GitHub sign-in was cancelled." });
     const r = await exchange(req, code);
+    if ("token" in r) await recordSignup(r.token);
     return backToApp(pending, "token" in r ? { token: r.token } : { error: r.error });
   }
 

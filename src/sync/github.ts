@@ -21,7 +21,12 @@ export interface RepoSummary {
 }
 
 /** Description written on every folder repo. Discovery looks for it, then confirms with reader.json. */
-export const FOLDER_DESCRIPTION_PREFIX = "Reader folder: ";
+export const FOLDER_DESCRIPTION_PREFIX = "Engram folder: ";
+/** Folder repos made before the rename. Still recognised, never written. */
+export const LEGACY_FOLDER_DESCRIPTION_PREFIX = "Reader folder: ";
+
+export const isFolderDescription = (description: string | null | undefined) =>
+  !!description && (description.startsWith(FOLDER_DESCRIPTION_PREFIX) || description.startsWith(LEGACY_FOLDER_DESCRIPTION_PREFIX));
 
 export class GitHubError extends Error {
   constructor(

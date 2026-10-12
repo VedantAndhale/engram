@@ -1,8 +1,7 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { AlertTriangle, ExternalLink, FolderInput, FolderPlus, Moon, Pencil, Search, Sun, Sunrise, Trash2, Coffee, Ellipsis, Command } from "lucide-react";
+import { AlertTriangle, ExternalLink, FolderPlus, Highlighter, Moon, Pencil, Search, Sun, Sunrise, Trash2, Coffee, Ellipsis, Command } from "lucide-react";
 import { useState } from "react";
 import {
-  adoptRepo,
   createFolder,
   pendingChanges,
   removeFolder,
@@ -20,7 +19,7 @@ const MOD = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl+";
 
 const NEXT_THEME: Record<Theme, Theme> = { light: "sepia", sepia: "dark", dark: "light" };
 
-type Dialog = { kind: "new" } | { kind: "adopt" } | { kind: "rename"; folder: Folder } | { kind: "remove"; folder: Folder; pending: number };
+type Dialog = { kind: "new" } | { kind: "rename"; folder: Folder } | { kind: "remove"; folder: Folder; pending: number };
 
 export function Sidebar({ active, onNavigate }: { active?: string; onNavigate?: () => void }) {
   const folders = useLiveQuery(visibleFolders, []) ?? [];
@@ -74,6 +73,17 @@ export function Sidebar({ active, onNavigate }: { active?: string; onNavigate?: 
       </button>
 
       <button
+        className={`nav-item ${route.name === "highlights" ? "active" : ""}`}
+        onClick={() => {
+          navigate({ name: "highlights" });
+          onNavigate?.();
+        }}
+      >
+        <Highlighter size={16} />
+        <span>Highlights</span>
+      </button>
+
+      <button
         className={`nav-item ${route.name === "search" ? "active" : ""}`}
         onClick={() => {
           navigate({ name: "search" });
@@ -108,12 +118,6 @@ export function Sidebar({ active, onNavigate }: { active?: string; onNavigate?: 
           <FolderRow key={f.id} folder={f} active={f.id === active} onOpen={() => go(f.id)} onMenu={(e) => folderMenu(e, f)} />
         ))}
       </ul>
-      {account && (
-        <button className="nav-item subtle" onClick={() => setDialog({ kind: "adopt" })}>
-          <FolderInput size={16} />
-          <span>Add a shared folder</span>
-        </button>
-      )}
 
       <div className="sidebar-foot">
         {authError && (
@@ -156,17 +160,6 @@ export function Sidebar({ active, onNavigate }: { active?: string; onNavigate?: 
           }}
         />
       )}
-      {dialog?.kind === "adopt" && (
-        <PromptDialog
-          title="Add a shared folder"
-          label="Repository"
-          placeholder="owner/reader-papers or a GitHub link"
-          action="Add"
-          hint="Use a private repository someone shared with you. Accept their GitHub invitation first."
-          onClose={() => setDialog(null)}
-          onSubmit={async (input) => go((await adoptRepo(input)).id)}
-        />
-      )}
       {dialog?.kind === "rename" && (
         <PromptDialog
           title="Rename folder"
@@ -196,7 +189,7 @@ export function Sidebar({ active, onNavigate }: { active?: string; onNavigate?: 
               <strong>
                 {dialog.folder.repo.owner}/{dialog.folder.repo.repo}
               </strong>
-              . You can add it back later with "Add a shared folder".
+              .
             </p>
           ) : (
             <p>This folder has no repository yet, so its documents and notes will be deleted.</p>
