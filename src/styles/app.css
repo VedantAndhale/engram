@@ -1522,7 +1522,12 @@ input[type="time"] {
   flex-direction: column;
   gap: 16px;
   max-width: 880px;
+  margin-inline: auto;
   padding: 4px 24px 48px;
+}
+/* The top bar spans the window, but its controls line up with the centred column, as an article's do. */
+.today > .topbar {
+  padding-inline: max(24px, calc((100% - 880px) / 2 + 24px));
 }
 .today-date {
   margin: 0;
@@ -1850,34 +1855,47 @@ input[type="time"] {
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
+/*
+ * An article or note cover: a page of its text on the paper a PDF's first page sits on, so the theme
+ * filter darkens it in the dark theme exactly as it does a PDF. The text fades out at the foot of the
+ * page instead of being cut off mid-line.
+ */
 .cover-item {
+  background: #fff;
+}
+.cover-page {
+  position: absolute;
+  inset: 0;
   display: flex;
   flex-direction: column;
   gap: 10px;
   padding: 14px;
-  background: var(--surface);
+  background: #fff;
+  color: #2b2723;
+  filter: var(--page-filter);
+  overflow: hidden;
 }
 .cover-item .type-pill {
   align-self: flex-start;
 }
 .cover-excerpt {
+  flex: 1;
+  min-height: 0;
   margin: 0;
   overflow: hidden;
-  color: var(--muted);
-  font: 13px/1.5 var(--serif);
-  display: -webkit-box;
-  -webkit-line-clamp: 9;
-  -webkit-box-orient: vertical;
+  font: 12.5px/1.55 var(--serif);
+  mask-image: linear-gradient(to bottom, #000 78%, transparent);
+  -webkit-mask-image: linear-gradient(to bottom, #000 78%, transparent);
 }
 .cover-quote {
   margin: 0;
   padding-left: 10px;
   border-left: 3px solid var(--accent);
-  font: italic 15px/1.45 var(--serif);
+  font: italic 14px/1.45 var(--serif);
   overflow: hidden;
 }
-.type-note {
-  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+.type-note .cover-page {
+  background: #fbf6ea;
 }
 
 .save-page {
@@ -2489,7 +2507,7 @@ input[type="time"] {
   .cover-host {
     display: none;
   }
-  .cover-item {
+  .cover-page {
     justify-content: center;
     align-items: center;
     padding: 4px;

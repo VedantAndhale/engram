@@ -337,21 +337,25 @@ function ItemCard({ folder, item, position, notes, onMenu }: { folder: string; i
       .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
       .replace(/\\(.)/g, "$1");
   }
-  const excerpt = text.replace(/[#>*_`]+/g, "").replace(/\s+/g, " ").trim().slice(0, 220);
+  // Longer than the cover shows, so its fade-out has words to fade.
+  const excerpt = text.replace(/[#>*_`]+/g, "").replace(/\s+/g, " ").trim().slice(0, 300);
   const host = hostOf(item.sourceUrl);
   const reading = partlyRead(position) ? position : undefined;
   return (
     <li>
       <a className="doc-card" href={itemHref(folder, item)} onContextMenu={onMenu}>
         <div className={`cover cover-item type-${item.type}`}>
-          <span className="type-pill">{TYPE_LABELS[item.type]}</span>
-          {item.type === "quote" ? (
-            <p className="cover-quote">{item.title}</p>
-          ) : excerpt ? (
-            <p className="cover-excerpt">{excerpt}</p>
-          ) : (
-            host && <p className="cover-host">{host}</p>
-          )}
+          {/* A page of the text, on the same paper as a PDF's first page, so the cover reads as finished. */}
+          <div className="cover-page">
+            <span className="type-pill">{TYPE_LABELS[item.type]}</span>
+            {item.type === "quote" ? (
+              <p className="cover-quote">{item.title}</p>
+            ) : excerpt ? (
+              <p className="cover-excerpt">{excerpt}</p>
+            ) : (
+              host && <p className="cover-host">{host}</p>
+            )}
+          </div>
           {reading && (
             <div className="progress" title={`${Math.round(reading.offset * 100)}% read`}>
               <div style={{ width: `${reading.offset * 100}%` }} />
