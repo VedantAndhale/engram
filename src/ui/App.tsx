@@ -179,7 +179,7 @@ export function App() {
         <Search q={route.q ?? ""} onOpenSidebar={() => setDrawer(true)} />
       ) : route.name === "reader" && folder ? (
         <Suspense fallback={<div className="loading-screen" />}>
-          <Reader key={`${folder.id}:${route.doc}`} folder={folder} doc={route.doc} page={route.page} find={route.find} />
+          <Reader key={`${folder.id}:${route.doc}`} folder={folder} doc={route.doc} page={route.page} find={route.find} startPanel={route.panel} />
         </Suspense>
       ) : route.name === "item" && folder ? (
         <ItemView key={route.item} folder={folder} id={route.item} />

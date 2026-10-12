@@ -1925,6 +1925,16 @@ input[type="time"] {
   color: inherit;
 }
 
+/* A saved article beside its notes panel, laid out as the PDF reader lays out its pages and panel (.reader-body). */
+.item-stage {
+  position: relative; /* The notes panel on narrow screens lays over this, as it does over the PDF's pages. */
+  display: flex;
+  min-width: 0;
+}
+.item-stage > main {
+  flex: 1;
+  min-width: 0;
+}
 .item-body {
   display: flex;
   flex-direction: column;

@@ -4,7 +4,7 @@ export type Theme = "light" | "sepia" | "dark";
 
 export type Route =
   | { name: "library"; folder?: string }
-  | { name: "reader"; folder: string; doc: string; page?: number; find?: string }
+  | { name: "reader"; folder: string; doc: string; page?: number; find?: string; panel?: "notes" }
   | { name: "item"; folder: string; item: string }
   | { name: "save" }
   | { name: "search"; q?: string }
@@ -42,7 +42,15 @@ function parseHash(): Route {
   const [path, query = ""] = location.hash.replace(/^#/, "").split("?", 2);
   const q = new URLSearchParams(query);
   let m = new RegExp(`^/f/(${ID})/doc/([0-9a-f]{64})$`).exec(path);
-  if (m) return { name: "reader", folder: m[1], doc: m[2], page: Number(q.get("page")) || undefined, find: q.get("find") ?? undefined };
+  if (m)
+    return {
+      name: "reader",
+      folder: m[1],
+      doc: m[2],
+      page: Number(q.get("page")) || undefined,
+      find: q.get("find") ?? undefined,
+      panel: q.get("panel") === "notes" ? "notes" : undefined,
+    };
   m = new RegExp(`^/f/(${ID})/item/(${ID})$`).exec(path);
   if (m) return { name: "item", folder: m[1], item: m[2] };
   m = new RegExp(`^/f/(${ID})$`).exec(path);
@@ -64,6 +72,7 @@ export function routeHash(route: Route): string {
     case "reader":
       if (route.page) q.set("page", String(route.page));
       if (route.find) q.set("find", route.find);
+      if (route.panel) q.set("panel", route.panel);
       return `#/f/${route.folder}/doc/${route.doc}${q.size ? `?${q}` : ""}`;
     case "item":
       return `#/f/${route.folder}/item/${route.item}`;

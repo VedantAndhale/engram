@@ -40,3 +40,28 @@
     display: none;
   }
 }
+
+/* A note in the panel: the jump button, and beside it a delete that stays faint until the row is used. */
+.note-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+}
+.note-row .note-item {
+  flex: 1;
+  min-width: 0;
+}
+.note-delete {
+  flex: none;
+  margin-top: 6px;
+  opacity: 0.4;
+}
+.note-row:hover .note-delete,
+.note-delete:focus-visible {
+  opacity: 1;
+}
+@media (hover: none) {
+  .note-delete {
+    opacity: 0.8;
+  }
+}

@@ -17,6 +17,8 @@ import { caretAt, useTouchTools, type Surface } from "./touch";
 
 const ARTICLE: Surface = { surface: ".article-text", text: ".article-text" };
 const PICKED = "hl-picked";
+/** How far below the top bar a jump to a highlight stops, so the line isn't pinned under it. */
+const JUMP_GAP = 24;
 
 export interface ReadingPrefs {
   size: number;
@@ -30,6 +32,8 @@ export function ArticleView({
   scroller,
   highlighter,
   prefs,
+  ranges,
+  onPlaced,
 }: {
   folder: Folder;
   item: Item;
@@ -37,10 +41,13 @@ export function ArticleView({
   scroller: React.RefObject<HTMLElement | null>;
   highlighter: boolean;
   prefs: ReadingPrefs;
+  /** Where each highlight that could be found in the text is painted, by highlight id. */
+  ranges: React.RefObject<Map<string, Range>>;
+  /** Told the highlight ids in the order they sit in the text, each time they are painted. */
+  onPlaced?: (ids: string[]) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const index = useRef<TextIndex | null>(null);
-  const ranges = useRef(new Map<string, Range>());
   const [selection, setSelection] = useState<{ anchor: DOMRect; range: Range } | null>(null);
   const [picked, setPicked] = useState<{ id: string; anchor: DOMRect; edit?: boolean } | null>(null);
   const highlights = useMemo(() => annotations.filter((a) => a.kind === "highlight" && a.quote?.trim() && !a.deleted), [annotations]);
@@ -72,6 +79,7 @@ export function ArticleView({
       css += `::highlight(${name}){background-color:color-mix(in srgb, ${safe} 50%, transparent)}`;
     });
     styleSheet().textContent = css;
+    onPlaced?.([...ranges.current].sort(([, a], [, b]) => a.compareBoundaryPoints(Range.START_TO_START, b)).map(([id]) => id));
     return () => names.forEach((n) => CSS.highlights.delete(n));
   }, [highlights, item.content, markdown]);
 
@@ -169,6 +177,13 @@ export function ArticleView({
       )}
     </>
   );
+}
+
+/** Scrolls the article so a highlight's text sits just under its top bar, which stays over the article's top. */
+export function scrollArticleTo(scroller: HTMLElement, range: Range) {
+  const bar = scroller.querySelector(".topbar")?.getBoundingClientRect().height ?? 0;
+  const top = scroller.scrollTop + range.getBoundingClientRect().top - scroller.getBoundingClientRect().top - bar - JUMP_GAP;
+  scroller.scrollTo({ top, behavior: "smooth" });
 }
 
 /** One style element for the highlight colours, shared by whichever article is open. */

@@ -18,17 +18,19 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { folderCtx, setAttention } from "../../folders/registry";
 import { openPdf, type PDFDoc } from "../../lib/pdf";
 import { clamp } from "../../lib/util";
-import { INK_COLORS, type Annotation, type Folder } from "../../model";
+import { INK_COLORS, type Annotation, type Folder, type Rect } from "../../model";
 import { selectionRects } from "../../reader/geometry";
 import { loadOutline, type OutlineEntry } from "../../reader/outline";
+import { rectsForQuote } from "../../reader/quoteRects";
+import { reflowFor, type Reflow } from "../../reader/reflow";
 import { deleteAnnotation, ensureThumb, indexDocument, loadPdfData, saveAnnotation, savePosition, updateAnnotation } from "../../store/actions";
-import { noteFromHighlight } from "../../notes/notes";
 import { navigate, toast } from "../../store/ui";
 import { useAccount } from "../../sync/account";
 import { SyncBadge, useFolderSync } from "../common";
 import { NotesPanel, type PanelTab } from "./NotesPanel";
 import { PageView, type PageSize, type Tool } from "./PageView";
 import { AnnotationPopover, lastColor, SelectionPopover, setLastColor } from "./Popovers";
+import { ReflowView, REFLOW_SURFACE, readingBlockAt, readingBlockOnPage, scrollReadingTo, type ReflowSelection } from "./ReflowView";
 import { useTouchTools } from "./touch";
 
 const GAP = 16;
@@ -36,6 +38,8 @@ const PAD = 16;
 const ZOOM_STEPS = [0.5, 0.67, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3];
 /** Fit-to-width stops growing past this, so lines stay readable on wide screens. */
 const MAX_FIT_WIDTH = 980;
+/** The reading view's text size at 100% zoom, in px: the size of a saved article. */
+const READING_SIZE = 18;
 
 type Load =
   | { state: "loading" }
@@ -43,7 +47,20 @@ type Load =
   | { state: "error"; message: string }
   | { state: "ready"; pdf: PDFDoc; sizes: PageSize[]; outline: OutlineEntry[] };
 
-export function Reader({ folder, doc, page: startPage, find: startFind }: { folder: Folder; doc: string; page?: number; find?: string }) {
+export function Reader({
+  folder,
+  doc,
+  page: startPage,
+  find: startFind,
+  startPanel,
+}: {
+  folder: Folder;
+  doc: string;
+  page?: number;
+  find?: string;
+  /** Opens the notes panel on its "With notes" tab, e.g. from a PDF's options menu. */
+  startPanel?: "notes";
+}) {
   const { db } = folderCtx(folder.id);
   const { account } = useAccount();
   const syncState = useFolderSync(folder.id);
@@ -59,12 +76,21 @@ export function Reader({ folder, doc, page: startPage, find: startFind }: { fold
   const [tool, setTool] = useState<Tool>("select");
   const [inkColor, setInkColor] = useState(() => localStorage.getItem("reader.ink") ?? INK_COLORS[0]);
   const inkSize = 4;
-  const [panel, setPanel] = useState(() => localStorage.getItem("reader.panel") === "1" && window.innerWidth > 900);
-  const [panelTab, setPanelTab] = useState<PanelTab>("all");
+  const [panel, setPanel] = useState(() => !!startPanel || (localStorage.getItem("reader.panel") === "1" && window.innerWidth > 900));
+  const [panelTab, setPanelTab] = useState<PanelTab>(startPanel ? "notes" : "all");
   const [findOpen, setFindOpen] = useState(!!startFind);
   const [findText, setFindText] = useState(startFind ?? "");
   const [selection, setSelection] = useState<{ anchor: DOMRect; text: string; rects: Map<number, Annotation["rects"]> } | null>(null);
   const [picked, setPicked] = useState<{ id: string; anchor: DOMRect; edit?: boolean } | null>(null);
+  // The reading view: the same document as flowing text. Its text is extracted the first time it is shown.
+  const [reading, setReading] = useState(() => localStorage.getItem("reader.view") === "reading" && !startFind);
+  const [reflow, setReflow] = useState<Reflow | null>(null);
+  const [prep, setPrep] = useState<{ done: number; total: number } | null>(null);
+  const preparing = useRef(false);
+  const readRanges = useRef(new Map<string, Range>());
+  const [readSel, setReadSel] = useState<ReflowSelection | null>(null);
+  /** The page to show once the view changes: the page the old view showed at its top. */
+  const pendingPage = useRef<number | null>(null);
 
   // ---- Load the PDF -------------------------------------------------------------------------
 
@@ -114,6 +140,7 @@ export function Reader({ folder, doc, page: startPage, find: startFind }: { fold
   }, [load.state]);
 
   const sizes = load.state === "ready" ? load.sizes : [];
+  const pdf = load.state === "ready" ? load.pdf : null;
   const outline = load.state === "ready" ? load.outline : NO_OUTLINE;
   const fit = useMemo(() => {
     const widest = Math.max(1, ...sizes.map((s) => s.w));
@@ -131,10 +158,18 @@ export function Reader({ folder, doc, page: startPage, find: startFind }: { fold
     return t;
   }, [sizes, scale]);
 
-  /** Page under the top third of the screen, plus how far into it, as a fraction. */
+  /**
+   * The place under the top third of the screen: a page and how far into it, as a fraction. In the
+   * reading view it is the block there instead, with no fraction. Null while there is no text to read.
+   */
   const locate = useCallback(
-    (scrollTop: number, height: number) => {
+    (scrollTop: number, height: number, el: HTMLElement | null = scroller.current) => {
       const probe = scrollTop + height / 3;
+      if (reading) {
+        // The element is passed in by the scroll listeners: on unmount the ref is already cleared.
+        const block = el && readingBlockAt(el, probe);
+        return block ? { page: Number(block.dataset.page), offset: 0, block } : null;
+      }
       let lo = 0;
       let hi = sizes.length - 1;
       while (lo < hi) {
@@ -145,40 +180,56 @@ export function Reader({ folder, doc, page: startPage, find: startFind }: { fold
       const h = Math.floor((sizes[lo]?.h ?? 1) * scale);
       return { page: lo + 1, offset: clamp((scrollTop - tops[lo]) / h, -1, 1) };
     },
-    [sizes, tops, scale],
+    [sizes, tops, scale, reading],
   );
+
+  // The scroll listeners call the latest locate, so a view switch never saves one view's place against the other's layout.
+  const locateRef = useRef(locate);
+  useLayoutEffect(() => {
+    locateRef.current = locate;
+  });
 
   const scrollToPage = useCallback(
     (page: number, offset = 0, smooth = false) => {
       const el = scroller.current;
-      const i = clamp(page, 1, sizes.length) - 1;
       if (!el || !sizes.length) return;
+      if (reading) {
+        const block = readingBlockOnPage(el, page);
+        if (block) scrollReadingTo(el, block, smooth);
+        return;
+      }
+      const i = clamp(page, 1, sizes.length) - 1;
       el.scrollTo({ top: tops[i] + offset * Math.floor(sizes[i].h * scale) - (offset ? 0 : PAD / 2), behavior: smooth ? "smooth" : "auto" });
     },
-    [sizes, tops, scale],
+    [sizes, tops, scale, reading],
   );
 
-  // Restore the reading position once, after the first layout.
+  // Restore the reading position once, after the first layout (and, in the reading view, once its text is in).
   const restored = useRef(false);
   useEffect(() => {
-    if (restored.current || load.state !== "ready" || !viewW) return;
+    if (restored.current || load.state !== "ready" || !viewW || (reading && !reflow)) return;
     restored.current = true;
     void (async () => {
       if (startPage) return scrollToPage(startPage);
       const pos = await db.positions.get(doc);
       if (pos) scrollToPage(pos.page, pos.offset);
     })();
-  }, [load.state, viewW, startPage, db, doc, scrollToPage]);
+  }, [load.state, viewW, startPage, db, doc, scrollToPage, reading, reflow]);
 
-  // Keep the same spot on screen when the zoom changes.
-  const anchor = useRef<{ page: number; offset: number } | null>(null);
+  // Keep the same spot on screen when the zoom changes. The reading view keeps its block, which stays in place through a size change.
+  const anchor = useRef<{ page: number; offset: number; block?: HTMLElement } | null>(null);
   const prevScale = useRef(scale);
   useLayoutEffect(() => {
-    if (prevScale.current !== scale && anchor.current && restored.current) scrollToPage(anchor.current.page, anchor.current.offset);
+    const a = anchor.current;
+    if (prevScale.current !== scale && a && restored.current) {
+      if (a.block?.isConnected && scroller.current) scrollReadingTo(scroller.current, a.block, false);
+      else scrollToPage(a.page, a.offset);
+    }
     prevScale.current = scale;
   }, [scale, scrollToPage]);
 
-  const here = view.height ? locate(view.top, view.height) : { page: startPage ?? 1, offset: 0 };
+  // Where the reader is. Before the reading text is in, the last place in the page view stands in for it.
+  const here = (view.height ? locate(view.top, view.height) : null) ?? anchor.current ?? { page: startPage ?? 1, offset: 0 };
 
   // ---- Scrolling and position saving -------------------------------------------------------
 
@@ -189,14 +240,14 @@ export function Reader({ folder, doc, page: startPage, find: startFind }: { fold
     let saveTimer: ReturnType<typeof setTimeout> | undefined;
     const save = () => {
       if (!restored.current) return;
-      const { page, offset } = locate(el.scrollTop, el.clientHeight);
-      void savePosition(folder.id, doc, page, offset);
+      const place = locateRef.current(el.scrollTop, el.clientHeight, el);
+      if (place) void savePosition(folder.id, doc, place.page, place.offset);
     };
     const onScroll = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
         setView({ top: el.scrollTop, height: el.clientHeight });
-        anchor.current = locate(el.scrollTop, el.clientHeight);
+        anchor.current = locateRef.current(el.scrollTop, el.clientHeight, el);
       });
       clearTimeout(saveTimer);
       saveTimer = setTimeout(save, 1200);
@@ -211,7 +262,7 @@ export function Reader({ folder, doc, page: startPage, find: startFind }: { fold
       clearTimeout(saveTimer);
       save();
     };
-  }, [load.state, locate, folder.id, doc]);
+  }, [load.state, folder.id, doc]);
 
   const changeZoom = useCallback((dir: 1 | -1 | 0) => {
     setZoom((z) => {
@@ -268,8 +319,8 @@ export function Reader({ folder, doc, page: startPage, find: startFind }: { fold
     [folder.id, doc],
   );
 
-  // Fingers and pens: tools mark the page, two fingers scroll.
-  useTouchTools(scroller, tool, load.state === "ready");
+  // Fingers and pens: tools mark the page, two fingers scroll. In the reading view the text is what they mark.
+  useTouchTools(scroller, tool, load.state === "ready", reading ? REFLOW_SURFACE : undefined);
 
   // After a text selection ends: highlight straight away with the highlighter, else offer a popover.
   useEffect(() => {
@@ -319,6 +370,88 @@ export function Reader({ folder, doc, page: startPage, find: startFind }: { fold
     return m;
   }, [annotations]);
 
+  // ---- Reading view -------------------------------------------------------------------------
+
+  // The first time the reading view is shown, its text is extracted. After that it stays in state.
+  useEffect(() => {
+    if (!reading || !pdf || reflow || preparing.current) return;
+    preparing.current = true;
+    setPrep({ done: 0, total: pdf.numPages });
+    reflowFor(folder.id, doc, pdf, (done, total) => setPrep({ done, total }))
+      .then(setReflow)
+      .catch((e: unknown) => {
+        setReading(false);
+        toast(`Couldn't prepare the reading view. ${e instanceof Error ? e.message : String(e)}`);
+      })
+      .finally(() => {
+        preparing.current = false;
+        setPrep(null);
+      });
+  }, [reading, pdf, reflow, folder.id, doc]);
+
+  /**
+   * Switches between the page view and the reading view. The new view opens at the page the old one
+   * showed at its top. `remember` keeps the choice for next time; automatic switches don't.
+   */
+  const switchView = (next: boolean, remember = true) => {
+    if (next === reading) return;
+    pendingPage.current = here.page;
+    setSelection(null);
+    setReadSel(null);
+    setPicked(null);
+    // Pen and eraser need the pages, so they stay out of the reading view.
+    if (next && (tool === "ink" || tool === "eraser")) setTool("select");
+    if (remember) localStorage.setItem("reader.view", next ? "reading" : "page");
+    setReading(next);
+  };
+
+  // Once the view can show a page (the reading view, once its text is in), go to the page the old view showed.
+  useLayoutEffect(() => {
+    if (pendingPage.current === null || load.state !== "ready" || (reading && !reflow)) return;
+    scrollToPage(pendingPage.current);
+    pendingPage.current = null;
+  }, [reading, reflow, load.state, scrollToPage]);
+
+  /** Pen and eraser need the pages, so choosing either one brings back the page view. */
+  const chooseTool = (t: Tool) => {
+    if (reading && (t === "ink" || t === "eraser")) switchView(false, false);
+    setTool(t);
+  };
+
+  const highlightReading = useCallback(
+    async (color: string, sel: ReflowSelection, askWhy = false) => {
+      if (!pdf) return;
+      setLastColor(color);
+      window.getSelection()?.removeAllRanges();
+      setReadSel(null);
+      // A paragraph that runs over a page break is one block, on the page it starts on. Its second half
+      // is on the next page, so the quote is looked for on both.
+      let placed: { page: number; rects: Rect[] } | undefined;
+      for (const page of [sel.page, sel.page + 1]) {
+        if (page > pdf.numPages) break;
+        const rects = await rectsForQuote(pdf, page, sel.text);
+        if (rects) {
+          placed = { page, rects };
+          break;
+        }
+      }
+      if (!placed) return void toast("Couldn't place that on the page. Try the page view.");
+      const a = await saveAnnotation(folder.id, { doc, kind: "highlight", page: placed.page, color, rects: placed.rects, quote: sel.text });
+      if (askWhy) setPicked({ id: a.id, anchor: sel.anchor, edit: true });
+    },
+    [pdf, folder.id, doc],
+  );
+
+  const onReadSelect = useCallback(
+    (sel: ReflowSelection) => {
+      // As in the page view: the highlighter marks at once, and the other tools offer the colours.
+      if (tool === "highlight") void highlightReading(lastColor(), sel);
+      else setReadSel(sel);
+    },
+    [tool, highlightReading],
+  );
+  const onReadPick = useCallback((id: string, anchor: DOMRect) => setPicked({ id, anchor }), []);
+
   // ---- Find in document ---------------------------------------------------------------------
 
   const findTerms = useMemo(() => (findOpen ? findText.trim().split(/\s+/).filter(Boolean) : []), [findOpen, findText]);
@@ -362,6 +495,12 @@ export function Reader({ folder, doc, page: startPage, find: startFind }: { fold
   };
   const findIndex = findPages.indexOf(here.page);
 
+  // Matches are marked on the pages, so opening the find bar brings back the page view.
+  const openFind = () => {
+    if (reading) switchView(false, false);
+    setFindOpen(true);
+  };
+
   // ---- Keyboard -----------------------------------------------------------------------------
 
   const findInput = useRef<HTMLInputElement>(null);
@@ -371,7 +510,7 @@ export function Reader({ folder, doc, page: startPage, find: startFind }: { fold
       const mod = e.ctrlKey || e.metaKey;
       if ((mod && e.key === "f") || (!typing && !mod && e.key === "/")) {
         e.preventDefault();
-        setFindOpen(true);
+        openFind();
         setTimeout(() => findInput.current?.select(), 0);
       } else if (mod && (e.key === "=" || e.key === "+")) {
         e.preventDefault();
@@ -385,14 +524,14 @@ export function Reader({ folder, doc, page: startPage, find: startFind }: { fold
       } else if (typing || mod || e.altKey) {
         return;
       } else if (e.key === "Escape") {
-        if (selection || picked) return;
+        if (selection || readSel || picked) return;
         if (findOpen) setFindOpen(false);
         else if (tool !== "select") setTool("select");
         else navigate({ name: "library", folder: folder.id });
       } else if (e.key === "v") setTool("select");
       else if (e.key === "h") setTool((t) => (t === "highlight" ? "select" : "highlight"));
-      else if (e.key === "d") setTool((t) => (t === "ink" ? "select" : "ink"));
-      else if (e.key === "e") setTool((t) => (t === "eraser" ? "select" : "eraser"));
+      else if (e.key === "d") chooseTool(tool === "ink" ? "select" : "ink");
+      else if (e.key === "e") chooseTool(tool === "eraser" ? "select" : "eraser");
       else if (e.key === "n") openNotes();
     };
     window.addEventListener("keydown", onKey);
@@ -446,11 +585,20 @@ export function Reader({ folder, doc, page: startPage, find: startFind }: { fold
         </div>
         <div className="spacer" />
 
+        <div className="seg reader-view" role="group" aria-label="View">
+          <button className={reading ? "" : "on"} aria-pressed={!reading} title="Page view" onClick={() => switchView(false)}>
+            Page
+          </button>
+          <button className={reading ? "on" : ""} aria-pressed={reading} title="Reading view" onClick={() => switchView(true)}>
+            Reading
+          </button>
+        </div>
+
         <div className="toolgroup" role="toolbar" aria-label="Tools">
           <ToolButton tool="select" cur={tool} set={setTool} label="Select (V)" icon={<MousePointer2 size={18} />} />
           <ToolButton tool="highlight" cur={tool} set={setTool} label="Highlighter (H)" icon={<Highlighter size={18} />} />
-          <ToolButton tool="ink" cur={tool} set={setTool} label="Pen (D)" icon={<PenLine size={18} />} />
-          <ToolButton tool="eraser" cur={tool} set={setTool} label="Eraser (E)" icon={<Eraser size={18} />} />
+          <ToolButton tool="ink" cur={tool} set={chooseTool} label="Pen (D)" icon={<PenLine size={18} />} />
+          <ToolButton tool="eraser" cur={tool} set={chooseTool} label="Eraser (E)" icon={<Eraser size={18} />} />
         </div>
         {tool === "ink" && (
           <div className="toolgroup ink-colors" aria-label="Pen colour">
@@ -482,7 +630,7 @@ export function Reader({ folder, doc, page: startPage, find: startFind }: { fold
           </button>
         </div>
 
-        <button className={`icon-btn ${findOpen ? "on" : ""}`} aria-label="Find in document" title="Find (Ctrl F)" onClick={() => setFindOpen((o) => !o)}>
+        <button className={`icon-btn ${findOpen ? "on" : ""}`} aria-label="Find in document" title="Find (Ctrl F)" onClick={() => (findOpen ? setFindOpen(false) : openFind())}>
           <SearchIcon size={18} />
         </button>
         {outline.length > 0 && (
@@ -545,7 +693,23 @@ export function Reader({ folder, doc, page: startPage, find: startFind }: { fold
               <p className="muted">{load.message}</p>
             </div>
           )}
-          {load.state === "ready" && (
+          {load.state === "ready" && reading &&
+            (reflow ? (
+              <ReflowView
+                reflow={reflow}
+                size={READING_SIZE * zoom}
+                annotations={annotations}
+                selectedId={picked?.id}
+                ranges={readRanges}
+                onSelect={onReadSelect}
+                onPick={onReadPick}
+              />
+            ) : (
+              <div className="reflow-status" role="status">
+                Preparing the text… {prep?.done ?? 0} of {prep?.total ?? load.pdf.numPages} pages
+              </div>
+            ))}
+          {load.state === "ready" && !reading && (
             <div className="page-stack" style={{ height: tops[tops.length - 1] + PAD }}>
               {sizes.map((s, i) =>
                 near(i) ? (
@@ -592,13 +756,17 @@ export function Reader({ folder, doc, page: startPage, find: startFind }: { fold
             onTab={setPanelTab}
             me={account?.login}
             onJump={(a) => {
-              scrollToPage(a.page, Math.max(0, (a.rects?.[0]?.y ?? 0) - 0.15), true);
+              // In the reading view a highlight is jumped to where its text is; the page view goes by the page.
+              const range = reading ? readRanges.current.get(a.id) : undefined;
+              if (range && scroller.current) scrollReadingTo(scroller.current, range, true);
+              else scrollToPage(a.page, Math.max(0, (a.rects?.[0]?.y ?? 0) - 0.15), true);
               if (window.innerWidth < 900) setPanel(false);
             }}
             onPage={(page) => {
               scrollToPage(page, 0, true);
               if (window.innerWidth < 900) setPanel(false);
             }}
+            onDelete={(a) => void deleteWithUndo(a.id, a.kind === "ink" ? "Drawing" : "Highlight")}
             onClose={togglePanel}
           />
         )}
@@ -614,6 +782,16 @@ export function Reader({ folder, doc, page: startPage, find: startFind }: { fold
           onClose={() => setSelection(null)}
         />
       )}
+      {readSel && (
+        <SelectionPopover
+          anchor={readSel.anchor}
+          text={readSel.text}
+          item={meta}
+          page={readSel.page}
+          onHighlight={(color, withNote) => void highlightReading(color, readSel, withNote)}
+          onClose={() => setReadSel(null)}
+        />
+      )}
       {picked && pickedAnnotation && (
         <AnnotationPopover
           key={picked.id}
@@ -623,14 +801,6 @@ export function Reader({ folder, doc, page: startPage, find: startFind }: { fold
           startEditing={picked.edit}
           onChange={changePicked}
           onDelete={() => void deleteWithUndo(picked.id, "Highlight")}
-          onMakeNote={
-            meta
-              ? async () => {
-                  const note = await noteFromHighlight(folder.id, meta, pickedAnnotation.quote!, pickedAnnotation.page);
-                  navigate({ name: "item", folder: folder.id, item: note.id });
-                }
-              : undefined
-          }
           onClose={() => setPicked(null)}
         />
       )}

@@ -1,5 +1,5 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { Copy, Ellipsis, FileText, LoaderCircle, Menu as MenuIcon, Pencil, Plus, Tag, Trash2, Upload } from "lucide-react";
+import { Copy, Ellipsis, FileText, LoaderCircle, Menu as MenuIcon, NotebookPen, Pencil, Plus, Tag, Trash2, Upload } from "lucide-react";
 import { hostOf, itemHref, titleFromText, TYPE_LABELS } from "../capture/capture";
 import { useEffect, useRef, useState } from "react";
 import { folderCtx, renameFolder, setAttention, visibleFolders } from "../folders/registry";
@@ -120,6 +120,10 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
     menu.open(e, [
       { label: "Rename", icon: <Pencil size={15} />, run: () => setDialog({ kind: "rename", doc: d }) },
       { label: "Topics", icon: <Tag size={15} />, run: () => setDialog({ kind: "topics", doc: d }) },
+      // A PDF's notes live on the PDF, so they are reached from it rather than listed as items.
+      ...(d.type === "pdf" && (notes?.get(d.id) ?? 0) > 0
+        ? [{ label: "View notes", icon: <NotebookPen size={15} />, run: () => navigate({ name: "reader", folder: folder.id, doc: d.id, panel: "notes" }) }]
+        : []),
       ...(d.type === "pdf" ? [{ label: "Copy to another folder", icon: <Copy size={15} />, run: () => setDialog({ kind: "copy", doc: d }) }] : []),
       {
         label: "Remove",

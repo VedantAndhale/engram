@@ -1,4 +1,4 @@
-import { Download, PenLine, X } from "lucide-react";
+import { Download, PenLine, Trash2, X } from "lucide-react";
 import { useMemo } from "react";
 import { timeAgo } from "../../lib/util";
 import type { Annotation, Item } from "../../model";
@@ -15,35 +15,56 @@ const TABS: { id: PanelTab; label: string }[] = [
   { id: "ink", label: "Drawings" },
 ];
 
+const NO_OUTLINE: OutlineEntry[] = [];
+const NO_ORDER: string[] = [];
+
 export function NotesPanel({
   item,
   annotations,
-  outline,
+  outline = NO_OUTLINE,
+  drawings = true,
+  documentOrder = NO_ORDER,
   tab,
   onTab,
   me,
   onJump,
   onPage,
+  onDelete,
   onClose,
 }: {
   item?: Item;
   annotations: Annotation[];
-  outline: OutlineEntry[];
+  /** A PDF's table of contents. An article has none here: its contents are the rail beside the text. */
+  outline?: OutlineEntry[];
+  /** Whether this document can have drawings. Only PDFs take the pen. */
+  drawings?: boolean;
+  /** Highlight ids in the order they sit in an article's text. Any not in it follow, oldest first. */
+  documentOrder?: string[];
   tab: PanelTab;
   onTab: (tab: PanelTab) => void;
   me?: string;
   onJump: (a: Annotation) => void;
-  onPage: (page: number) => void;
+  /** Goes to a page from the table of contents. */
+  onPage?: (page: number) => void;
+  /** Deletes a highlight or drawing, with its note. The caller offers undo. */
+  onDelete: (a: Annotation) => void;
   onClose: () => void;
 }) {
   // A PDF with no table of contents has no Contents tab at all.
-  const tabs = TABS.filter((t) => t.id !== "contents" || outline.length > 0);
+  const tabs = TABS.filter((t) => (t.id !== "contents" || outline.length > 0) && (t.id !== "ink" || drawings));
+  const position = useMemo(() => new Map(documentOrder.map((id, i): [string, number] => [id, i])), [documentOrder]);
   const list = useMemo(
     () =>
       annotations
         .filter((a) => (tab === "notes" ? !!a.note : tab === "ink" ? a.kind === "ink" : true))
-        .sort((a, b) => a.page - b.page || (a.rects?.[0]?.y ?? 0) - (b.rects?.[0]?.y ?? 0) || a.createdAt - b.createdAt),
-    [annotations, tab],
+        .sort(
+          (a, b) =>
+            a.page - b.page ||
+            (a.rects?.[0]?.y ?? 0) - (b.rects?.[0]?.y ?? 0) ||
+            (position.get(a.id) ?? documentOrder.length) - (position.get(b.id) ?? documentOrder.length) ||
+            a.createdAt - b.createdAt,
+        ),
+    [annotations, tab, position, documentOrder.length],
   );
 
   const exportMarkdown = () => {
@@ -73,7 +94,7 @@ export function NotesPanel({
         <ol className="notes-list">
           {outline.map((e, i) => (
             <li key={i}>
-              <button className="contents-item" style={{ "--depth": e.depth } as React.CSSProperties} onClick={() => onPage(e.page)}>
+              <button className="contents-item" style={{ "--depth": e.depth } as React.CSSProperties} onClick={() => onPage?.(e.page)}>
                 <span className="contents-title">{e.title}</span>
                 <span className="contents-page">{e.page}</span>
               </button>
@@ -87,7 +108,7 @@ export function NotesPanel({
       ) : (
         <ol className="notes-list">
           {list.map((a) => (
-            <li key={a.id}>
+            <li key={a.id} className="note-row">
               <button className="note-item" onClick={() => onJump(a)}>
                 <span className="note-bar" style={{ background: a.color }} />
                 <span className="note-body">
@@ -104,6 +125,14 @@ export function NotesPanel({
                     {a.author && a.author !== me ? ` · ${a.author}` : ""} · {timeAgo(a.updatedAt)}
                   </span>
                 </span>
+              </button>
+              <button
+                className="icon-btn note-delete"
+                aria-label={a.kind === "ink" ? "Delete drawing" : "Delete highlight and note"}
+                title={a.kind === "ink" ? "Delete drawing" : "Delete highlight and note"}
+                onClick={() => onDelete(a)}
+              >
+                <Trash2 size={15} />
               </button>
             </li>
           ))}
