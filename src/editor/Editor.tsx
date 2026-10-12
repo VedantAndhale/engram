@@ -22,6 +22,7 @@ import {
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Menu, type MenuItem } from "../ui/common";
 import type { EmbedData, HighlightChoice } from "../notes/links";
+import { pictureIn, pictureMarkdown } from "../notes/images";
 import { blocks } from "./blocks";
 import { completionSources } from "./completions";
 import { type BlockAction, blockHandles } from "./handles";
@@ -100,6 +101,10 @@ export interface EditorProps {
   embed: (target: string) => Promise<EmbedData | null>;
   autoFocus?: boolean;
   label?: string;
+  /** Ctrl+Enter (Cmd+Enter on a Mac) calls this, to save. Without it, the key starts a new line as usual. */
+  onSubmit?: () => void;
+  /** Called when focus leaves the editor. Not called while its own block menu has the focus. */
+  onBlur?: () => void;
 }
 
 /**
@@ -107,15 +112,19 @@ export interface EditorProps {
  * Changes from elsewhere (another device syncing in) wait while you type, and land once you leave
  * the editor, unless you changed the text yourself in the meantime (then your words win).
  */
-export function Editor({ value, onChange, placeholder, titles, openWiki, highlights, embed, autoFocus, label }: EditorProps) {
+export function Editor({ value, onChange, placeholder, titles, openWiki, highlights, embed, autoFocus, label, onSubmit, onBlur }: EditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const [menu, setMenu] = useState<{ anchor: HTMLElement; items: MenuItem[] } | null>(null);
-  const showMenu = (anchor: HTMLElement, actions: BlockAction[]) =>
+  // The block menu takes the focus when it opens, which is not leaving the note.
+  const menuOpen = useRef(false);
+  const showMenu = (anchor: HTMLElement, actions: BlockAction[]) => {
+    menuOpen.current = true;
     setMenu({ anchor, items: actions.map(({ id, ...a }) => ({ ...a, icon: ICONS[id] })) });
+  };
   // The latest callbacks, so the editor is created once.
-  const props = useRef({ onChange, titles, openWiki, highlights, embed });
-  props.current = { onChange, titles, openWiki, highlights, embed };
+  const props = useRef({ onChange, titles, openWiki, highlights, embed, onSubmit, onBlur });
+  props.current = { onChange, titles, openWiki, highlights, embed, onSubmit, onBlur };
   // The latest saved text, and the last saved text the editor was known to match. A synced change
   // that arrived while you were typing is applied when you leave, unless you've typed since.
   const saved = useRef(value);
@@ -141,6 +150,16 @@ export function Editor({ value, onChange, placeholder, titles, openWiki, highlig
           markdown({ base: markdownLanguage, addKeymap: false }),
           syntaxHighlighting(highlight),
           keymap.of([
+            // Saves when the caller asks for it. Otherwise it returns false, and the key starts a new line as usual.
+            {
+              key: "Mod-Enter",
+              run: () => {
+                const submit = props.current.onSubmit;
+                if (!submit) return false;
+                submit();
+                return true;
+              },
+            },
             { key: "Mod-b", run: wrap("**") },
             { key: "Mod-i", run: wrap("*") },
             { key: "Mod-e", run: wrap("`") },
@@ -158,12 +177,32 @@ export function Editor({ value, onChange, placeholder, titles, openWiki, highlig
           blocks({ embed: (t) => props.current.embed(t) }),
           codeFolding({ placeholderText: "…" }),
           blockHandles({ menu: showMenu }),
+          // A screenshot on the clipboard goes in at the cursor, as a picture kept in the note (notes/images.ts).
+          EditorView.domEventHandlers({
+            paste(event, view) {
+              const picture = pictureIn(event.clipboardData);
+              if (!picture) return false;
+              event.preventDefault();
+              void pictureMarkdown(picture).then((markdown) => {
+                const sel = view.state.selection.main;
+                view.dispatch({ changes: { from: sel.from, to: sel.to, insert: markdown }, selection: { anchor: sel.from + markdown.length } });
+              });
+              return true;
+            },
+          }),
           EditorView.lineWrapping,
           EditorView.contentAttributes.of({ "aria-label": label ?? "Note", spellcheck: "true", autocapitalize: "sentences" }),
           placeholder ? placeholderExt(placeholder) : [],
           EditorView.updateListener.of((u) => {
             if (u.docChanged && !u.transactions.some((t) => t.annotation(External))) props.current.onChange(u.state.doc.toString());
-            if (u.focusChanged && !u.view.hasFocus) queueMicrotask(() => view.current && takeSaved(view.current));
+            if (u.focusChanged && !u.view.hasFocus)
+              queueMicrotask(() => {
+                if (!view.current) return;
+                takeSaved(view.current);
+                // Switching to another window blurs the editor too, but the note is still being written. Only
+                // leaving for something else in this window counts.
+                if (!menuOpen.current && !view.current.hasFocus && document.hasFocus()) props.current.onBlur?.();
+              });
           }),
         ],
       }),
@@ -198,10 +237,20 @@ export function Editor({ value, onChange, placeholder, titles, openWiki, highlig
           anchor={menu.anchor}
           items={menu.items}
           align="start"
-          onClose={() => {
+          onClose={(reason) => {
             setMenu(null);
-            // Closed from the keyboard (focus went nowhere): back to writing.
-            setTimeout(() => document.activeElement === document.body && view.current?.focus());
+            menuOpen.current = false;
+            setTimeout(() => {
+              // A press outside the menu, in an editor with onBlur. The menu held the focus, so the editor never blurred: a press
+              // in the note (its gutter included) takes the focus back, and a press elsewhere leaves the note.
+              if (reason?.away && props.current.onBlur) {
+                if (reason.away instanceof Node && host.current?.contains(reason.away)) view.current?.focus();
+                else if (view.current && !view.current.hasFocus) props.current.onBlur();
+                return;
+              }
+              // Closed from the keyboard, or by a press elsewhere: back to writing.
+              if (document.activeElement === document.body) view.current?.focus();
+            });
           }}
         />
       )}

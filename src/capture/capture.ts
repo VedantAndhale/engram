@@ -3,6 +3,7 @@ import { cleanTopic } from "../habit/prefs";
 import { HIGHLIGHT_COLORS, type Item, type ItemType } from "../model";
 import { createItem, saveAnnotation, updateItem } from "../store/actions";
 import { extractArticle, isoDate, metaText } from "./extract";
+import { watchUrl, youtubeId } from "../video/youtube";
 
 /*
  * Saving things that aren't PDFs: links, quotes, notes, and pages sent by the bookmarklet or the
@@ -36,6 +37,9 @@ export function findUrl(text: string): string | null {
 
 /** Drop tracking parameters and the fragment, so the same page saved twice is one item. */
 export function cleanUrl(url: string): string {
+  // One YouTube video is one address, however it was copied: a timestamp, a playlist or a short link is the same video.
+  const video = youtubeId(url);
+  if (video) return watchUrl(video);
   try {
     const u = new URL(url);
     u.hash = "";
@@ -294,4 +298,5 @@ export const TYPE_LABELS: Record<ItemType, string> = {
   video: "Video",
   note: "Note",
   quote: "Quote",
+  playlist: "Playlist",
 };

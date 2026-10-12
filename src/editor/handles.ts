@@ -138,8 +138,11 @@ const CHANGEABLE: BlockKind[] = ["text", "heading", "list", "quote"];
 
 function actions(view: EditorView, blocks: Block[], i: number): BlockAction[] {
   const b = blocks[i];
+  // The block numbers are for the text as it was when the menu opened. If the text has changed since (a drag, or a
+  // synced change), a pick does nothing, rather than rewriting the wrong text.
+  const opened = view.state.doc;
   const done = (f: () => void) => () => {
-    f();
+    if (view.state.doc === opened) f();
     view.focus();
   };
   const turn = (id: TurnInto, label: string): BlockAction => ({

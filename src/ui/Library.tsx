@@ -1,5 +1,5 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { Copy, Ellipsis, FileText, LoaderCircle, Menu as MenuIcon, NotebookPen, Pencil, Plus, Tag, Trash2, Upload } from "lucide-react";
+import { Copy, Ellipsis, FileText, ListVideo, LoaderCircle, Menu as MenuIcon, NotebookPen, Pencil, Plus, Tag, Trash2, Upload } from "lucide-react";
 import { hostOf, itemHref, titleFromText, TYPE_LABELS } from "../capture/capture";
 import { useEffect, useRef, useState } from "react";
 import { folderCtx, renameFolder, setAttention, visibleFolders } from "../folders/registry";
@@ -8,6 +8,7 @@ import type { Item, Folder, Position } from "../model";
 import { partlyRead } from "../reader/articlePosition";
 import { addPdf, copyItem, removeItem, restoreItem, setItemTopics } from "../store/actions";
 import { renameWithLinks } from "../notes/notes";
+import { createPlaylist } from "../video/actions";
 import { setHabit, useHabit } from "../habit/prefs";
 import { TopicsDialog } from "./habit";
 import { navigate, openQuickAdd, rememberFolder, toast } from "../store/ui";
@@ -23,7 +24,7 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
   const account = useAccount((a) => a.account);
   const [sort, setSort] = useState<Sort>(() => (localStorage.getItem("reader.sort") as Sort) ?? "recent");
   const [topicFilter, setTopicFilter] = useState<string | null>(null);
-  const [dialog, setDialog] = useState<{ kind: "rename" | "copy" | "topics"; doc: Item } | { kind: "renameFolder" } | null>(null);
+  const [dialog, setDialog] = useState<{ kind: "rename" | "copy" | "topics"; doc: Item } | { kind: "renameFolder" } | { kind: "newPlaylist" } | null>(null);
   const topics = useHabit((h) => h.topics);
   const [adding, setAdding] = useState(0);
   const [dragging, setDragging] = useState(false);
@@ -41,7 +42,15 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
   const notes = useLiveQuery(async () => {
     const counts = new Map<string, number>();
     await db.annotations.each((a) => {
-      if (!a.deleted) counts.set(a.doc, (counts.get(a.doc) ?? 0) + 1);
+      // A playlist's entries are its videos, counted on their own, not as notes.
+      if (!a.deleted && a.kind !== "entry") counts.set(a.doc, (counts.get(a.doc) ?? 0) + 1);
+    });
+    return counts;
+  }, [db]);
+  const videos = useLiveQuery(async () => {
+    const counts = new Map<string, number>();
+    await db.annotations.each((a) => {
+      if (!a.deleted && a.kind === "entry") counts.set(a.doc, (counts.get(a.doc) ?? 0) + 1);
     });
     return counts;
   }, [db]);
@@ -156,6 +165,9 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
           <option value="added">Newest</option>
           <option value="title">A–Z</option>
         </select>
+        <button className="btn" title="A list of YouTube videos, in order" onClick={() => setDialog({ kind: "newPlaylist" })}>
+          <ListVideo size={16} /> <span className="hide-narrow">New playlist</span>
+        </button>
         <button className="btn" onClick={() => fileInput.current?.click()}>
           <Upload size={16} /> <span className="hide-narrow">Add PDF</span>
         </button>
@@ -230,7 +242,17 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
         <ul className="doc-grid">
           {shown.map((d) => {
             if (d.type !== "pdf")
-              return <ItemCard key={d.id} folder={folder.id} item={d} position={positions?.get(d.id)} notes={notes?.get(d.id) ?? 0} onMenu={(e) => docMenu(e, d)} />;
+              return (
+                <ItemCard
+                  key={d.id}
+                  folder={folder.id}
+                  item={d}
+                  position={positions?.get(d.id)}
+                  notes={notes?.get(d.id) ?? 0}
+                  videos={videos?.get(d.id) ?? 0}
+                  onMenu={(e) => docMenu(e, d)}
+                />
+              );
             const pos = positions?.get(d.id);
             const progress = pos && (d.pages ?? 1) > 1 ? (pos.page - 1 + pos.offset) / d.pages! : 0;
             const n = notes?.get(d.id) ?? 0;
@@ -305,6 +327,19 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
           onSubmit={(name) => renameFolder(folder.id, name)}
         />
       )}
+      {dialog?.kind === "newPlaylist" && (
+        <PromptDialog
+          title="New playlist"
+          label="Name"
+          initial=""
+          action="Create"
+          onClose={() => setDialog(null)}
+          onSubmit={async (name) => {
+            const playlist = await createPlaylist(folder.id, name);
+            navigate({ name: "item", folder: folder.id, item: playlist.id });
+          }}
+        />
+      )}
       {dialog?.kind === "copy" && <CopyDialog from={folder} doc={dialog.doc} onClose={() => setDialog(null)} />}
       {dialog?.kind === "topics" && (
         <TopicsDialog
@@ -326,7 +361,22 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
 }
 
 /** A card for anything that isn't a PDF: its type, a few lines of it, and where it's from. */
-function ItemCard({ folder, item, position, notes, onMenu }: { folder: string; item: Item; position?: Position; notes: number; onMenu: (e: React.MouseEvent) => void }) {
+function ItemCard({
+  folder,
+  item,
+  position,
+  notes,
+  videos,
+  onMenu,
+}: {
+  folder: string;
+  item: Item;
+  position?: Position;
+  notes: number;
+  videos: number;
+  onMenu: (e: React.MouseEvent) => void;
+}) {
+  const playlist = item.type === "playlist";
   let text = (item.type === "note" ? item.body : (item.content ?? item.body)) ?? "";
   // A note's first line is already its title.
   if (item.type === "note" && titleFromText(text) === item.title) text = text.trim().split(/\r?\n/).slice(1).join(" ");
@@ -348,7 +398,9 @@ function ItemCard({ folder, item, position, notes, onMenu }: { folder: string; i
           {/* A page of the text, on the same paper as a PDF's first page, so the cover reads as finished. */}
           <div className="cover-page">
             <span className="type-pill">{TYPE_LABELS[item.type]}</span>
-            {item.type === "quote" ? (
+            {playlist ? (
+              <p className="cover-host">{videos === 1 ? "1 video" : `${videos} videos`}</p>
+            ) : item.type === "quote" ? (
               <p className="cover-quote">{item.title}</p>
             ) : excerpt ? (
               <p className="cover-excerpt">{excerpt}</p>
@@ -367,10 +419,13 @@ function ItemCard({ folder, item, position, notes, onMenu }: { folder: string; i
             {item.title}
           </span>
           <span className="doc-meta">
-            {[hostOf(item.sourceUrl), reading ? `${Math.round(reading.offset * 100)}% read · ${timeAgo(reading.updatedAt)}` : timeAgo(item.addedAt)]
+            {[
+              playlist ? null : hostOf(item.sourceUrl),
+              playlist ? timeAgo(item.addedAt) : reading ? `${Math.round(reading.offset * 100)}% ${item.type === "video" ? "watched" : "read"} · ${timeAgo(reading.updatedAt)}` : timeAgo(item.addedAt),
+            ]
               .filter(Boolean)
               .join(" · ")}
-            {notes > 0 && ` · ${notes} highlight${notes === 1 ? "" : "s"}`}
+            {notes > 0 && ` · ${notes} ${item.type === "video" ? "note" : "highlight"}${notes === 1 ? "" : "s"}`}
           </span>
           {item.topics?.length ? <span className="doc-topics">{item.topics.join(" · ")}</span> : null}
         </div>

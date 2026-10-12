@@ -1,5 +1,6 @@
 import type { Annotation, Item, ItemType } from "../model.js";
 import { highlightRef } from "../notes/links.js";
+import { withoutPictures } from "../notes/images.js";
 
 /*
  * index.json: everything an agent searches, in one file per folder, so a search reads one file
@@ -65,7 +66,8 @@ export function buildIndex(folder: { id: string; name: string }, items: Item[], 
     const entry: IndexItem = { id: it.id, path: it.path, type: it.type, title: it.title, added: iso(it.addedAt), updated: iso(it.updatedAt) };
     if (it.sourceUrl) entry.url = it.sourceUrl;
     if (it.topics?.length) entry.topics = it.topics;
-    const words = it.body?.trim();
+    // A picture in a note is its data, which means nothing to a search: it is indexed as a word.
+    const words = it.body ? withoutPictures(it.body).trim() : "";
     if (words) entry.words = words.length > MAX_WORDS ? `${words.slice(0, MAX_WORDS)}…` : words;
     if (it.content?.trim()) entry.hasContent = true;
     const hl = (byItem.get(it.id) ?? []).sort((a, b) => a.page - b.page || a.createdAt - b.createdAt || (a.id < b.id ? -1 : 1));

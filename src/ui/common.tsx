@@ -220,7 +220,8 @@ export function Menu({
 }: {
   anchor: HTMLElement;
   items: MenuItem[];
-  onClose: () => void;
+  /** `away` is the target of a press outside the menu; no reason for Escape, a pick, or a resize. */
+  onClose: (reason?: { away: EventTarget | null }) => void;
   align?: "start" | "end";
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -234,16 +235,17 @@ export function Menu({
   }, [anchor, align]);
   useEffect(() => {
     const away = (e: Event) => {
-      if (!ref.current?.contains(e.target as Node) && !anchor.contains(e.target as Node)) onClose();
+      if (!ref.current?.contains(e.target as Node) && !anchor.contains(e.target as Node)) onClose({ away: e.target });
     };
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const onResize = () => onClose();
     document.addEventListener("pointerdown", away, true);
     window.addEventListener("keydown", onKey);
-    window.addEventListener("resize", onClose);
+    window.addEventListener("resize", onResize);
     return () => {
       document.removeEventListener("pointerdown", away, true);
       window.removeEventListener("keydown", onKey);
-      window.removeEventListener("resize", onClose);
+      window.removeEventListener("resize", onResize);
     };
   }, [anchor, onClose]);
   // Keyboard: the first item takes focus; Up and Down move between items.

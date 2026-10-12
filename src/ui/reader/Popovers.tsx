@@ -1,8 +1,11 @@
 import { Copy, NotebookPen, StickyNote, Trash2 } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { setHabit, useHabit } from "../../habit/prefs";
 import { HIGHLIGHT_COLORS, type Annotation, type Item } from "../../model";
 import { citation } from "../../notes/export";
+
+// The Markdown editor, loaded when a note is first written (as ItemView does), so CodeMirror stays out of the reader's first load.
+const Editor = lazy(() => import("../../editor/Editor"));
 
 /** A small floating panel pinned under (or above, if there's no room) an on-screen rectangle. */
 function Floating({ anchor, onClose, children, label }: { anchor: DOMRect; onClose: () => void; children: ReactNode; label: string }) {
@@ -192,17 +195,25 @@ export function AnnotationPopover({
         <p className="note-coach">One line on why this matters to you. It's what you'll see again when you review, and no chatbot can write it for you.</p>
       )}
       {editing && (
-        <textarea
-          className="note-input"
-          autoFocus
-          rows={3}
-          placeholder={annotation.note ? "Write a note…" : "Why does this matter? (optional)"}
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
+        <div
+          className="note-editor note-editor-popover"
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) close();
           }}
-        />
+        >
+          <Suspense fallback={<div className="md-editor md-loading" />}>
+            <Editor
+              value={note}
+              onChange={setNote}
+              titles={() => []}
+              openWiki={() => {}}
+              highlights={async () => []}
+              embed={async () => null}
+              autoFocus
+              placeholder={annotation.note ? "Write a note…" : "Why does this matter? (optional)"}
+            />
+          </Suspense>
+        </div>
       )}
     </Floating>
   );

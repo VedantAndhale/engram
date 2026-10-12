@@ -1,6 +1,6 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { BookmarkPlus, Check, ClipboardPaste, LoaderCircle, Share, Smartphone } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { asCapture, bookmarkletHref, READY, type CaptureMessage } from "../capture/bookmarklet";
 import {
   asUrl,
@@ -45,6 +45,9 @@ function FolderSelect({ folders, value, onChange }: { folders: Folder[]; value: 
     </label>
   );
 }
+
+// The Markdown editor, loaded when a capture form first needs it (as ItemView does).
+const Editor = lazy(() => import("../editor/Editor"));
 
 /** Ctrl/Cmd+Enter saves from anywhere in a capture form. */
 const saveKey = (save: () => void) => (e: React.KeyboardEvent) => {
@@ -130,13 +133,31 @@ function QuickAddDialog({ prefill }: { prefill: QuickAddPrefill }) {
               </button>
             )}
           </span>
-          <textarea
-            autoFocus
-            rows={kind === "link" ? 2 : 5}
-            value={text}
-            placeholder={kind === "link" ? "https://…" : kind === "quote" ? "Words worth keeping, exactly as written" : "What's on your mind?"}
-            onChange={(e) => setText(e.target.value)}
-          />
+          {kind === "note" ? (
+            <div className="note-editor">
+              <Suspense fallback={<div className="md-editor md-loading" />}>
+                <Editor
+                  value={text}
+                  onChange={setText}
+                  titles={() => []}
+                  openWiki={() => {}}
+                  highlights={async () => []}
+                  embed={async () => null}
+                  autoFocus
+                  placeholder="What's on your mind?"
+                />
+              </Suspense>
+            </div>
+          ) : (
+            // A link's URL and a quote's exact words stay plain text: Markdown would change them.
+            <textarea
+              autoFocus
+              rows={kind === "link" ? 2 : 5}
+              value={text}
+              placeholder={kind === "link" ? "https://…" : "Words worth keeping, exactly as written"}
+              onChange={(e) => setText(e.target.value)}
+            />
+          )}
         </label>
         {kind === "link" && text.trim() && !url && <p className="hint">Paste a whole link, starting with https://</p>}
 
@@ -157,7 +178,19 @@ function QuickAddDialog({ prefill }: { prefill: QuickAddPrefill }) {
         {kind !== "note" && (
           <label>
             <span>In your own words</span>
-            <input value={words} placeholder="Why does this matter to you? (optional)" onChange={(e) => setWords(e.target.value)} />
+            <div className="note-editor">
+              <Suspense fallback={<div className="md-editor md-loading" />}>
+                <Editor
+                  value={words}
+                  onChange={setWords}
+                  titles={() => []}
+                  openWiki={() => {}}
+                  highlights={async () => []}
+                  embed={async () => null}
+                  placeholder="Why does this matter to you? (optional)"
+                />
+              </Suspense>
+            </div>
           </label>
         )}
 
@@ -302,7 +335,7 @@ export function SavePage() {
           <span>Type</span>
           <select className="select" value={type} onChange={(e) => setType(e.target.value as ItemType)}>
             {(Object.keys(TYPE_LABELS) as ItemType[])
-              .filter((t) => t !== "pdf" && t !== "note")
+              .filter((t) => t !== "pdf" && t !== "note" && t !== "playlist")
               .map((t) => (
                 <option key={t} value={t}>
                   {TYPE_LABELS[t]}
@@ -317,7 +350,20 @@ export function SavePage() {
         )}
         <label>
           <span>In your own words</span>
-          <textarea autoFocus rows={2} value={words} placeholder="Why does this matter to you? (optional)" onChange={(e) => setWords(e.target.value)} />
+          <div className="note-editor">
+            <Suspense fallback={<div className="md-editor md-loading" />}>
+              <Editor
+                value={words}
+                onChange={setWords}
+                titles={() => []}
+                openWiki={() => {}}
+                highlights={async () => []}
+                embed={async () => null}
+                autoFocus
+                placeholder="Why does this matter to you? (optional)"
+              />
+            </Suspense>
+          </div>
         </label>
         <div className="field">
           <span className="field-label">Topics</span>

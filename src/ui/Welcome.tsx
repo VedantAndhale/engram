@@ -50,15 +50,31 @@ export function Welcome() {
         {step === "hello" && (
           <>
             <img src="./icon.svg" alt="" width={44} height={44} />
-            <h1>Welcome to Engram</h1>
-            <p className="lead">Any fact is a chat away now. What you notice, understand and connect is still yours to build.</p>
-            <p className="muted">
-              Engram is a place to keep it: read, highlight what matters, say why in your own words, and see it again before it fades. A
-              few minutes a day is enough.
-            </p>
+            <h1>Read it, highlight it, keep what matters.</h1>
+            <p className="lead">Read articles and PDFs, highlight what matters, and keep notes as Markdown.</p>
+            <img
+              className="welcome-demo"
+              src="./engram-demo.gif"
+              alt="Demo: save a quote, highlight a passage with a note, then review it on Today and space it out."
+              width={960}
+              height={640}
+            />
+            <ul className="welcome-points">
+              <li>
+                <strong>No account to start.</strong> Reading, saving and search work without one. Sign in with GitHub for sync and agents.
+                It asks for access to your private repositories, and Engram's server records your primary email.
+              </li>
+              <li>
+                <strong>Plain files, when you sync.</strong> With sync on, each folder is a GitHub repository in your account, created
+                private, holding your notes as Markdown.
+              </li>
+              <li>
+                <strong>Highlights come back.</strong> Today brings them back on a spacing schedule, starting a day after you save them.
+              </li>
+            </ul>
             <div className="welcome-actions">
               <button className="btn btn-primary" autoFocus onClick={() => setStep("topics")}>
-                Get started <ArrowRight size={16} />
+                Start reading <ArrowRight size={16} />
               </button>
             </div>
           </>

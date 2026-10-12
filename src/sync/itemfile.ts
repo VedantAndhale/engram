@@ -40,7 +40,15 @@ const CONTENT_HEADING = "## Saved from the source";
 const iso = (ts: number) => new Date(ts).toISOString();
 
 /** JSON that can sit inside an HTML comment: "--" never appears, so "-->" can't either. */
-const commentJson = (value: unknown) => JSON.stringify(value).replace(/--/g, "-\\u002d");
+// One line per annotation, and "--" would end the comment early: both are escaped. The two Unicode line
+// separators end a line for the parser too, so they are escaped (written as code points, not characters).
+const LINE_SEP = String.fromCharCode(0x2028);
+const PARA_SEP = String.fromCharCode(0x2029);
+const BACKSLASH = String.fromCharCode(92);
+/** Writes the two Unicode line separators as escapes, so a value stays on one line for the parser. */
+const escapeSeparators = (json: string) => json.split(LINE_SEP).join(BACKSLASH + "u2028").split(PARA_SEP).join(BACKSLASH + "u2029");
+const commentJson = (value: unknown) =>
+  JSON.stringify(value).replace(/--/g, "-\\u002d").split(LINE_SEP).join("\\u2028").split(PARA_SEP).join("\\u2029");
 
 /** Stable output, so identical content always produces the identical git blob. */
 export function serializeItem(item: Item, annotations: Annotation[]): string {
@@ -69,7 +77,7 @@ export function serializeItem(item: Item, annotations: Annotation[]): string {
     ["deleted", item.deleted || undefined],
   ];
   let out = "---\n";
-  for (const [k, v] of fm) if (v !== undefined) out += `${k}: ${JSON.stringify(v)}\n`;
+  for (const [k, v] of fm) if (v !== undefined) out += `${k}: ${escapeSeparators(JSON.stringify(v))}\n`;
   out += "---\n";
 
   const body = item.body?.trim();
@@ -105,7 +113,7 @@ export function parseItem(text: string, path: string): { item: Item; annotations
   if (!m) return null;
   const fm: Record<string, unknown> = {};
   for (const line of m[1].split(/\r?\n/)) {
-    const kv = /^([A-Za-z_]+):\s*(.*)$/.exec(line);
+    const kv = /^([A-Za-z_]+):\s*([\s\S]*)$/.exec(line);
     if (!kv) continue;
     try {
       fm[kv[1]] = JSON.parse(kv[2]);
@@ -155,7 +163,7 @@ export function parseItem(text: string, path: string): { item: Item; annotations
 
   const annotations: Annotation[] = [];
   if (cut >= 0) {
-    for (const a of rest.slice(cut).matchAll(/<!-- engram:annotation (.*?) -->/g)) {
+    for (const a of rest.slice(cut).matchAll(/<!-- engram:annotation ([\s\S]*?) -->/g)) {
       try {
         const parsed = JSON.parse(a[1]) as Annotation;
         if (typeof parsed.id === "string" && typeof parsed.updatedAt === "number") annotations.push({ ...parsed, doc: id });

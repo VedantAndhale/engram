@@ -22,7 +22,7 @@ export interface Folder {
   hidden?: boolean;
 }
 
-export const ITEM_TYPES = ["pdf", "article", "post", "tweet", "thread", "bookmark", "video", "note", "quote"] as const;
+export const ITEM_TYPES = ["pdf", "article", "post", "tweet", "thread", "bookmark", "video", "note", "quote", "playlist"] as const;
 export type ItemType = (typeof ITEM_TYPES)[number];
 
 /**
@@ -79,7 +79,11 @@ export interface Rect {
   h: number;
 }
 
-export type AnnotationKind = "highlight" | "ink";
+/**
+ * highlight and ink mark a document; moment marks a time in a video; entry lists a video in a playlist.
+ * Each is one record, so two devices adding or moving different ones both keep their change.
+ */
+export type AnnotationKind = "highlight" | "ink" | "moment" | "entry";
 
 export interface Annotation {
   id: string;
@@ -99,6 +103,12 @@ export interface Annotation {
   prefix?: string;
   suffix?: string;
   note?: string;
+  /** A moment in a video: where in it, in seconds. */
+  at?: number;
+  /** A playlist entry: the video it lists. */
+  ref?: string;
+  /** A playlist entry's place in the list: lower comes first. */
+  order?: number;
   /** Ink stroke as flat [x, y, pressure, ...] in units where page width = 1000. */
   points?: number[];
   size?: number;

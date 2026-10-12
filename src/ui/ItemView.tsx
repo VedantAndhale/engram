@@ -19,6 +19,8 @@ import { TopicsDialog } from "./habit";
 import { ArticleToc, useRailFits } from "./ArticleToc";
 import { ArticleView, scrollArticleTo, type ReadingPrefs } from "./reader/ArticleView";
 import { NotesPanel, type PanelTab } from "./reader/NotesPanel";
+import { PlaylistView } from "./PlaylistView";
+import { VideoView } from "./VideoView";
 
 // CodeMirror is only needed once an item is open.
 const Editor = lazy(() => import("../editor/Editor"));
@@ -122,6 +124,10 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
       </main>
     );
   }
+
+  // A video and a playlist have screens of their own.
+  if (item.type === "video") return <VideoView folder={folder} item={item} />;
+  if (item.type === "playlist") return <PlaylistView folder={folder} item={item} />;
 
   const href = safeHref(item.sourceUrl);
   const isNote = item.type === "note";

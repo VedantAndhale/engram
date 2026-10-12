@@ -1,6 +1,7 @@
 import MiniSearch from "minisearch";
 import type { ReaderDB } from "../db/db";
 import type { Item } from "../model";
+import { withoutPictures } from "../notes/images";
 
 export interface SearchHit {
   id: string;
@@ -114,7 +115,7 @@ export class LibrarySearch {
 /** The text an item is searched by. A PDF's words live on its pages, so only its topics are kept here. */
 function itemText(i: Item): (string | undefined)[] {
   const topics = (i.topics ?? []).join(", ");
-  return i.type === "pdf" ? [topics] : [i.body, i.content, i.title, topics];
+  return i.type === "pdf" ? [topics] : [i.body && withoutPictures(i.body), i.content, i.title, topics];
 }
 
 /** A short excerpt around the first matching term. */

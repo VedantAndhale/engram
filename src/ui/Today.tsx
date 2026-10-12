@@ -1,7 +1,7 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { itemHref } from "../capture/capture";
 import { BellRing, BookmarkPlus, BookOpen, CloudUpload, Menu as MenuIcon, NotebookPen, Pencil, Plus, Sparkles } from "lucide-react";
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { folderCtx, visibleFolders } from "../folders/registry";
 import { setHabit, useHabit } from "../habit/prefs";
 import { allCards, rate, saveWords, weekStats, type Card } from "../habit/review";
@@ -14,6 +14,9 @@ import { BookmarkletCard } from "./Capture";
 import { partlyRead } from "../reader/articlePosition";
 import { ReminderDialog, TopicsDialog } from "./habit";
 import { AgentInbox } from "./Inbox";
+
+// The Markdown editor, loaded when a review asks for a note (as ItemView does).
+const Editor = lazy(() => import("../editor/Editor"));
 
 const PER_SESSION = 3;
 const WEEK = 7 * 86_400_000;
@@ -55,7 +58,8 @@ export function Today({ onOpenSidebar }: { onOpenSidebar: () => void }) {
           pages: d.pages ?? 1,
           at: p?.updatedAt ?? 0,
           topics: d.topics ?? [],
-          articleRead: partlyRead(p) ? p.offset : undefined,
+          // A video's place is its watched fraction too; it isn't an article, so Keep reading leaves it out.
+          articleRead: d.type !== "video" && partlyRead(p) ? p.offset : undefined,
         });
       }
     }
@@ -293,7 +297,19 @@ function ReviewCard({ card, index, total, onRated }: { card: Card; index: number
       ) : (
         <label className="review-write">
           <span className="muted">{card.note ? "Rewrite it, now that you've had time with it" : "Why does this matter? Say it in your own words."}</span>
-          <textarea rows={3} value={words} placeholder="One line is enough…" onChange={(e) => setWords(e.target.value)} />
+          <div className="note-editor">
+            <Suspense fallback={<div className="md-editor md-loading" />}>
+              <Editor
+                value={words}
+                onChange={setWords}
+                titles={() => []}
+                openWiki={() => {}}
+                highlights={async () => []}
+                embed={async () => null}
+                placeholder="One line is enough…"
+              />
+            </Suspense>
+          </div>
         </label>
       )}
       <div className="review-actions">

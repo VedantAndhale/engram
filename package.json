@@ -10,7 +10,8 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b",
-    "mcp": "tsx mcp/dev.ts"
+    "mcp": "tsx mcp/dev.ts",
+    "test": "node --import tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",
