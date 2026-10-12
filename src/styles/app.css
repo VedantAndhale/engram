@@ -1700,7 +1700,7 @@ input[type="time"] {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  width: min(560px, 100%);
+  width: min(660px, 100%);
   padding: 32px;
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -1740,6 +1740,28 @@ input[type="time"] {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 6px;
+}
+.welcome-demo {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.welcome-points {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0 0 0 18px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.welcome-points strong {
+  color: var(--text);
+  font-weight: 600;
 }
 
 .topic-picker {
