@@ -30,6 +30,8 @@ interface Pending {
   redirectUri: string;
   state?: string;
   challenge: string;
+  /** Set once the person approves: the same value goes into a cookie in their browser only. */
+  browser?: string;
 }
 /** Sign-in for the Engram app itself: it returns to the app, never to a client's address. */
 interface AppPending {
@@ -45,6 +47,23 @@ const json = (body: unknown, status = 200, headers: Record<string, string> = {})
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store", ...headers } });
 const oauthError = (error: string, description: string, status = 400) => json({ error, error_description: description }, status);
 const redirect = (to: string) => new Response(null, { status: 302, headers: { Location: to, "Cache-Control": "no-store" } });
+
+const CONSENT_COOKIE = "engram_consent";
+
+/** A request this site's own pages made. Browsers send Sec-Fetch-Site; older ones only Origin. */
+function sameOrigin(req: Request): boolean {
+  const site = req.headers.get("sec-fetch-site");
+  if (site) return site === "same-origin";
+  return req.headers.get("origin") === origin(req);
+}
+
+function cookie(req: Request, name: string): string | undefined {
+  for (const part of (req.headers.get("cookie") ?? "").split(";")) {
+    const [k, ...v] = part.trim().split("=");
+    if (k === name) return v.join("=");
+  }
+  return undefined;
+}
 
 export function protectedResource(req: Request) {
   return json({
@@ -112,10 +131,16 @@ export async function register(req: Request) {
 export async function authorize(req: Request) {
   const params = req.method === "POST" ? new URLSearchParams(await req.text()) : new URL(req.url).searchParams;
   if (req.method === "POST") {
-    // Step 2: they said yes; off to GitHub with the request sealed into the state.
-    const pending = await unseal<Pending>("state", params.get("pending") ?? "");
+    // Step 2: they said yes; off to GitHub with the request sealed into the state. Only this
+    // page's own form may say yes: another site's form would approve for whoever visits it.
+    if (!sameOrigin(req)) return page("Connect from your app", "<p>Start connecting from your app, then approve on Engram's page.</p>", 403);
+    const pending = await unseal<Pending>("consent", params.get("pending") ?? "");
     if (!pending) return page("This sign-in link expired", "<p>Go back to your app and connect again.</p>", 400);
-    return toGitHub(req, { ...pending });
+    // The approval is tied to this browser, so a state copied from someone else's flow is useless here.
+    const browser = Buffer.from(crypto.getRandomValues(new Uint8Array(24))).toString("base64url");
+    const res = await toGitHub(req, { ...pending, browser } satisfies Pending);
+    res.headers.append("Set-Cookie", `${CONSENT_COOKIE}=${browser}; Path=/api/oauth; Max-Age=600; HttpOnly; Secure; SameSite=Lax`);
+    return res;
   }
 
   const client = await unseal<ClientData>("client", params.get("client_id") ?? "");
@@ -134,7 +159,8 @@ export async function authorize(req: Request) {
   const challenge = params.get("code_challenge");
   if (!challenge || params.get("code_challenge_method") !== "S256") return back("invalid_request", "PKCE with S256 is required.");
 
-  const pending = await seal("state", { clientName: client.name, redirectUri, state: params.get("state") ?? undefined, challenge } satisfies Pending, 10 * MINUTE);
+  // Sealed as "consent", not "state": it must come back through the form, never straight from GitHub.
+  const pending = await seal("consent", { clientName: client.name, redirectUri, state: params.get("state") ?? undefined, challenge } satisfies Pending, 10 * MINUTE);
   const who = esc(client.name || "An app");
   const to = new URL(redirectUri);
   const dest = to.protocol === "http:" || to.protocol === "https:" ? to.host : to.protocol.slice(0, -1);
@@ -200,6 +226,11 @@ export async function callback(req: Request) {
     return backToApp(pending, "token" in r ? { token: r.token } : { error: r.error });
   }
 
+  // Only the browser that approved may finish. Without this, a state from an attacker's own run
+  // could be handed to someone GitHub no longer asks, and their library would go to the attacker.
+  if (!pending.browser || cookie(req, CONSENT_COOKIE) !== pending.browser) {
+    return page("Connect from your app", "<p>This approval didn't start in this browser. Go back to your app and connect again.</p>", 403);
+  }
   const back = new URL(pending.redirectUri);
   if (pending.state) back.searchParams.set("state", pending.state);
   if (!code) {

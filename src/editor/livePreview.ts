@@ -3,6 +3,7 @@ import { type EditorState, type Range } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType } from "@codemirror/view";
 import { WIKI_LINK } from "../notes/links";
 import { INLINE_MATH, MathWidget } from "./math";
+import { externalUrl } from "../lib/util";
 
 /*
  * Live preview, the Obsidian model: the file stays plain Markdown, but lines you aren't editing
@@ -262,7 +263,7 @@ export function livePreview(handlers: LinkHandlers) {
       if (!formatted && !(e.ctrlKey || e.metaKey)) return false;
       e.preventDefault();
       if (el.dataset.wiki) handlers.openWiki(el.dataset.wiki);
-      else if (el.dataset.href && /^https?:\/\//i.test(el.dataset.href)) window.open(el.dataset.href, "_blank", "noopener,noreferrer");
+      else if (externalUrl(el.dataset.href)) window.open(el.dataset.href, "_blank", "noopener,noreferrer");
       return true;
     },
   });

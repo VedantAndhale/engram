@@ -4,6 +4,7 @@ import { HIGHLIGHT_COLORS, type Item, type ItemType } from "../model";
 import { createItem, saveAnnotation, updateItem } from "../store/actions";
 import { extractArticle, isoDate, metaText } from "./extract";
 import { watchUrl, youtubeId } from "../video/youtube";
+import { externalUrl } from "../lib/util";
 
 /*
  * Saving things that aren't PDFs: links, quotes, notes, and pages sent by the bookmarklet or the
@@ -53,9 +54,7 @@ export function cleanUrl(url: string): string {
 }
 
 /** Only http(s) links are ever rendered as links, so a saved "javascript:" URL can't run. */
-export function safeHref(url: string | undefined): string | undefined {
-  return url && /^https?:\/\//i.test(url) ? url : undefined;
-}
+export const safeHref = externalUrl;
 
 export function hostOf(url: string | undefined): string {
   try {

@@ -1,3 +1,18 @@
+/**
+ * A link from saved or agent-sent content that may be opened: http(s) only, and never Engram's
+ * own server routes, which would run on this site with the user's sign-in.
+ */
+export function externalUrl(u: string | undefined): string | undefined {
+  if (!u || !/^https?:\/\//i.test(u)) return undefined;
+  try {
+    const url = new URL(u);
+    if (url.origin === globalThis.location?.origin && /^\/(api|\.well-known)(\/|$)/i.test(url.pathname)) return undefined;
+  } catch {
+    return undefined;
+  }
+  return u;
+}
+
 export function uid(): string {
   return crypto.randomUUID();
 }

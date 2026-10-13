@@ -3,7 +3,7 @@ import { Bot, Check, ExternalLink, X } from "lucide-react";
 import { useState } from "react";
 import type { InboxRow } from "../db/db";
 import { folderCtx, visibleFolders } from "../folders/registry";
-import { timeAgo } from "../lib/util";
+import { externalUrl, timeAgo } from "../lib/util";
 import { acceptInbox, dismissInbox } from "../store/inbox";
 import { navigate, toast } from "../store/ui";
 
@@ -56,8 +56,8 @@ function InboxEntryRow({ folder, folderName, row }: { folder: string; folderName
         ) : (
           <strong>{e.title ?? e.sourceUrl ?? "Something to keep"}</strong>
         )}
-        {e.sourceUrl && (
-          <a className="muted" href={e.sourceUrl} target="_blank" rel="noreferrer" aria-label="Open the link">
+        {externalUrl(e.sourceUrl) && (
+          <a className="muted" href={externalUrl(e.sourceUrl)} target="_blank" rel="noreferrer" aria-label="Open the link">
             <ExternalLink size={12} />
           </a>
         )}

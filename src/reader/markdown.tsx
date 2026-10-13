@@ -1,6 +1,7 @@
 import { GFM, parser } from "@lezer/markdown";
 import type { SyntaxNode } from "@lezer/common";
 import type { ReactNode } from "react";
+import { externalUrl } from "../lib/util";
 
 /*
  * A saved article, drawn for reading. The Markdown is parsed with the parser the editor already
@@ -30,7 +31,7 @@ const MARKS = new Set([
   "ProcessingInstruction",
 ]);
 
-const safeUrl = (u: string) => (/^https?:\/\//i.test(u) ? u : undefined);
+const safeUrl = externalUrl;
 
 const HEADING = /^(?:ATX|Setext)Heading(\d)$/;
 /** The blocks that can hold a heading. Headings never sit inside a table, code or a paragraph. */

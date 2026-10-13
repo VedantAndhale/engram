@@ -5,7 +5,7 @@
  * passed off as another.
  */
 
-export type SealKind = "client" | "state" | "code" | "token";
+export type SealKind = "client" | "consent" | "state" | "code" | "token";
 
 let keyPromise: Promise<CryptoKey> | null = null;
 

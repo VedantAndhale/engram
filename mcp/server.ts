@@ -179,7 +179,7 @@ export function createServer(token: string, appUrl: string, agent = "An agent"):
         "Send a link or some text to the user's Engram inbox, with why it's worth keeping. Nothing reaches their library until they accept it in the app. Use when the user asks you to save or remember something.",
       inputSchema: {
         why: z.string().min(1).max(500).describe("Why the user would want this, in one sentence."),
-        url: z.string().url().optional().describe("The link, if there is one."),
+        url: z.string().url().regex(/^https?:\/\//i, "Only http(s) links.").optional().describe("The link, if there is one."),
         title: z.string().max(200).optional(),
         text: z.string().max(100_000).optional().describe("Text saved from the source (someone else's words)."),
         note: z.string().max(10_000).optional().describe("Your own short note about it, for the user."),
