@@ -1,14 +1,16 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { ArrowLeft, Play, X } from "lucide-react";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { hostOf, safeHref } from "../capture/capture";
 import { folderCtx } from "../folders/registry";
 import type { Folder, Item } from "../model";
 import { piecesOf } from "../notes/images";
 import { deleteAnnotation, updateAnnotation, updateItem } from "../store/actions";
 import { navigate, toast } from "../store/ui";
-import { addMoment, momentsOf, PLACEHOLDER_TITLE, saveVideoProgress } from "../video/actions";
+import { addMoment, momentsOf, saveVideoProgress } from "../video/actions";
 import { mountPlayer, STATE, type Player } from "../video/player";
-import { formatTime, parseMoment, thumbnailUrl, watchUrl, youtubeId } from "../video/youtube";
+import { fillVideoTitle } from "../video/title";
+import { formatTime, needsTitle, parseMoment, thumbnailUrl, watchUrl, youtubeId } from "../video/youtube";
 import "../styles/video.css";
 
 // The Markdown editor, the same one the notes elsewhere use, loaded when a video page first needs it.
@@ -32,6 +34,8 @@ const RESUME_BEFORE = 0.97;
 export function VideoView({ folder, item }: { folder: Folder; item: Item }) {
   const { db } = folderCtx(folder.id);
   const videoId = youtubeId(item.sourceUrl ?? "");
+  // Where a video that can't play here (Vimeo, TikTok…) can be watched instead. Only an http(s) link.
+  const source = safeHref(item.sourceUrl);
   const moments = useLiveQuery(() => momentsOf(folder.id, item.id), [folder.id, item.id]) ?? [];
   const position = useLiveQuery(() => db.positions.get(item.id), [db, item.id]);
 
@@ -48,6 +52,11 @@ export function VideoView({ folder, item }: { folder: Folder; item: Item }) {
   const seekOnReady = useRef<number | null>(null);
   const fraction = useRef<number | undefined>(undefined);
   fraction.current = position?.offset;
+
+  // A video saved before titles were looked up still says "youtube.com/watch"; it gets its real one here.
+  useEffect(() => {
+    if (videoId) void fillVideoTitle(folder.id, item.id);
+  }, [videoId, folder.id, item.id]);
 
   // The player exists only while the video is playing. Leaving the page, or pausing it away, saves where it was.
   useEffect(() => {
@@ -75,7 +84,7 @@ export function VideoView({ folder, item }: { folder: Folder; item: Item }) {
         if (!live) return p.destroy();
         player.current = p;
         const title = p.title();
-        if (title && (!item.title.trim() || item.title.startsWith(PLACEHOLDER_TITLE))) void updateItem(folder.id, item.id, { title });
+        if (title && needsTitle(item.title)) void updateItem(folder.id, item.id, { title });
         const d = p.duration();
         if (seekOnReady.current !== null) {
           p.seek(seekOnReady.current);
@@ -192,7 +201,14 @@ export function VideoView({ folder, item }: { folder: Folder; item: Item }) {
             )}
           </div>
         ) : (
-          <p className="video-error">This isn't a YouTube link, so it can't play here.</p>
+          <div className="video-error">
+            <p>Only YouTube videos play here.</p>
+            {source && (
+              <a href={source} target="_blank" rel="noreferrer noopener">
+                Watch on {hostOf(source) || "its site"}
+              </a>
+            )}
+          </div>
         )}
         {error && videoId && (
           <div className="video-error" role="alert">

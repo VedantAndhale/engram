@@ -7,6 +7,7 @@
  */
 
 import { lookup } from "node:dns/promises";
+import { pageCharset } from "../src/capture/extract.js";
 
 const MAX_BYTES = 3_000_000;
 const TIMEOUT_MS = 10_000;
@@ -95,7 +96,8 @@ export async function page(req: Request): Promise<Response> {
     size += value.byteLength;
   }
   void reader.cancel().catch(() => {});
-  const charset = /charset=([\w-]+)/i.exec(res.headers.get("content-type") ?? "")?.[1] ?? "utf-8";
+  // The header's charset, else the page's own <meta charset>, else UTF-8.
+  const charset = pageCharset(res.headers.get("content-type"), Buffer.concat(chunks).subarray(0, 4096));
   let html: string;
   try {
     html = new TextDecoder(charset).decode(Buffer.concat(chunks));

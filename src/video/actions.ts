@@ -2,6 +2,7 @@ import { folderCtx } from "../folders/registry";
 import type { Annotation, Item } from "../model";
 import { createItem, restoreItem, saveAnnotation, savePosition, updateAnnotation } from "../store/actions";
 import { orderAfterMove } from "./order";
+import { fillVideoTitle } from "./title";
 import { videosIn, watchUrl } from "./youtube";
 
 /*
@@ -46,7 +47,10 @@ export async function videoFor(folder: string, id: string): Promise<Item> {
     await restoreItem(folder, removed.id);
     return { ...removed, deleted: undefined };
   }
-  return createItem(folder, { type: "video", title: `${PLACEHOLDER_TITLE} ${id}`, sourceUrl: url });
+  const video = await createItem(folder, { type: "video", title: `${PLACEHOLDER_TITLE} ${id}`, sourceUrl: url });
+  // Its real title is asked of YouTube in the background, so the playlist doesn't wait for it.
+  void fillVideoTitle(folder, video.id);
+  return video;
 }
 
 export async function createPlaylist(folder: string, name: string): Promise<Item> {

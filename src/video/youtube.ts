@@ -92,3 +92,12 @@ export function parseMoment(line: string): { at: number | null; text: string } {
   if (at === null) return { at: null, text: t };
   return { at, text: m[2].trim() };
 }
+
+/**
+ * Whether a video's title is still a stand-in: empty, "YouTube video <id>" from a playlist, or the bare
+ * address a pasted link gets ("youtube.com/watch"). A title the reader typed is never one of these.
+ */
+export function needsTitle(title: string | undefined): boolean {
+  const t = (title ?? "").trim();
+  return !t || /^YouTube video [\w-]{11}$/.test(t) || /^(?:[\w-]+\.)?(?:youtube\.com|youtu\.be)(?:\/\S*)?$/i.test(t);
+}

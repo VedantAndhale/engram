@@ -1,8 +1,8 @@
 import { folderCtx } from "../folders/registry";
 import { cleanTopic } from "../habit/prefs";
 import { HIGHLIGHT_COLORS, type Item, type ItemType } from "../model";
-import { createItem, saveAnnotation, updateItem } from "../store/actions";
-import { extractArticle, isoDate, metaText } from "./extract";
+import { addPdf, createItem, saveAnnotation, updateItem } from "../store/actions";
+import { capText, extractArticle, isoDate, metaText, pdfUrl, shrinks } from "./extract";
 import { watchUrl, youtubeId } from "../video/youtube";
 import { externalUrl } from "../lib/util";
 
@@ -12,7 +12,9 @@ import { externalUrl } from "../lib/util";
  * (never HTML), capped, and never put where the app or an agent would treat it as instructions.
  */
 
-const MAX_CONTENT = 100_000;
+// About a full book. A longer page is kept up to here and marked as cut (see capText).
+const MAX_CONTENT = 1_000_000;
+const MAX_PDF = 200 * 1024 * 1024;
 const MAX_QUOTE = 20_000;
 const MAX_TITLE = 300;
 
@@ -69,7 +71,10 @@ export function hostOf(url: string | undefined): string {
 export const READABLE: ItemType[] = ["article", "bookmark", "post", "thread"];
 
 /** Whether a link's page is fetched in the background after saving (see fetchpage.ts). */
-export const fetchedLater = (url: string) => READABLE.includes(typeForUrl(url, 0));
+export const fetchedLater = (url: string) => READABLE.includes(typeForUrl(url, 0)) && !isPdfFile(url);
+
+/** A link to a PDF file itself (not an arXiv paper's page): it is downloaded as a PDF or kept as a link, never read as a page. */
+export const isPdfFile = (url: string) => !!pdfUrl(url) && !/arxiv\.org\/abs\//i.test(url);
 
 export function typeForUrl(url: string, contentLength = 0): ItemType {
   let u: URL;
@@ -113,6 +118,16 @@ export function titleFromText(text: string): string {
 
 /** Plain text from a page: tidy whitespace, cap the size, and defuse anything that looks like file markup. */
 function cleanText(text: string | undefined, max: number): string | undefined {
+  return cleanPlain(text)?.slice(0, max).trim() || undefined;
+}
+
+/** A page's whole plain text, as cleanText, with a long one cut and marked as cut. */
+const plainContent = (text: string | undefined) => {
+  const t = cleanPlain(text);
+  return t && capText(t, MAX_CONTENT, false);
+};
+
+function cleanPlain(text: string | undefined): string | undefined {
   if (!text) return undefined;
   const t = text
     .replace(/\r\n?/g, "\n")
@@ -121,8 +136,7 @@ function cleanText(text: string | undefined, max: number): string | undefined {
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .replace(/<!--/g, "&lt;!--")
-    .trim()
-    .slice(0, max);
+    .trim();
   return t || undefined;
 }
 
@@ -135,9 +149,7 @@ export function cleanMarkdown(text: string | undefined, max = MAX_CONTENT): stri
     .replace(/\n{3,}/g, "\n\n")
     .replace(/<!--/g, "\\<!--")
     .trim();
-  // Cut at a paragraph break, so a cap never leaves half a code fence or table row.
-  const cut = t.length > max ? t.slice(0, t.lastIndexOf("\n\n", max) > max / 2 ? t.lastIndexOf("\n\n", max) : max) : t;
-  return cut || undefined;
+  return t ? capText(t, max, true) : undefined;
 }
 
 const cleanTopics = (topics: string[]) => [...new Set(topics.map(cleanTopic).filter(Boolean))];
@@ -197,7 +209,7 @@ export async function saveLink(folder: string, c: PageCapture): Promise<SaveResu
   const url = cleanUrl(c.url);
   const article = c.html ? await extractArticle(c.html, c.url).catch(() => null) : null;
   const markdown = cleanMarkdown(article?.markdown);
-  const content = markdown ?? cleanText(c.text, MAX_CONTENT);
+  const content = markdown ?? plainContent(c.text);
   const contentFormat = markdown ? ("markdown" as const) : undefined;
   const selection = cleanText(c.selection, MAX_QUOTE);
   const words = c.words?.trim();
@@ -214,43 +226,97 @@ export async function saveLink(folder: string, c: PageCapture): Promise<SaveResu
   // A quote can carry the page's address as its source. It is a quote, not the page, so it never matches.
   const existing = await db.items.filter((i) => i.sourceUrl === url && i.type !== "quote" && !i.deleted).first();
   if (existing) {
-    const patch: Partial<Item> = {};
-    if (content && content !== existing.content) {
-      // Formatted text is never replaced by plain text from an older bookmarklet.
+    const patch: Partial<Item> = yours(existing, words, topics);
+    // A saved PDF keeps its file; only your words and topics are added to it.
+    const page = existing.type !== "pdf";
+    // Formatted text is never replaced by plain text from an older bookmarklet, nor a fuller copy by a much
+    // shorter one (the page now behind a login or paywall).
+    if (page && content && content !== existing.content && !shrinks(content, existing.content)) {
       if (contentFormat || existing.contentFormat !== "markdown") Object.assign(patch, { content, contentFormat });
     }
-    if (words) patch.body = existing.body?.trim() ? `${existing.body.trim()}\n\n${words}` : words;
-    const merged = cleanTopics([...(existing.topics ?? []), ...topics]);
-    if (merged.length !== (existing.topics?.length ?? 0)) patch.topics = merged;
     if (existing.title === titleFromUrl(url) && title !== existing.title) patch.title = title;
-    if (c.type && c.type !== existing.type) patch.type = c.type;
+    if (page && c.type && c.type !== existing.type) patch.type = c.type;
     Object.assign(patch, missingDetails(existing, details));
     if (Object.keys(patch).length) await updateItem(folder, existing.id, patch, 500);
-    if (selection) {
+    if (page && selection) {
       const quotes = await db.annotations.where("doc").equals(existing.id).toArray();
       if (!quotes.some((a) => !a.deleted && a.quote?.trim() === selection)) await addQuote(folder, existing.id, selection);
     }
     if (!contentFormat) fillLater(folder, existing.id);
+    titleLater(folder, existing.id);
     return { item: (await db.items.get(existing.id))!, existed: true };
   }
+
+  // A link to a PDF brings the PDF itself into the library, when its site lets Engram download it. An arXiv
+  // page saved with the bookmarklet already brought its article, so it is kept as that.
+  const pdf = !contentFormat || isPdfFile(url) ? pdfUrl(url) : null;
+  const pdfId = pdf ? await downloadPdf(folder, pdf) : null;
+  if (pdfId) return { item: await keepPdf(folder, pdfId, url, words, topics), existed: false };
+  const pdfFile = isPdfFile(url);
 
   const item = await createItem(folder, {
     type: c.type ?? typeForUrl(url, content?.length ?? 0),
     title,
     sourceUrl: url,
     ...details,
+    // Said on the card, so a PDF link that couldn't be downloaded isn't left looking like it will fill in.
+    description: details.description ?? (pdfFile ? PDF_LINK_NOTE : undefined),
     body: words || undefined,
     content,
     contentFormat,
     topics: topics.length ? topics : undefined,
   });
   if (selection) await addQuote(folder, item.id, selection);
-  if (!contentFormat) fillLater(folder, item.id);
+  if (!contentFormat && !pdfFile) fillLater(folder, item.id);
+  titleLater(folder, item.id);
   return { item, existed: false };
+}
+
+/** Your words and topics added to an item's own. */
+function yours(item: Item, words: string | undefined, topics: string[]): Partial<Item> {
+  const patch: Partial<Item> = {};
+  if (words) patch.body = item.body?.trim() ? `${item.body.trim()}\n\n${words}` : words;
+  const merged = cleanTopics([...(item.topics ?? []), ...topics]);
+  if (merged.length !== (item.topics?.length ?? 0)) patch.topics = merged;
+  return patch;
+}
+
+export const PDF_LINK_NOTE = "A link to a PDF. Its site doesn't let Engram download it: save the file, then use Add PDF to read and highlight it here.";
+
+/**
+ * Download a PDF into the folder; its id, or null. Most sites don't let another site's page read their files,
+ * so this often fails (arXiv allows it), and the link is kept instead.
+ */
+async function downloadPdf(folder: string, url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(60_000) });
+    if (!res.ok || Number(res.headers.get("content-length")) > MAX_PDF) return null;
+    const blob = await res.blob();
+    const head = new TextDecoder().decode(await blob.slice(0, 5).arrayBuffer());
+    if (blob.size > MAX_PDF || head !== "%PDF-") return null;
+    const last = decodeURIComponent(new URL(res.url || url).pathname.split("/").pop() ?? "") || "document";
+    const name = /\.pdf$/i.test(last) ? last : `${last}.pdf`;
+    return await addPdf(folder, new File([blob], name, { type: "application/pdf" }));
+  } catch {
+    return null;
+  }
+}
+
+/** A downloaded PDF keeps the link it came from, and your words and topics. */
+async function keepPdf(folder: string, id: string, url: string, words: string | undefined, topics: string[]): Promise<Item> {
+  const { db } = folderCtx(folder);
+  const item = (await db.items.get(id))!;
+  const patch = yours(item, words, topics);
+  if (!item.sourceUrl) patch.sourceUrl = url;
+  if (Object.keys(patch).length) await updateItem(folder, id, patch, 500);
+  return (await db.items.get(id))!;
 }
 
 /** Fetch the article in the background when the save didn't bring it (see fetchpage.ts). */
 const fillLater = (folder: string, id: string) => void import("./fetchpage").then((m) => m.fillFromWeb(folder, id));
+
+/** Look up a YouTube video's real title in the background, when it has only a stand-in (see video/title.ts). */
+const titleLater = (folder: string, id: string) => void import("../video/title").then((m) => m.fillVideoTitle(folder, id));
 
 /** Someone else's words worth keeping. The quote is a highlight, so it comes back in review. */
 export async function saveQuote(folder: string, q: { quote: string; source?: string; words?: string; topics?: string[] }): Promise<Item> {

@@ -2,7 +2,7 @@ import { folderCtx } from "../folders/registry";
 import type { Item } from "../model";
 import { updateItem } from "../store/actions";
 import { cleanMarkdown, missingDetails, READABLE, titleFromUrl, typeForUrl } from "./capture";
-import { extractArticle, type Extracted } from "./extract";
+import { extractArticle, shrinks, type Extracted } from "./extract";
 
 /*
  * Filling in articles from the web. Links saved from a phone or by pasting arrive with no text,
@@ -42,8 +42,7 @@ export async function fillFromWeb(folder: string, id: string): Promise<boolean> 
   const patch: Partial<Item> = missingDetails(now, got);
   // A page behind a login or paywall comes back as something much shorter than what the
   // bookmarklet saw; keep the fuller plain text then. The details still fill in.
-  const plainLength = now.content?.replace(/\s/g, "").length ?? 0;
-  if (plainLength === 0 || markdown.replace(/[\s*_#>`[\]()\\-]/g, "").length >= plainLength * 0.6) {
+  if (!shrinks(markdown, now.content)) {
     patch.content = markdown;
     patch.contentFormat = "markdown";
     if (got.title && now.title === titleFromUrl(now.sourceUrl!)) patch.title = got.title.slice(0, 300);

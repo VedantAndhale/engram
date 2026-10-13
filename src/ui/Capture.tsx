@@ -6,6 +6,7 @@ import {
   asUrl,
   fetchedLater,
   hostOf,
+  isPdfFile,
   itemHref,
   saveLink,
   saveNote,
@@ -15,6 +16,7 @@ import {
   TYPE_LABELS,
   type CaptureKind,
 } from "../capture/capture";
+import { pdfUrl } from "../capture/extract";
 import { visibleFolders } from "../folders/registry";
 import { installApp, isIOS, useInstall } from "../lib/install";
 import { setHabit, useHabit } from "../habit/prefs";
@@ -93,7 +95,9 @@ function QuickAddDialog({ prefill }: { prefill: QuickAddPrefill }) {
       else item = await saveNote(folder.id, { text, topics });
       rememberTopics(topics);
       closeQuickAdd();
-      toast(existed ? "You'd saved that already. Added to it." : `Saved to ${folder.name}.`, {
+      // A PDF its site wouldn't hand over is kept as a link; say so, rather than leave it to look unfinished.
+      const pdfLink = kind === "link" && !existed && item.type !== "pdf" && isPdfFile(url!);
+      toast(pdfLink ? "Saved the link. Its site doesn't allow Engram to download the PDF: save the file and use Add PDF." : existed ? "You'd saved that already. Added to it." : `Saved to ${folder.name}.`, {
         action: { label: "Open", run: () => (location.hash = itemHref(folder.id, item)) },
       });
     } catch (e) {
@@ -203,6 +207,7 @@ function QuickAddDialog({ prefill }: { prefill: QuickAddPrefill }) {
 
         {kind === "link" && url && (
           <p className="hint">
+            {pdfUrl(url) && "A PDF is brought into your library when its site allows it (arXiv does); otherwise the link is kept. "}
             {fetchedLater(url) && "The page's text and details, like its author and date, are fetched in the background. "}To keep a passage you've
             selected, use Save to Engram on the page.
           </p>

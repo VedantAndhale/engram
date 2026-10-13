@@ -41,6 +41,21 @@ export async function extractArticle(html: string, url: string): Promise<Extract
   };
 }
 
+/**
+ * The text encoding of a fetched page: the HTTP header's when it names one, else the page's own
+ * <meta charset> (or http-equiv) in its first few kilobytes, else UTF-8. For /api/page, which decodes
+ * the page before the app sees it.
+ */
+export function pageCharset(contentType: string | null, head: Uint8Array): string {
+  const fromHeader = /charset=["']?([\w.:-]+)/i.exec(contentType ?? "")?.[1];
+  if (fromHeader) return fromHeader.toLowerCase();
+  // The bytes are read as Latin-1, which never fails, just to find the ASCII tag.
+  const start = new TextDecoder("latin1").decode(head.subarray(0, 4096));
+  const meta = /<meta[^>]+charset\s*=\s*["']?([\w.:-]+)/i.exec(start)?.[1];
+  // A page can't truly be UTF-16 if its ASCII tag was readable, so browsers take that to mean UTF-8.
+  return !meta || /^utf-16/i.test(meta) ? "utf-8" : meta.toLowerCase();
+}
+
 const MAX_META = 500;
 
 /** A piece of page metadata on one line, capped; undefined when it's empty. */
@@ -72,20 +87,27 @@ function blocks(el: Element, indent: string): string {
   let out = "";
   let inline = "";
   const flush = () => {
-    const t = inline.replace(/\s+/g, " ").trim();
-    if (t) out += `${prefix(plainStart(t), indent)}\n\n`;
+    const t = withBreaks(inline);
+    if (t) out += `${prefix(t, indent)}\n\n`;
     inline = "";
   };
   for (const n of Array.from(el.childNodes)) {
-    if (!isBlock(n)) {
-      inline += inlineOf(n);
-      continue;
-    }
-    flush();
-    out += block(n as Element, indent);
+    if (isBlock(n)) {
+      flush();
+      out += block(n as Element, indent);
+    } else if (n instanceof Element && !SKIP.has(n.tagName) && hasBlock(n)) {
+      // Older hand-made sites wrap a whole essay in <font> or <span>; its paragraphs stay paragraphs.
+      flush();
+      out += blocks(n, indent);
+    } else inline += inlineOf(n);
   }
   flush();
   return out;
+}
+
+/** Whether an inline element holds a block (a paragraph, a list…) somewhere inside it. */
+function hasBlock(el: Element): boolean {
+  return Array.from(el.childNodes).some((c) => isBlock(c) || (c instanceof Element && !SKIP.has(c.tagName) && hasBlock(c)));
 }
 
 const prefix = (text: string, indent: string) => text.split("\n").map((l) => (l ? indent + l : indent.trimEnd())).join("\n");
@@ -99,13 +121,16 @@ function block(el: Element, indent: string): string {
     return t ? `${indent}${"#".repeat(Number(m[1]))} ${t}\n\n` : "";
   }
   switch (tag) {
-    case "P":
+    case "P": {
+      const t = withBreaks(Array.from(el.childNodes).map(inlineOf).join(""));
+      return t ? `${prefix(t, indent)}\n\n` : "";
+    }
     case "DT":
     case "SUMMARY":
     case "FIGCAPTION": {
       const t = inlineText(el);
       if (!t) return "";
-      return `${prefix(tag === "P" ? plainStart(t) : tag === "FIGCAPTION" ? `*${t}*` : tag === "DT" ? `**${t}**` : t, indent)}\n\n`;
+      return `${prefix(tag === "FIGCAPTION" ? `*${t}*` : tag === "DT" ? `**${t}**` : t, indent)}\n\n`;
     }
     case "HR":
       return `${indent}---\n\n`;
@@ -152,10 +177,29 @@ function table(el: Element, indent: string): string {
 /** A paragraph that starts like a list item or a rule ("1. ", "- ") stays a paragraph. */
 const plainStart = (t: string) => t.replace(/^(\d+)([.)] )/, "$1\\$2").replace(/^([-+] |-{3,}$|={3,}$)/, "\\$1");
 
-const inlineText = (el: Element) => Array.from(el.childNodes).map(inlineOf).join("").replace(/\s+/g, " ").trim();
+/** Stands for a <br> until the text around it is tidied. A private-use character, so no page text is mistaken for it. */
+const BR = "\uE000";
+
+/** Text on one line, for headings, captions and table cells: a <br> is a space there. */
+const inlineText = (el: Element) => Array.from(el.childNodes).map(inlineOf).join("").replaceAll(BR, " ").replace(/\s+/g, " ").trim();
+
+/**
+ * A paragraph's text: spaces tidied, one <br> kept as a line break, and two or more in a row as a paragraph
+ * break (old sites write paragraphs as <br><br>). A line that starts like a list or a rule stays plain text.
+ */
+export function withBreaks(raw: string): string {
+  return raw
+    .replace(/\s+/g, " ")
+    .replace(/^[ \uE000]+|[ \uE000]+$/g, "")
+    .replace(/ ?\uE000(?: ?\uE000)+ ?/g, "\n\n")
+    .replace(/ ?\uE000 ?/g, "\\\n")
+    .split("\n")
+    .map(plainStart)
+    .join("\n");
+}
 
 /** Markdown's own characters in page text are escaped, and "<" always is, so no comment marker or HTML can form. */
-const escape = (t: string) => t.replace(/[\\`*_[\]<>#|~]/g, "\\$&");
+const escape = (t: string) => t.replaceAll(BR, "").replace(/[\\`*_[\]<>#|~]/g, "\\$&");
 
 const httpUrl = (u: string | null) => {
   if (!u) return null;
@@ -173,7 +217,7 @@ function inlineOf(n: Node): string {
   const inner = () => Array.from(n.childNodes).map(inlineOf).join("");
   switch (n.tagName) {
     case "BR":
-      return "\\\n";
+      return BR;
     case "STRONG":
     case "B": {
       const t = inner().trim();
@@ -205,4 +249,46 @@ function inlineOf(n: Node): string {
     default:
       return inner();
   }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Small rules for saving pages. They need no storage, so they live here, where tests can reach them.
+
+/** Ends a page's text when it was too long to keep whole, so a reader knows the rest is missing. */
+export const CUT_NOTE = "Engram kept only the first part of this page: it was too long to save whole. The rest is at the source.";
+
+/**
+ * Text capped at `max` characters, cut at a paragraph break where there is one, so a cap never leaves half a
+ * code fence or table row. A cut is marked at the end (in italics for Markdown).
+ */
+export function capText(text: string, max: number, markdown: boolean): string {
+  if (text.length <= max) return text;
+  const para = text.lastIndexOf("\n\n", max);
+  const kept = text.slice(0, para > max / 2 ? para : max).trimEnd();
+  return `${kept}\n\n${markdown ? `*${CUT_NOTE}*` : `[${CUT_NOTE}]`}`;
+}
+
+/** How much there is to read in a text: its characters, without spaces or Markdown's marks. */
+export const readingLength = (text: string | undefined) => text?.replace(/[\s*_#>`[\]()\-]/g, "").length ?? 0;
+
+/**
+ * Whether a newer copy of a page is much shorter than the one saved. A page behind a login or a paywall comes
+ * back like that, and then the fuller copy is kept.
+ */
+export const shrinks = (next: string, saved: string | undefined) => readingLength(next) < readingLength(saved) * 0.6;
+
+/** The PDF behind a link: a link straight to a .pdf, or an arXiv paper's page or PDF. Null for anything else. */
+export function pdfUrl(url: string): string | null {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return null;
+  }
+  if (!/^https?:$/.test(u.protocol)) return null;
+  if (/^(www\.|export\.)?arxiv\.org$/i.test(u.hostname)) {
+    const id = /^\/(?:abs|pdf)\/(.+?)(?:\.pdf)?\/?$/i.exec(u.pathname)?.[1];
+    if (id) return `https://arxiv.org/pdf/${id}`;
+  }
+  return /\.pdf$/i.test(u.pathname) ? u.href : null;
 }
