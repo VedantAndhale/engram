@@ -71,6 +71,12 @@ export function ReminderSetup({ onDone }: { onDone?: () => void }) {
         "Add to calendar" downloads a repeating event that Apple Calendar, Outlook and most calendar apps open directly. Your calendar
         does the reminding, so it works even when Engram is closed.
       </p>
+      {saved && (
+        <p className="hint">
+          Changing the time? Opening the new file moves the reminder you already have. Google Calendar can't do that, so delete the old
+          event there.
+        </p>
+      )}
     </div>
   );
 }

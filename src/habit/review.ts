@@ -1,10 +1,7 @@
 import { folderCtx, visibleFolders } from "../folders/registry";
 import type { Annotation, Item, Folder, Review } from "../model";
 import { updateAnnotation } from "../store/actions";
-
-const DAY = 86_400_000;
-/** Days until a highlight comes back, by step. Still clear moves one step on; hazy goes back to the start. */
-const INTERVALS = [1, 3, 7, 16, 35, 90];
+import { DAY, isRetired, nextReview, retireReview, type Schedule } from "./schedule";
 
 /**
  * One highlighted passage. A highlight that crosses pages is stored as one annotation per page
@@ -20,7 +17,9 @@ export interface Card {
   note?: string;
   due: number;
   createdAt: number;
-  review?: Review;
+  review?: Schedule;
+  /** The reader chose "Don't show again". */
+  retired: boolean;
 }
 
 const reviewable = (a: Annotation) => !a.deleted && a.kind === "highlight" && !!a.quote?.trim();
@@ -52,22 +51,45 @@ export async function allCards(): Promise<Card[]> {
         due: dueAt(latest),
         createdAt: Math.min(...parts.map((p) => p.createdAt)),
         review: latest.review,
+        retired: isRetired(latest.review),
       });
     }
   }
   return cards;
 }
 
-/** Highlights due now, oldest due first. */
+/** Highlights due now, oldest due first. Retired ones never are. */
 export async function dueCards(now = Date.now()): Promise<Card[]> {
-  return (await allCards()).filter((c) => c.due <= now).sort((a, b) => a.due - b.due);
+  return (await allCards()).filter((c) => c.due <= now && !c.retired).sort((a, b) => a.due - b.due);
+}
+
+/** How a card's parts were scheduled before a review, so the review can be taken back. */
+export interface Undo {
+  card: Card;
+  before: (Review | undefined)[];
+}
+
+async function schedule(card: Card, next: Schedule): Promise<Undo> {
+  const undo: Undo = { card, before: card.parts.map((p) => p.review) };
+  // A Schedule is a Review with one optional extra; annotations are stored whole, so it syncs as it is.
+  const review: Review = next;
+  for (const p of card.parts) await updateAnnotation(card.folder.id, p.id, { review });
+  return undo;
 }
 
 /** Record a review: "clear" spaces it further out, "hazy" brings it back tomorrow. */
-export async function rate(card: Card, clear: boolean, now = Date.now()) {
-  const step = clear ? Math.min((card.review?.step ?? 0) + 1, INTERVALS.length - 1) : 0;
-  const review: Review = { step, due: now + INTERVALS[step] * DAY, last: now, count: (card.review?.count ?? 0) + 1 };
-  for (const p of card.parts) await updateAnnotation(card.folder.id, p.id, { review });
+export function rate(card: Card, clear: boolean, now = Date.now()): Promise<Undo> {
+  return schedule(card, nextReview(card.review, clear, now, card.key));
+}
+
+/** "Don't show again": the highlight stays where it is, but never comes back for review. */
+export function retire(card: Card, now = Date.now()): Promise<Undo> {
+  return schedule(card, retireReview(card.review, now));
+}
+
+/** Put a card's schedule back as it was before a rating or retirement. */
+export async function undoReview({ card, before }: Undo) {
+  for (const [i, p] of card.parts.entries()) await updateAnnotation(card.folder.id, p.id, { review: before[i] });
 }
 
 /** Save the reader's own words on a highlight (kept on the first part, as the reader does). */

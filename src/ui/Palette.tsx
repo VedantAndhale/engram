@@ -17,7 +17,7 @@ import { itemHref, TYPE_LABELS } from "../capture/capture";
 import { folderCtx, visibleFolders } from "../folders/registry";
 import type { Folder, ItemType } from "../model";
 import { dailyNote, openOrCreate } from "../notes/notes";
-import { sameTitle } from "../notes/links";
+import { escapeTitle, sameTitle } from "../notes/links";
 import { closePalette, lastFolder, navigate, openQuickAdd, openShortcuts, setTheme, useUI } from "../store/ui";
 
 /*
@@ -226,7 +226,8 @@ function PaletteDialog() {
         label: `New note “${q}”`,
         hint: many ? into.name : undefined,
         run: async () => {
-          const note = await openOrCreate(into.id, q);
+          // Asked for by name, so no second question; escaped, so a # or | in it is part of the title.
+          const note = await openOrCreate(into.id, escapeTitle(q), false);
           navigate({ name: "item", folder: into.id, item: note.id });
         },
       });

@@ -5,17 +5,22 @@
 
 const TITLE = "Engram: a few minutes for your second brain";
 const DETAILS = "Review three highlights, or save one thing worth keeping and say why in your own words.";
+/**
+ * Every download is the same event, so a calendar that already has it updates it in place.
+ * Changing the time then moves the one reminder instead of adding a second.
+ */
+export const REMINDER_UID = "engram-daily-reminder@engram";
 
 export const appUrl = () => `${location.origin}${location.pathname}#/today`;
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
 /** Next occurrence of HH:MM as a floating local time ("20261011T083000"), which calendars read as the device's time zone. */
-function startStamp(time: string): { date: Date; local: string } {
+function startStamp(time: string, now = Date.now()): { date: Date; local: string } {
   const [h, m] = time.split(":").map(Number);
-  const date = new Date();
+  const date = new Date(now);
   date.setHours(h, m, 0, 0);
-  if (date.getTime() < Date.now()) date.setDate(date.getDate() + 1);
+  if (date.getTime() < now) date.setDate(date.getDate() + 1);
   const local = `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}T${pad(h)}${pad(m)}00`;
   return { date, local };
 }
@@ -23,19 +28,23 @@ function startStamp(time: string): { date: Date; local: string } {
 /** Escape text for an iCalendar property value. */
 const ics = (s: string) => s.replace(/[\\;,]/g, (c) => `\\${c}`).replace(/\n/g, "\\n");
 
-/** Download a daily repeating event that works in Apple Calendar, Outlook, Google Calendar (import) and others. */
-export function downloadIcs(time: string) {
-  const { local } = startStamp(time);
-  const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+/, "");
-  const url = appUrl();
+/** The .ics text for a daily event at `time`. A later file has a higher SEQUENCE, so it wins over an earlier one. */
+export function reminderIcs(time: string, url: string, now = Date.now()): string {
+  const { local } = startStamp(time, now);
+  const stamp = new Date(now).toISOString().replace(/[-:]/g, "").replace(/\.\d+/, "");
+  // Minutes since 2026: always growing, and small enough for calendars that read it as a 32-bit number.
+  const sequence = Math.max(0, Math.floor((now - Date.UTC(2026, 0, 1)) / 60_000));
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
     "PRODID:-//Engram//Daily reminder//EN",
     "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
     "BEGIN:VEVENT",
-    `UID:engram-daily-${crypto.randomUUID()}`,
+    `UID:${REMINDER_UID}`,
+    `SEQUENCE:${sequence}`,
     `DTSTAMP:${stamp}`,
+    `LAST-MODIFIED:${stamp}`,
     `DTSTART:${local}`,
     "DURATION:PT10M",
     "RRULE:FREQ=DAILY",
@@ -50,7 +59,12 @@ export function downloadIcs(time: string) {
     "END:VEVENT",
     "END:VCALENDAR",
   ];
-  const blob = new Blob([lines.join("\r\n") + "\r\n"], { type: "text/calendar" });
+  return lines.join("\r\n") + "\r\n";
+}
+
+/** Download a daily repeating event that works in Apple Calendar, Outlook, Google Calendar (import) and others. */
+export function downloadIcs(time: string) {
+  const blob = new Blob([reminderIcs(time, appUrl())], { type: "text/calendar" });
   const href = URL.createObjectURL(blob);
   Object.assign(document.createElement("a"), { href, download: "engram-reminder.ics" }).click();
   setTimeout(() => URL.revokeObjectURL(href), 1000);

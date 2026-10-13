@@ -1,9 +1,9 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { FileText, Highlighter, LoaderCircle, Menu as MenuIcon, Search as SearchIcon, X } from "lucide-react";
 import { Fragment, useEffect, useRef, useState } from "react";
-import { folderCtx, searchAll, visibleFolders, type FolderHit } from "../folders/registry";
+import { folderCtx, visibleFolders, type FolderHit } from "../folders/registry";
 import type { ItemType } from "../model";
-import { snippet } from "../search/index";
+import { snippet, type SearchFilter } from "../search/index";
 import { navigate } from "../store/ui";
 
 interface Group {
@@ -16,12 +16,46 @@ interface Group {
   hits: FolderHit[];
 }
 
+/** Kinds of thing to narrow a search to. Each covers the item types that read alike. */
+const KINDS: { label: string; types: ItemType[] }[] = [
+  { label: "PDFs", types: ["pdf"] },
+  { label: "Articles", types: ["article"] },
+  { label: "Posts", types: ["post", "tweet", "thread"] },
+  { label: "Notes", types: ["note", "quote"] },
+  { label: "Videos", types: ["video", "playlist"] },
+  { label: "Links", types: ["bookmark"] },
+];
+
+const LIMIT = 60;
+
+/**
+ * Search every folder, then rank all the hits together before cutting the list, so the best
+ * match is never the one left out.
+ */
+async function searchEverywhere(query: string, filter: SearchFilter): Promise<FolderHit[]> {
+  const folders = await visibleFolders();
+  const per = await Promise.all(
+    folders.map(async (f) => (await folderCtx(f.id).search.search(query, LIMIT, filter)).map((h) => ({ ...h, folder: f.id }))),
+  );
+  return per.flat().sort((a, b) => b.score - a.score).slice(0, LIMIT * 2);
+}
+
 export function Search({ q, onOpenSidebar }: { q: string; onOpenSidebar: () => void }) {
   const [text, setText] = useState(q);
   const [groups, setGroups] = useState<Group[] | null>(null);
   const [busy, setBusy] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const folders = useLiveQuery(visibleFolders, []);
+  const [kind, setKind] = useState<string | null>(null);
+  const [topic, setTopic] = useState<string | null>(null);
+  // Every topic in use, most used first, to narrow by.
+  const topics = useLiveQuery(async () => {
+    const counts = new Map<string, number>();
+    for (const f of await visibleFolders())
+      for (const d of await folderCtx(f.id).db.items.toArray()) if (!d.deleted) for (const t of d.topics ?? []) counts.set(t, (counts.get(t) ?? 0) + 1);
+    return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([t]) => t);
+  }, []);
+  const filtered = kind !== null || topic !== null;
 
   useEffect(() => input.current?.focus(), []);
 
@@ -42,7 +76,7 @@ export function Search({ q, onOpenSidebar }: { q: string; onOpenSidebar: () => v
     let stale = false;
     setBusy(true);
     const t = setTimeout(async () => {
-      const hits = await searchAll(query);
+      const hits = await searchEverywhere(query, { types: KINDS.find((k) => k.label === kind)?.types, topic: topic ?? undefined });
       const names = new Map((folders ?? (await visibleFolders())).map((f) => [f.id, f.name]));
       const byDoc = new Map<string, Group>();
       for (const h of hits) {
@@ -55,6 +89,7 @@ export function Search({ q, onOpenSidebar }: { q: string; onOpenSidebar: () => v
         }
         g.hits.push(h);
       }
+      // Documents come in order of their best match; within one, highlights first, then by page.
       for (const g of byDoc.values()) g.hits.sort((a, b) => (a.kind === b.kind ? a.page - b.page : a.kind === "annotation" ? -1 : 1));
       if (stale) return;
       setGroups([...byDoc.values()]);
@@ -64,7 +99,7 @@ export function Search({ q, onOpenSidebar }: { q: string; onOpenSidebar: () => v
       stale = true;
       clearTimeout(t);
     };
-  }, [text, folders]);
+  }, [text, folders, kind, topic]);
 
   const open = (h: FolderHit, type: ItemType) =>
     type === "pdf"
@@ -106,17 +141,46 @@ export function Search({ q, onOpenSidebar }: { q: string; onOpenSidebar: () => v
         </label>
       </header>
 
+      <div className="chips" role="group" aria-label="Narrow the search" style={{ padding: "8px 24px 0", maxWidth: 760 }}>
+        {KINDS.map((k) => (
+          <button key={k.label} className={`chip ${kind === k.label ? "on" : ""}`} aria-pressed={kind === k.label} onClick={() => setKind(kind === k.label ? null : k.label)}>
+            {k.label}
+          </button>
+        ))}
+        {(topics?.length ?? 0) > 0 && (
+          <select className="chip" aria-label="Topic" value={topic ?? ""} onChange={(e) => setTopic(e.target.value || null)}>
+            <option value="">Any topic</option>
+            {topics!.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+
       {groups === null ? (
         <div className="empty">
           <SearchIcon size={40} strokeWidth={1.4} />
           <h2>Search your library</h2>
-          <p>Finds words in every PDF, plus your highlights and notes{many ? ", across all folders" : ""}.</p>
+          <p>Finds titles, words in every PDF and saved article, and your highlights and notes{many ? ", across all folders" : ""}. Close spellings count too.</p>
         </div>
       ) : groups.length === 0 ? (
         !busy && (
           <div className="empty">
             <h2>No matches</h2>
-            <p>Nothing matches “{text.trim()}”. Text in a newly added PDF can take a moment to index.</p>
+            <p>Nothing matches “{text.trim()}”{filtered ? " with these filters" : ""}. Text in a newly added PDF can take a moment to index.</p>
+            {filtered && (
+              <button
+                className="btn"
+                onClick={() => {
+                  setKind(null);
+                  setTopic(null);
+                }}
+              >
+                Search without filters
+              </button>
+            )}
           </div>
         )
       ) : (

@@ -1,10 +1,11 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { itemHref } from "../capture/capture";
 import { BellRing, BookmarkPlus, BookOpen, CloudUpload, Menu as MenuIcon, NotebookPen, Pencil, Plus, Sparkles } from "lucide-react";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { folderCtx, visibleFolders } from "../folders/registry";
 import { setHabit, useHabit } from "../habit/prefs";
-import { allCards, rate, saveWords, weekStats, type Card } from "../habit/review";
+import { allCards, rate, retire, saveWords, undoReview, weekStats, type Card, type Undo } from "../habit/review";
+import { startOfDay, todaysShare } from "../habit/schedule";
 import { timeAgo } from "../lib/util";
 import { dailyNote } from "../notes/notes";
 import type { ItemType } from "../model";
@@ -27,17 +28,52 @@ export function Today({ onOpenSidebar }: { onOpenSidebar: () => void }) {
   const { topics, reminder, firstUse } = useHabit();
   const [dialog, setDialog] = useState<"reminder" | "topics" | null>(null);
 
-  // The session is fixed when the page opens, so a card doesn't jump away while you're writing on it.
+  // The session is fixed when it starts, so a card doesn't jump away while you're writing on it.
+  // A new day starts a new one, unless you're part way through a card.
   const [queue, setQueue] = useState<string[] | null>(null);
   const [pos, setPos] = useState(0);
+  const [day, setDay] = useState(() => startOfDay(Date.now()));
+  // The last rating or "don't show again", which can be taken back.
+  const [last, setLast] = useState<Undo | null>(null);
   const startSession = (all: Card[]) => {
     const now = Date.now();
-    setQueue(all.filter((c) => c.due <= now).sort((a, b) => a.due - b.due).slice(0, PER_SESSION).map((c) => c.key));
+    setQueue(todaysShare(all, now).today.slice(0, PER_SESSION).map((c) => c.key));
     setPos(0);
+    setDay(startOfDay(now));
   };
   useEffect(() => {
     if (cards && !queue) startSession(cards);
   }, [cards, queue]);
+
+  // Look again every minute and whenever the app comes back to the front, so an app left open
+  // overnight notices the new day and highlights that came due since.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const tick = () => document.visibilityState === "visible" && setTick((t) => t + 1);
+    const timer = window.setInterval(tick, 60_000);
+    document.addEventListener("visibilitychange", tick);
+    window.addEventListener("focus", tick);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", tick);
+      window.removeEventListener("focus", tick);
+    };
+  }, []);
+  useEffect(() => {
+    if (cards && queue && startOfDay(Date.now()) !== day && (pos === 0 || pos >= queue.length)) startSession(cards);
+  });
+
+  const takeBack = async () => {
+    if (!last || !queue) return;
+    setLast(null);
+    await undoReview(last);
+    const i = queue.indexOf(last.card.key);
+    if (i >= 0) setPos(i);
+    else {
+      setQueue([last.card.key, ...queue.slice(pos)]);
+      setPos(0);
+    }
+  };
 
   const library = useLiveQuery(async () => {
     const out: { folder: string; hash: string; type: ItemType; pdf: boolean; title: string; page: number; pages: number; at: number; topics: string[]; articleRead?: number }[] = [];
@@ -69,7 +105,9 @@ export function Today({ onOpenSidebar }: { onOpenSidebar: () => void }) {
   if (!cards || !library || !queue) return <main className="today" />;
 
   const now = Date.now();
-  const due = cards.filter((c) => c.due <= now).length;
+  // At most a day's worth is offered; a bigger backlog comes in over the following days.
+  const share = todaysShare(cards, now);
+  const due = share.today.length;
   const current = cards.find((c) => c.key === queue[pos]);
   const stats = weekStats(cards, now);
   // The last thing read: a PDF with a saved position, or an article part way through.
@@ -104,14 +142,20 @@ export function Today({ onOpenSidebar }: { onOpenSidebar: () => void }) {
               card={current}
               index={pos}
               total={queue.length}
-              onRated={() => setPos((p) => p + 1)}
+              onUndo={last ? () => void takeBack() : undefined}
+              onDone={(undo) => {
+                setLast(undo);
+                setPos((p) => p + 1);
+              }}
             />
           ) : (
             <ReviewDone
               reviewed={pos}
               moreDue={due}
-              hasAny={cards.length > 0}
+              waiting={share.waiting}
+              hasAny={cards.some((c) => !c.retired)}
               onMore={() => startSession(cards)}
+              onUndo={last ? () => void takeBack() : undefined}
             />
           )}
         </section>
@@ -261,24 +305,74 @@ export function Today({ onOpenSidebar }: { onOpenSidebar: () => void }) {
   );
 }
 
-function ReviewCard({ card, index, total, onRated }: { card: Card; index: number; total: number; onRated: () => void }) {
+function ReviewCard({
+  card,
+  index,
+  total,
+  onDone,
+  onUndo,
+}: {
+  card: Card;
+  index: number;
+  total: number;
+  /** The card is finished with: rated or retired (with how to take it back), or skipped (null). */
+  onDone: (undo: Undo | null) => void;
+  /** Take back the previous card's rating, when there is one. */
+  onUndo?: () => void;
+}) {
   const [words, setWords] = useState(card.note ?? "");
-  const [writing, setWriting] = useState(false);
+  const [writing, setWriting] = useState(!card.note);
   const [busy, setBusy] = useState(false);
-  const changed = words.trim() !== (card.note ?? "").trim();
 
-  const finish = async (clear: boolean) => {
-    setBusy(true);
-    if (changed) await saveWords(card, words);
-    await rate(card, clear);
-    onRated();
+  // Your words are saved as you type, after a short pause, and whenever the card goes away, so
+  // following the link to the source (or going anywhere else) never loses them.
+  const latest = useRef(card);
+  latest.current = card;
+  const pending = useRef<string | null>(null);
+  const timer = useRef<number>(undefined);
+  const flush = async () => {
+    clearTimeout(timer.current);
+    const text = pending.current;
+    if (text === null) return;
+    pending.current = null;
+    await saveWords(latest.current, text);
   };
+  const onWords = (v: string) => {
+    setWords(v);
+    pending.current = v;
+    clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => void flush(), 600);
+  };
+  useEffect(() => {
+    const leave = () => void flush();
+    window.addEventListener("pagehide", leave);
+    return () => {
+      window.removeEventListener("pagehide", leave);
+      void flush();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const finish = async (act: () => Promise<Undo | null>) => {
+    setBusy(true);
+    await flush();
+    onDone(await act());
+  };
+  const prompt = card.note ? "Rewrite it, now that you've had time with it" : "Why does this matter? Say it in your own words.";
 
   return (
     <>
       <div className="review-head">
         <span className="muted">
           Review {index + 1} of {total}
+          {onUndo && (
+            <>
+              {" · "}
+              <button className="link" onClick={onUndo} title="Take back the last answer">
+                Undo
+              </button>
+            </>
+          )}
         </span>
         <a className="muted" href={itemHref(card.folder.id, card.doc, card.parts[0].page)}>
           {card.doc.title}
@@ -286,7 +380,7 @@ function ReviewCard({ card, index, total, onRated }: { card: Card; index: number
         </a>
       </div>
       <blockquote className="review-quote">{card.quote}</blockquote>
-      {card.note && !writing ? (
+      {!writing ? (
         <div className="review-words">
           <span className="muted">In your words</span>
           <p>{words}</p>
@@ -296,27 +390,35 @@ function ReviewCard({ card, index, total, onRated }: { card: Card; index: number
         </div>
       ) : (
         <label className="review-write">
-          <span className="muted">{card.note ? "Rewrite it, now that you've had time with it" : "Why does this matter? Say it in your own words."}</span>
+          <span className="muted">{prompt}</span>
           <div className="note-editor">
             <Suspense fallback={<div className="md-editor md-loading" />}>
               <Editor
                 value={words}
-                onChange={setWords}
+                onChange={onWords}
                 titles={() => []}
                 openWiki={() => {}}
                 highlights={async () => []}
                 embed={async () => null}
                 placeholder="One line is enough…"
+                label={`${prompt} Your words on: ${card.quote.slice(0, 80)}`}
               />
             </Suspense>
           </div>
         </label>
       )}
       <div className="review-actions">
-        <button className="btn" disabled={busy} onClick={() => void finish(false)} title="See it again tomorrow">
+        <button className="link" disabled={busy} onClick={() => void finish(() => retire(card))} title="Keep the highlight, but stop bringing it back here">
+          Don't show again
+        </button>
+        <button className="link" disabled={busy} onClick={() => void finish(async () => null)} title="Leave it for another time">
+          Skip
+        </button>
+        <div className="spacer" />
+        <button className="btn" disabled={busy} onClick={() => void finish(() => rate(card, false))} title="See it again tomorrow">
           Hazy
         </button>
-        <button className="btn btn-primary" disabled={busy} onClick={() => void finish(true)} title="See it again in a few days">
+        <button className="btn btn-primary" disabled={busy} onClick={() => void finish(() => rate(card, true))} title="See it again in a few days">
           Still clear
         </button>
       </div>
@@ -324,7 +426,22 @@ function ReviewCard({ card, index, total, onRated }: { card: Card; index: number
   );
 }
 
-function ReviewDone({ reviewed, moreDue, hasAny, onMore }: { reviewed: number; moreDue: number; hasAny: boolean; onMore: () => void }) {
+function ReviewDone({
+  reviewed,
+  moreDue,
+  waiting,
+  hasAny,
+  onMore,
+  onUndo,
+}: {
+  reviewed: number;
+  moreDue: number;
+  /** Due, but past today's limit: they come in over the following days. */
+  waiting: number;
+  hasAny: boolean;
+  onMore: () => void;
+  onUndo?: () => void;
+}) {
   if (!hasAny)
     return (
       <div className="review-empty">
@@ -339,10 +456,16 @@ function ReviewDone({ reviewed, moreDue, hasAny, onMore }: { reviewed: number; m
         {moreDue
           ? `${moreDue} more highlight${moreDue === 1 ? " is" : "s are"} ready if you have a few more minutes.`
           : "Your highlights will come back when they're due. Read something new, or come back tomorrow."}
+        {waiting > 0 && ` ${waiting} more ${waiting === 1 ? "is" : "are"} waiting, and will come in over the next few days so no day gets long.`}
       </p>
       {moreDue > 0 && (
         <button className="btn" onClick={onMore}>
           Review {Math.min(PER_SESSION, moreDue)} more
+        </button>
+      )}
+      {onUndo && (
+        <button className="link" onClick={onUndo} title="Take back the last answer">
+          Undo the last one
         </button>
       )}
     </div>

@@ -1,5 +1,5 @@
 import { ensureSyntaxTree, foldable, foldedRanges, foldEffect, syntaxTree, unfoldEffect } from "@codemirror/language";
-import { type EditorState, Prec, StateEffect, StateField } from "@codemirror/state";
+import { type EditorState, MapMode, Prec, StateEffect, StateField } from "@codemirror/state";
 import { type Command, EditorView, gutter, GutterMarker, keymap, ViewPlugin } from "@codemirror/view";
 import { EMBED_LINE } from "../notes/links";
 
@@ -196,6 +196,19 @@ const hoverField = StateField.define<number>({
   },
 });
 
+/**
+ * The start of the block being dragged, kept in step with every change to the text while the
+ * drag goes on (a synced change, an undo), or null once that block's start was deleted.
+ */
+const setDrag = StateEffect.define<number | null>();
+const dragField = StateField.define<number | null>({
+  create: () => null,
+  update(v, tr) {
+    for (const e of tr.effects) if (e.is(setDrag)) v = e.value;
+    return v !== null && tr.docChanged ? tr.changes.mapPos(v, 1, MapMode.TrackDel) : v;
+  },
+});
+
 /** The start of the block whose grip shows, or -1. */
 function shownBlock(view: EditorView): number {
   const hover = view.state.field(hoverField);
@@ -365,18 +378,39 @@ export function blockHandles(handlers: HandleHandlers) {
     ]),
   );
 
-  return [hoverField, handles, hover, keys];
+  return [hoverField, dragField, handles, hover, keys];
 }
 
-/** A press on a grip: a click opens the menu, a drag moves the block to where it's let go. */
+/** Where a block let go at `y` lands: before the block at the returned index (`blocks.length` for the end). */
+function dropAt(view: EditorView, y: number): { blocks: Block[]; dest: number; bottom: number } | null {
+  const { blocks, i } = blockUnder(view, y);
+  if (i < 0) return null;
+  const b = blocks[i];
+  const top = view.lineBlockAt(b.from).top;
+  const bottom = view.lineBlockAt(b.to).bottom;
+  return { blocks, dest: y - view.documentTop < (top + bottom) / 2 ? i : i + 1, bottom };
+}
+
+/**
+ * A press on a grip: a click opens the menu, a drag moves the block to where it's let go.
+ * The text can change during a drag (a change syncing in), so the block is followed by its
+ * position, mapped through each change, and the blocks are read afresh when it's let go.
+ */
 function startDrag(view: EditorView, grip: HTMLElement, from: number, down: PointerEvent, handlers: HandleHandlers) {
-  const blocks = blocksOf(view.state);
-  const i = blockAt(blocks, from);
-  if (i < 0) return;
+  const start = blocksOf(view.state);
+  const at = blockAt(start, from);
+  if (at < 0) return;
+  view.dispatch({ effects: setDrag.of(start[at].from) });
   let dragging = false;
-  let dest = -1;
+  let lastY = down.clientY;
   const line = document.createElement("div");
   line.className = "cm-drop-line";
+
+  /** The dragged block in the text as it is now, or -1 if it has gone. */
+  const current = (blocks: Block[]) => {
+    const pos = view.state.field(dragField);
+    return pos === null ? -1 : blocks.findIndex((b) => b.from === pos);
+  };
 
   const onMove = (e: PointerEvent) => {
     if (!dragging) {
@@ -386,37 +420,37 @@ function startDrag(view: EditorView, grip: HTMLElement, from: number, down: Poin
       view.dom.classList.add("cm-dragging-block");
       view.dom.appendChild(line);
     }
-    const under = blockUnder(view, e.clientY);
-    if (under.i < 0) return;
-    const b = blocks[under.i];
-    const top = view.lineBlockAt(b.from).top;
-    const bottom = view.lineBlockAt(b.to).bottom;
-    const docY = e.clientY - view.documentTop;
-    dest = docY < (top + bottom) / 2 ? under.i : under.i + 1;
+    lastY = e.clientY;
+    const drop = dropAt(view, e.clientY);
+    if (!drop) return;
+    const { blocks, dest, bottom } = drop;
+    const i = current(blocks);
     const y = dest < blocks.length ? view.lineBlockAt(blocks[dest].from).top : bottom;
     const offset = view.documentTop - view.dom.getBoundingClientRect().top;
     line.style.top = `${offset + y - 1}px`;
-    line.style.display = dest === i || dest === i + 1 ? "none" : "";
+    line.style.display = i < 0 || dest === i || dest === i + 1 ? "none" : "";
   };
-  const onUp = () => {
+  const onUp = (cancelled = false) => {
     window.removeEventListener("pointermove", onMove);
-    window.removeEventListener("pointerup", onUp);
+    window.removeEventListener("pointerup", up);
     window.removeEventListener("pointercancel", onCancel);
     line.remove();
     view.dom.classList.remove("cm-dragging-block");
     view.dom.dispatchEvent(new CustomEvent("cm-block-drag", { detail: false }));
-    if (!dragging) handlers.menu(grip, actions(view, blocks, i));
-    else if (dest >= 0) {
-      moveTo(view, blocks, i, dest);
-      view.focus();
-    }
+    const blocks = blocksOf(view.state);
+    const i = current(blocks);
+    view.dispatch({ effects: setDrag.of(null) });
+    // The block was deleted while held: nothing to move, and no menu for it.
+    if (i < 0 || cancelled) return;
+    if (!dragging) return handlers.menu(grip, actions(view, blocks, i));
+    const drop = dropAt(view, lastY);
+    if (!drop) return;
+    moveTo(view, drop.blocks, i, drop.dest);
+    view.focus();
   };
-  const onCancel = () => {
-    dragging = true;
-    dest = -1;
-    onUp();
-  };
+  const up = () => onUp();
+  const onCancel = () => onUp(true);
   window.addEventListener("pointermove", onMove);
-  window.addEventListener("pointerup", onUp);
+  window.addEventListener("pointerup", up);
   window.addEventListener("pointercancel", onCancel);
 }

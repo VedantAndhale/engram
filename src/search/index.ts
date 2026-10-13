@@ -1,6 +1,5 @@
-import MiniSearch from "minisearch";
-import type { ReaderDB } from "../db/db";
-import type { Item } from "../model";
+import MiniSearch, { type SearchResult } from "minisearch";
+import type { Annotation, Item, ItemType } from "../model";
 import { withoutPictures } from "../notes/images";
 
 export interface SearchHit {
@@ -11,112 +10,170 @@ export interface SearchHit {
   text: string;
   color?: string;
   terms: string[];
+  /** How well it matches; higher is better. Hits come best first. */
+  score: number;
 }
 
-interface PageEntry {
+/** Narrow a search to some items: by type, by topic. Unset or empty means any. */
+export interface SearchFilter {
+  types?: ItemType[];
+  topic?: string;
+}
+
+/** What the index reads from a folder's database (a ReaderDB). Plain arrays behind toArray work too, as in the tests. */
+export interface SearchSource {
+  items: { toArray(): Promise<Item[]> };
+  annotations: { toArray(): Promise<Annotation[]> };
+  pageText: { toArray(): Promise<{ doc: string; page: number; text: string }[]> };
+}
+
+/** One indexed thing: an item (its title, topics, your words and saved text), a highlight or note, or a PDF page. */
+interface Entry {
   id: string;
+  kind: "item" | "annotation" | "page";
   doc: string;
   page: number;
-  text: string;
+  title?: string;
+  topics?: string;
+  quote?: string;
+  note?: string;
+  body?: string;
+  content?: string;
+  pageText?: string;
 }
 
 /**
- * One folder's search over page text, highlights and notes. The page index lives in memory
- * and is rebuilt from IndexedDB on start, so it costs nothing in GitHub storage.
+ * How much a match in each field counts: a title above your highlights, highlights above your
+ * notes, notes above the text of the thing itself.
+ */
+const BOOST = { title: 6, topics: 4, quote: 3, note: 2.5, body: 2, content: 1, pageText: 1 };
+
+/** Highlights, and notes on moments in a video. */
+const searchable = (a: Annotation) => !a.deleted && (a.kind === "highlight" || a.kind === "moment") && !!(a.quote?.trim() || a.note?.trim());
+
+/**
+ * One folder's search over titles, saved text, PDF pages, highlights and notes, ranked by
+ * MiniSearch (word prefixes, small typos forgiven). The index lives in memory: it is built from
+ * IndexedDB on first use and brought up to date before each search, indexing again only what
+ * changed, so edits that just synced in are found. It costs nothing in GitHub storage.
  */
 export class LibrarySearch {
-  private ms = new MiniSearch<PageEntry>({
-    fields: ["text"],
-    storeFields: ["doc", "page", "text"],
-    searchOptions: { prefix: true, fuzzy: 0.15, combineWith: "AND" },
+  private ms = new MiniSearch<Entry>({
+    fields: Object.keys(BOOST),
+    storeFields: ["kind", "doc", "page", "pageText"],
+    searchOptions: {
+      boost: BOOST,
+      prefix: true,
+      // Typos are forgiven in longer words only; in short ones they match too much.
+      fuzzy: (term) => (term.length > 3 ? 0.2 : false),
+      combineWith: "AND",
+    },
   });
-  private ready: Promise<void> | null = null;
+  /** What each entry was indexed from (its updatedAt), so an unchanged one isn't indexed again. */
+  private seen = new Map<string, number>();
+  private annotations = new Map<string, Annotation>();
+  private pages: Promise<void> | null = null;
 
-  constructor(private db: ReaderDB) {}
+  constructor(private db: SearchSource) {}
 
+  private put(entry: Entry, version: number) {
+    if (this.seen.get(entry.id) === version) return;
+    if (this.ms.has(entry.id)) this.ms.replace(entry);
+    else this.ms.add(entry);
+    this.seen.set(entry.id, version);
+  }
+
+  private drop(id: string) {
+    if (this.ms.has(id)) this.ms.discard(id);
+    this.seen.delete(id);
+  }
+
+  /** PDF page text, read once; pages extracted later come in through addPage. */
   init() {
-    this.ready ??= (async () => {
-      const pages = await this.db.pageText.toArray();
-      this.ms.addAll(pages.map((p) => ({ id: `${p.doc}:${p.page}`, doc: p.doc, page: p.page, text: p.text })));
+    this.pages ??= (async () => {
+      for (const p of await this.db.pageText.toArray()) if (p.text.trim()) this.put(pageEntry(p.doc, p.page, p.text), 0);
     })();
-    return this.ready;
+    return this.pages;
   }
 
   async addPage(doc: string, page: number, text: string) {
     await this.init();
-    const id = `${doc}:${page}`;
-    if (this.ms.has(id)) this.ms.discard(id);
-    if (text.trim()) this.ms.add({ id, doc, page, text });
+    const id = `p:${doc}:${page}`;
+    this.drop(id);
+    if (text.trim()) this.put(pageEntry(doc, page, text), 0);
   }
 
-  async search(query: string, limit = 40): Promise<SearchHit[]> {
+  /** Bring items and annotations up to date with the database; returns the items not deleted. */
+  private async refresh(): Promise<Map<string, Item>> {
     await this.init();
-    const q = query.trim();
-    if (!q) return [];
-    const words = q.toLowerCase().split(/\s+/);
-    const live = new Set((await this.db.items.filter((d) => !d.deleted).primaryKeys()) as string[]);
-
-    // Highlights and notes are small, so a direct scan is always fresh, including edits that just synced in.
-    const annotations = await this.db.annotations
-      .filter((a) => {
-        if (a.deleted || a.kind !== "highlight" || !live.has(a.doc)) return false;
-        const hay = `${a.quote ?? ""} ${a.note ?? ""}`.toLowerCase();
-        return words.every((w) => hay.includes(w));
-      })
-      .limit(limit)
-      .toArray();
-
-    // Items that aren't PDFs (links, posts, quotes, notes) have no pages; scan their text directly.
-    // Topics are searched on every item, PDFs included, so a topic finds the documents filed under it.
-    const items = await this.db.items
-      .filter((i) => {
-        if (i.deleted) return false;
-        const hay = itemText(i).join(" ").toLowerCase();
-        return words.every((w) => hay.includes(w));
-      })
-      .limit(limit)
-      .toArray();
-
-    const pages = this.ms
-      .search(q)
-      .filter((r) => live.has(r.doc))
-      .slice(0, limit);
-
-    return [
-      ...annotations.map<SearchHit>((a) => ({
-        id: a.id,
-        doc: a.doc,
-        page: a.page,
-        kind: "annotation",
-        text: [a.quote, a.note].filter(Boolean).join(" — "),
-        color: a.color,
-        terms: words,
-      })),
-      ...items.map<SearchHit>((i) => ({
-        id: `${i.id}:0`,
+    const [items, annotations] = await Promise.all([this.db.items.toArray(), this.db.annotations.toArray()]);
+    const live = new Map(items.filter((i) => !i.deleted).map((i) => [i.id, i]));
+    const keep = new Set<string>();
+    for (const i of live.values()) {
+      const id = `i:${i.id}`;
+      keep.add(id);
+      const entry: Entry = {
+        id,
+        kind: "item",
         doc: i.id,
         page: 0,
-        kind: "page",
-        text: itemText(i).find((t) => t && words.some((w) => t.toLowerCase().includes(w))) ?? i.title,
-        terms: words,
-      })),
-      ...pages.map<SearchHit>((r) => ({
-        id: r.id,
-        doc: r.doc,
-        page: r.page,
-        kind: "page",
-        text: r.text,
-        terms: r.terms,
-      })),
-    ];
+        title: i.title,
+        topics: (i.topics ?? []).join(", "),
+        body: i.body ? withoutPictures(i.body) : undefined,
+        // A PDF's words are on its pages.
+        content: i.type === "pdf" ? undefined : i.content,
+      };
+      this.put(entry, i.updatedAt);
+    }
+    for (const a of annotations) {
+      if (!searchable(a) || !live.has(a.doc)) continue;
+      const id = `a:${a.id}`;
+      keep.add(id);
+      this.put({ id, kind: "annotation", doc: a.doc, page: a.page, quote: a.quote, note: a.note }, a.updatedAt);
+    }
+    for (const id of [...this.seen.keys()]) if (!id.startsWith("p:") && !keep.has(id)) this.drop(id);
+    this.annotations = new Map(annotations.map((a) => [a.id, a]));
+    return live;
+  }
+
+  /** The best `limit` matches, best first, among the items `filter` lets through. Ranked before it is cut. */
+  async search(query: string, limit = 40, filter: SearchFilter = {}): Promise<SearchHit[]> {
+    const q = query.trim();
+    if (!q) return [];
+    const live = await this.refresh();
+    const topic = filter.topic?.toLowerCase();
+    const wanted = (d: Item) => (!filter.types?.length || filter.types.includes(d.type)) && (!topic || (d.topics ?? []).some((t) => t.toLowerCase() === topic));
+
+    const out: SearchHit[] = [];
+    for (const r of this.ms.search(q)) {
+      if (out.length >= limit) break;
+      const item = live.get(r.doc as string);
+      if (!item || !wanted(item)) continue;
+      const hit = this.hit(r, item);
+      if (hit) out.push(hit);
+    }
+    return out;
+  }
+
+  private hit(r: SearchResult, item: Item): SearchHit | null {
+    const base = { doc: item.id, terms: r.terms, score: r.score };
+    if (r.kind === "annotation") {
+      const a = this.annotations.get(String(r.id).slice(2));
+      if (!a) return null;
+      const text = [a.quote, a.note].filter((t) => t?.trim()).join(" — ");
+      return { ...base, id: a.id, page: a.page, kind: "annotation", text, color: a.color };
+    }
+    if (r.kind === "page") return { ...base, id: String(r.id), page: r.page as number, kind: "page", text: (r.pageText as string) ?? "" };
+    // An item: show the field the words were found in, your own words first.
+    const fields = new Set(Object.values(r.match).flat());
+    const body = item.body ? withoutPictures(item.body) : "";
+    const text =
+      (fields.has("body") && body) || (fields.has("content") && item.content) || (fields.has("topics") && (item.topics ?? []).join(", ")) || item.title;
+    return { ...base, id: `${item.id}:0`, page: 0, kind: "page", text };
   }
 }
 
-/** The text an item is searched by. A PDF's words live on its pages, so only its topics are kept here. */
-function itemText(i: Item): (string | undefined)[] {
-  const topics = (i.topics ?? []).join(", ");
-  return i.type === "pdf" ? [topics] : [i.body && withoutPictures(i.body), i.content, i.title, topics];
-}
+const pageEntry = (doc: string, page: number, pageText: string): Entry => ({ id: `p:${doc}:${page}`, kind: "page", doc, page, pageText });
 
 /** A short excerpt around the first matching term. */
 export function snippet(text: string, terms: string[], radius = 70): string {
@@ -132,5 +189,3 @@ export function snippet(text: string, terms: string[], radius = 70): string {
   const end = Math.min(text.length, at + radius);
   return (start > 0 ? "…" : "") + flat(text.slice(start, end)) + (end < text.length ? "…" : "");
 }
-
-

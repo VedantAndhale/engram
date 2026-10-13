@@ -24,7 +24,7 @@ import { Menu, type MenuItem } from "../ui/common";
 import type { EmbedData, HighlightChoice } from "../notes/links";
 import { pictureIn, pictureMarkdown } from "../notes/images";
 import { blocks } from "./blocks";
-import { completionSources } from "./completions";
+import { completionSources, type TitleChoice } from "./completions";
 import { type BlockAction, blockHandles } from "./handles";
 import { livePreview } from "./livePreview";
 
@@ -92,7 +92,7 @@ export interface EditorProps {
   onChange: (value: string) => void;
   placeholder?: string;
   /** Titles offered after "[[". Read on each keystroke, so it can change. */
-  titles: () => string[];
+  titles: () => (string | TitleChoice)[];
   /** Open what a [[link]] names; the target may end in #^ref for one highlight. */
   openWiki: (target: string) => void;
   /** The highlights in the item a title names, offered after "[[Title#". */

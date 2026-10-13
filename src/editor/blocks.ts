@@ -234,17 +234,20 @@ function build(state: EditorState, handlers: BlockHandlers): DecorationSet {
     decos.push(Decoration.replace({ widget: new EmbedWidget(m[1].trim(), handlers.embed), block: true }).range(line.from, line.to));
   }
 
-  // $$Display math$$: from a line starting with $$ to the line ending with it.
+  // $$Display math$$: from a line starting with $$ to the line ending with it, within one paragraph.
+  const inCode = (pos: number) => code.some(([a, b]) => pos >= a && pos < b);
   for (let n = 1; n <= doc.lines; n++) {
     const first = doc.line(n);
     const open = first.text.trimStart();
-    if (!open.startsWith("$$") || code.some(([a, b]) => first.from >= a && first.from < b)) continue;
+    if (!open.startsWith("$$") || inCode(first.from)) continue;
     let last = first;
     const closesHere = open.length > 4 && open.trimEnd().endsWith("$$");
     if (!closesHere) {
+      // A blank line or a code block ends the search: a stray $$ (a typo, or "$$5") doesn't swallow
+      // the paragraphs after it, and a $$ left open doesn't stop later math from showing.
       let m = n + 1;
-      while (m <= doc.lines && !doc.line(m).text.trimEnd().endsWith("$$")) m++;
-      if (m > doc.lines) break; // never closed: leave it as text
+      while (m <= doc.lines && doc.line(m).text.trim() && !inCode(doc.line(m).from) && !doc.line(m).text.trimEnd().endsWith("$$")) m++;
+      if (m > doc.lines || !doc.line(m).text.trim() || inCode(doc.line(m).from)) continue; // never closed: leave it as text
       last = doc.line(m);
     }
     const tex = doc.sliceString(first.from, last.to).trim().slice(2, -2).trim();
