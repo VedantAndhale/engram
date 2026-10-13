@@ -19,7 +19,8 @@ import { folderCtx, setAttention } from "../../folders/registry";
 import { openPdf, type PDFDoc } from "../../lib/pdf";
 import { clamp } from "../../lib/util";
 import { INK_COLORS, type Annotation, type Folder } from "../../model";
-import { selectionRects } from "../../reader/geometry";
+import { snapRange } from "../../reader/anchor";
+import { selectionParts, type PagePart } from "../../reader/geometry";
 import { loadOutline, type OutlineEntry } from "../../reader/outline";
 import { rectsForQuoteAcross } from "../../reader/quoteRects";
 import { REFLOW_VERSION, reflowFor, type Reflow } from "../../reader/reflow";
@@ -80,7 +81,7 @@ export function Reader({
   const [panelTab, setPanelTab] = useState<PanelTab>(startPanel ? "notes" : "all");
   const [findOpen, setFindOpen] = useState(!!startFind);
   const [findText, setFindText] = useState(startFind ?? "");
-  const [selection, setSelection] = useState<{ anchor: DOMRect; text: string; rects: Map<number, Annotation["rects"]> } | null>(null);
+  const [selection, setSelection] = useState<{ anchor: DOMRect; text: string; parts: Map<number, PagePart> } | null>(null);
   const [picked, setPicked] = useState<{ id: string; anchor: DOMRect; edit?: boolean } | null>(null);
   // The reading view is the default; a reader who chose Page keeps it. The place left in the reading view is
   // kept on this device, and a reader who has one goes back to it, since the text is already in the cache.
@@ -88,6 +89,8 @@ export function Reader({
   const [reading, setReading] = useState(() => prefersReading.current && !startFind && !!readPlace(doc));
   // Pages stay on screen only until the reading view can take over, or while find or the pen is open.
   const autoPage = useRef(prefersReading.current && !startFind && !readPlace(doc));
+  /** While the pages are up only until the text is ready, before any switch. A reader who starts reading them stays. */
+  const opening = useRef(autoPage.current);
   const [reflow, setReflow] = useState<Reflow | null>(null);
   const [prep, setPrep] = useState<{ done: number; total: number } | null>(null);
   const preparing = useRef(false);
@@ -95,6 +98,10 @@ export function Reader({
   const [readSel, setReadSel] = useState<ReflowSelection | null>(null);
   /** The page to show once the view changes: the page the old view showed at its top. */
   const pendingPage = useRef<number | null>(null);
+  /** Set once the reader scrolls, taps or types in the document: from then on the view never changes by itself. */
+  const userMoved = useRef(false);
+  /** A PDF set in columns opens on its pages; a reader who picks the reading view for it here keeps it. */
+  const columnsOk = useRef(localStorage.getItem(columnsKey(doc)) === "1");
 
   // ---- Load the PDF -------------------------------------------------------------------------
 
@@ -222,7 +229,7 @@ export function Reader({
     el.scrollTo({ top: top + place.within * block.offsetHeight - el.clientHeight / 3, behavior: "auto" });
   };
   useEffect(() => {
-    if (restored.current || load.state !== "ready" || !viewW || (reading && !reflow)) return;
+    if (restored.current || load.state !== "ready" || !viewW || (reading && (!reflow || (reflow.columns && !columnsOk.current)))) return;
     restored.current = true;
     void (async () => {
       if (startPage) return scrollToPage(startPage);
@@ -276,10 +283,15 @@ export function Reader({
       saveTimer = setTimeout(save, 1200);
     };
     const onHide = () => document.visibilityState === "hidden" && save();
+    // Scrolling done by a restore is not the reader's; a wheel, a touch, a press or a key is.
+    const onMove = () => void (userMoved.current = true);
+    const moves = ["wheel", "touchstart", "pointerdown", "keydown"] as const;
     el.addEventListener("scroll", onScroll, { passive: true });
+    for (const m of moves) el.addEventListener(m, onMove, { passive: true });
     document.addEventListener("visibilitychange", onHide);
     return () => {
       el.removeEventListener("scroll", onScroll);
+      for (const m of moves) el.removeEventListener(m, onMove);
       document.removeEventListener("visibilitychange", onHide);
       cancelAnimationFrame(frame);
       clearTimeout(saveTimer);
@@ -322,13 +334,14 @@ export function Reader({
   const highlight = useCallback(
     // `askWhy` opens the new highlight for an optional line in the reader's own words. Quick strokes
     // with the highlighter tool skip it so they stay quick.
-    async (color: string, rects: Map<number, Annotation["rects"]>, quote: string, askWhy = false) => {
+    async (color: string, parts: Map<number, PagePart>, askWhy = false) => {
       setLastColor(color);
       window.getSelection()?.removeAllRanges();
       setSelection(null);
+      // One highlight per page the selection touches, each with that page's own words.
       let first: Annotation | undefined;
-      for (const [page, r] of rects) {
-        const a = await saveAnnotation(folder.id, { doc, kind: "highlight", page, color, rects: r, quote });
+      for (const [page, part] of parts) {
+        const a = await saveAnnotation(folder.id, { doc, kind: "highlight", page, color, rects: part.rects, quote: part.quote, prefix: part.prefix, suffix: part.suffix });
         first ??= a;
       }
       if (askWhy && first) {
@@ -353,16 +366,17 @@ export function Reader({
       setTimeout(() => {
         const sel = window.getSelection();
         if (!sel || sel.isCollapsed || !sel.rangeCount) return;
-        const range = sel.getRangeAt(0);
+        // A drag that starts or ends inside a word takes the whole word.
+        const range = snapRange(sel.getRangeAt(0));
         if (!el.contains(range.commonAncestorContainer)) return;
-        const text = sel.toString().replace(/\s+/g, " ").trim();
-        const rects = selectionRects(range, pageOf);
-        if (!text || !rects.size) return;
-        if (tool === "highlight") void highlight(lastColor(), rects, text);
+        const parts = selectionParts(range, pageOf);
+        const text = [...parts.values()].map((p) => p.quote).join(" ");
+        if (!text) return;
+        if (tool === "highlight") void highlight(lastColor(), parts);
         else {
           const all = Array.from(range.getClientRects());
           const last = all[all.length - 1] ?? range.getBoundingClientRect();
-          setSelection({ anchor: last, text, rects });
+          setSelection({ anchor: last, text, parts });
         }
       }, 0);
     el.addEventListener("pointerup", onUp);
@@ -428,19 +442,41 @@ export function Reader({
     if (next && (tool === "ink" || tool === "eraser")) setTool("select");
     // A switch the reader makes is remembered. One the app makes (find, the pen) is not, and comes back by itself.
     autoPage.current = !next && !remember;
+    opening.current = false;
     if (remember) {
       localStorage.setItem("reader.view", next ? "reading" : "page");
       prefersReading.current = next;
+      // Choosing the reading view holds even for a PDF in columns, and for one known to be in columns, next time too.
+      if (next) {
+        columnsOk.current = true;
+        if (reflow?.columns) localStorage.setItem(columnsKey(doc), "1");
+      }
     }
     setReading(next);
   };
+  // For a toast's button, which is pressed after later renders.
+  const switchRef = useRef(switchView);
+  useLayoutEffect(() => {
+    switchRef.current = switchView;
+  });
+
+  // A PDF set in columns opens on its pages, where its columns read as printed, unless the reader chose the reading view for it.
+  useEffect(() => {
+    if (!reading || !reflow?.columns || columnsOk.current) return;
+    autoPage.current = false;
+    setReading(false);
+  }, [reading, reflow]);
 
   // Once the text is ready, a reader who prefers the reading view moves to it, at the same place. Find and the pen
-  // hold the pages while they're open. A PDF with no text stays on the pages, where it can still be read.
+  // hold the pages while they're open. A PDF with no text, or set in columns, stays on the pages. A reader who has
+  // started reading the pages is not moved under them: they are told the reading view is ready instead.
   useEffect(() => {
     if (!autoPage.current || reading || !reflow || findOpen || tool === "ink" || tool === "eraser") return;
     autoPage.current = false;
-    if (reflow.blocks.length) switchView(true, false);
+    if (!reflow.blocks.length || (reflow.columns && !columnsOk.current)) return;
+    if (!opening.current || !userMoved.current) return switchView(true, false);
+    opening.current = false;
+    toast("The reading view is ready.", { action: { label: "Switch", run: () => switchRef.current(true, false) } });
   }, [reflow, reading, findOpen, tool]);
 
   // Once the view can show a page (the reading view, once its text is in), go to the page the old view showed.
@@ -462,12 +498,13 @@ export function Reader({
       setLastColor(color);
       window.getSelection()?.removeAllRanges();
       setReadSel(null);
-      // A passage can run over a page break, and is then saved once per page it touches, as a page-view selection is.
-      const parts = await rectsForQuoteAcross(pdf, sel.page, sel.text);
+      // A passage can run over a page break, and is then saved once per page it touches, each part with that page's
+      // words, as a page-view selection is.
+      const parts = await rectsForQuoteAcross(pdf, sel.page, sel.text, { prefix: sel.prefix, suffix: sel.suffix });
       if (!parts) return void toast("Couldn't place that on the page. Try the page view.");
       let first: Annotation | undefined;
       for (const part of parts) {
-        const a = await saveAnnotation(folder.id, { doc, kind: "highlight", page: part.page, color, rects: part.rects, quote: sel.text });
+        const a = await saveAnnotation(folder.id, { doc, kind: "highlight", page: part.page, color, rects: part.rects, quote: part.quote, prefix: part.prefix, suffix: part.suffix });
         first ??= a;
       }
       if (askWhy && first) setPicked({ id: first.id, anchor: sel.anchor, edit: true });
@@ -815,8 +852,8 @@ export function Reader({
           anchor={selection.anchor}
           text={selection.text}
           item={meta}
-          page={[...selection.rects.keys()][0]}
-          onHighlight={(color) => void highlight(color, selection.rects, selection.text, true)}
+          page={[...selection.parts.keys()][0]}
+          onHighlight={(color) => void highlight(color, selection.parts, true)}
           onClose={() => setSelection(null)}
         />
       )}
@@ -859,6 +896,8 @@ interface ReadingPlace {
 }
 
 const placeKey = (doc: string) => `reader.place:${doc}`;
+/** Set when the reader chose the reading view for a PDF set in columns, on this device. */
+const columnsKey = (doc: string) => `reader.columns:${doc}`;
 
 /** The reading place for a document, if one was kept for the current extraction. */
 function readPlace(doc: string): ReadingPlace | null {

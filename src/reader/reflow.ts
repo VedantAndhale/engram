@@ -25,6 +25,11 @@ export interface Reflow {
   blocks: ReflowBlock[];
   /** Pages whose text could not be read. They are left out, and the reader is told. */
   skipped?: number[];
+  /**
+   * Set in two or more columns side by side, as most papers are. The reading view would interleave
+   * their lines, so such a PDF opens on its pages. Missing from reflows cached before it was added.
+   */
+  columns?: boolean;
 }
 
 /** A word split at a line end: a letter, then a hyphen, and nothing after it. */
@@ -70,12 +75,16 @@ interface Line {
 export async function extractReflow(pdf: PDFDoc, onProgress?: (done: number, total: number) => void): Promise<Reflow> {
   const pages: Line[][] = [];
   const skipped: number[] = [];
+  const layouts: (boolean | null)[] = [];
   for (let n = 1; n <= pdf.numPages; n++) {
     // One page that won't read is left out, rather than failing the whole reading view.
     try {
       const page = await pdf.getPage(n);
       const content = await page.getTextContent();
-      pages.push(linesOf(content.items, page.getViewport({ scale: 1 }), n));
+      const vp = page.getViewport({ scale: 1 });
+      const runs = runsOf(content.items, vp);
+      layouts.push(hasColumns(runs, vp.width));
+      pages.push(linesOf(runs, vp, n));
       page.cleanup();
     } catch {
       pages.push([]);
@@ -84,7 +93,43 @@ export async function extractReflow(pdf: PDFDoc, onProgress?: (done: number, tot
     onProgress?.(n, pdf.numPages);
   }
   const kept = dropFurniture(pages);
-  return { version: REFLOW_VERSION, pages: pdf.numPages, blocks: layout(kept, bodySize(kept.flat())), ...(skipped.length ? { skipped } : {}) };
+  return {
+    version: REFLOW_VERSION,
+    pages: pdf.numPages,
+    blocks: layout(kept, bodySize(kept.flat())),
+    columns: inColumns(layouts),
+    ...(skipped.length ? { skipped } : {}),
+  };
+}
+
+/**
+ * Whether a page's text is set in columns: some line down the middle half of the page that almost
+ * no text crosses, with a good share of the text on each side of it. Null when the page has too
+ * little text to tell. Text is weighed by its characters, so a full-width title or a figure caption
+ * that crosses the gutter doesn't hide it.
+ */
+export function hasColumns(runs: { str: string; x: number; end: number }[], width: number): boolean | null {
+  const text = runs.filter((r) => r.str.trim() && r.end > r.x);
+  const total = text.reduce((n, r) => n + r.str.length, 0);
+  if (total < 400 || width <= 0) return null;
+  for (let x = 0.3 * width; x <= 0.7 * width; x += 0.005 * width) {
+    let crossing = 0;
+    let left = 0;
+    let right = 0;
+    for (const r of text) {
+      if (r.x < x && r.end > x) crossing += r.str.length;
+      else if (r.end <= x) left += r.str.length;
+      else right += r.str.length;
+    }
+    if (crossing <= 0.05 * total && left >= 0.25 * total && right >= 0.25 * total) return true;
+  }
+  return false;
+}
+
+/** A document is in columns when a third or more of the pages that can tell are. */
+export function inColumns(pages: (boolean | null)[]): boolean {
+  const told = pages.filter((p) => p !== null);
+  return told.length > 0 && told.filter(Boolean).length >= told.length / 3;
 }
 
 /**
@@ -97,22 +142,27 @@ export async function reflowFor(folder: string, doc: string, pdf: PDFDoc, onProg
   const { db } = folderCtx(folder);
   const key = `reflow:${doc}`;
   const cached = await db.kvGet<Reflow>(key);
-  if (cached?.version === REFLOW_VERSION) return cached;
+  // A copy cached before columns were looked for is read again. Its text is the same, so places kept in it still hold.
+  if (cached?.version === REFLOW_VERSION && cached.columns !== undefined) return cached;
   const reflow = await extractReflow(pdf, onProgress);
   await db.kvSet(key, reflow);
   return reflow;
 }
 
-/** Lines of one page, top to bottom. Pieces of text share a line when their baselines are close. */
-function linesOf(items: Items, vp: Viewport, page: number): Line[] {
+/** The pieces of text on a page, in top-left page coordinates, so y grows downwards as it does on screen. */
+function runsOf(items: Items, vp: Viewport): Run[] {
   const runs: Run[] = [];
   for (const it of items) {
     if (!("str" in it) || !it.str) continue;
-    // Mapped to top-left page coordinates, so y grows downwards as it does on screen.
     const m: number[] = Util.transform(vp.transform, it.transform);
     runs.push({ str: it.str, x: m[4], end: m[4] + it.width, y: m[5], size: Math.hypot(m[2], m[3]) });
   }
-  runs.sort((a, b) => a.y - b.y || a.x - b.x);
+  return runs;
+}
+
+/** Lines of one page, top to bottom. Pieces of text share a line when their baselines are close. */
+function linesOf(pageRuns: Run[], vp: Viewport, page: number): Line[] {
+  const runs = [...pageRuns].sort((a, b) => a.y - b.y || a.x - b.x);
 
   const rows: { y: number; size: number; runs: Run[] }[] = [];
   for (const r of runs) {

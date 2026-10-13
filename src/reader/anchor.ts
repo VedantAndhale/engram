@@ -89,17 +89,110 @@ function offsetOf(ix: TextIndex, node: Node, offset: number): number {
   return r.toString().length;
 }
 
-/** What to store for a selection: the quote as the reader sees it, and the text around it. */
+/** The elements that start a new line of text: a quote that runs over two of them gets a line break there. */
+const BLOCKS = "p, li, h1, h2, h3, h4, h5, h6, blockquote, pre, figcaption, dt, dd, td, th, tr, div, section, article, aside, header, footer";
+
+/** What to store for a selection: the quote as the reader sees it, in whole words, and the text around it. */
 export function quoteOf(ix: TextIndex, range: Range): { quote: string; prefix: string; suffix: string } | null {
   if (!ix.root.contains(range.commonAncestorContainer)) return null;
-  const s = offsetOf(ix, range.startContainer, range.startOffset);
-  const e = offsetOf(ix, range.endContainer, range.endOffset);
-  const quote = range.toString().replace(/\s+/g, " ").trim();
-  if (!quote || e <= s) return null;
+  // A drag that starts or ends inside a word takes the whole word.
+  const [s, e] = snapToWords(ix.full, offsetOf(ix, range.startContainer, range.startOffset), offsetOf(ix, range.endContainer, range.endOffset));
+  if (e <= s) return null;
+  // Each text node's part, with a line break where a new paragraph starts: in the text they sit side by side with nothing between.
+  const pieces: { text: string; block: unknown }[] = [];
+  ix.nodes.forEach((node, i) => {
+    const from = ix.starts[i];
+    const to = from + node.data.length;
+    if (to <= s || from >= e) return;
+    pieces.push({ text: ix.full.slice(Math.max(from, s), Math.min(to, e)), block: node.parentElement?.closest(BLOCKS) ?? null });
+  });
+  const quote = joinBlocks(pieces);
+  if (!quote) return null;
   const tidy = (t: string) => t.replace(/\s+/g, " ");
   return {
     quote,
     prefix: tidy(ix.full.slice(Math.max(0, s - CONTEXT * 2), s)).slice(-CONTEXT),
     suffix: tidy(ix.full.slice(e, e + CONTEXT * 2)).slice(0, CONTEXT),
   };
+}
+
+/**
+ * Pieces of text in order, as one quote: pieces of the same block run on, and a new block starts a
+ * new line. Spaces are collapsed within a line, and blank lines dropped.
+ */
+export function joinBlocks(pieces: { text: string; block: unknown }[]): string {
+  let out = "";
+  pieces.forEach((p, i) => {
+    if (i > 0 && p.block !== pieces[i - 1].block) out += "\n";
+    out += p.text;
+  });
+  return out
+    .split("\n")
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .join("\n");
+}
+
+/** A letter, digit or mark; an apostrophe counts inside a word ("don't"), not at its ends. */
+function wordAt(text: string, i: number): boolean {
+  const ch = text[i];
+  if (ch === undefined) return false;
+  if (/[\p{L}\p{N}\p{M}]/u.test(ch)) return true;
+  return /['’]/.test(ch) && /[\p{L}\p{N}]/u.test(text[i - 1] ?? "") && /[\p{L}\p{N}]/u.test(text[i + 1] ?? "");
+}
+
+/** A start offset moved back to the start of the word it cuts through, if it cuts through one. */
+export function wordStart(text: string, i: number): number {
+  if (!wordAt(text, i) || !wordAt(text, i - 1)) return i;
+  while (i > 0 && wordAt(text, i - 1)) i--;
+  return i;
+}
+
+/** An end offset moved on to the end of the word it cuts through, if it cuts through one. */
+export function wordEnd(text: string, i: number): number {
+  if (!wordAt(text, i) || !wordAt(text, i - 1)) return i;
+  while (i < text.length && wordAt(text, i)) i++;
+  return i;
+}
+
+/** A span of `text`, from `start` to `end`, widened to whole words at both ends. */
+export function snapToWords(text: string, start: number, end: number): [number, number] {
+  return [wordStart(text, start), wordEnd(text, end)];
+}
+
+/**
+ * A copy of a selection widened to whole words. Each end only moves within its own text node: the
+ * PDF text layer puts separate words in neighbouring nodes with nothing between them.
+ */
+export function snapRange(range: Range): Range {
+  const r = range.cloneRange();
+  if (r.startContainer.nodeType === Node.TEXT_NODE) r.setStart(r.startContainer, wordStart((r.startContainer as Text).data, r.startOffset));
+  if (r.endContainer.nodeType === Node.TEXT_NODE) r.setEnd(r.endContainer, wordEnd((r.endContainer as Text).data, r.endOffset));
+  return r;
+}
+
+/**
+ * Of the places `wanted` occurs in `text`, the one whose surroundings best agree with the text kept
+ * before and after it. All of them are compared as given, so squash them the same way first. `bonus`
+ * adds to a place's score; ties go to the first place, or the last. -1 when it isn't there.
+ */
+export function bestOccurrence(
+  text: string,
+  wanted: string,
+  context: { prefix?: string; suffix?: string } = {},
+  where: "first" | "last" = "first",
+  bonus?: (at: number) => number,
+): number {
+  if (!wanted) return -1;
+  const pre = context.prefix ?? "";
+  const suf = context.suffix ?? "";
+  let best = -1;
+  let bestScore = -1;
+  for (let at = text.indexOf(wanted); at >= 0; at = text.indexOf(wanted, at + 1)) {
+    const before = agree(text.slice(Math.max(0, at - pre.length), at), pre, true);
+    const after = agree(text.slice(at + wanted.length, at + wanted.length + suf.length), suf, false);
+    const score = before + after + (bonus?.(at) ?? 0);
+    if (score > bestScore || (where === "last" && score === bestScore)) (best = at), (bestScore = score);
+  }
+  return best;
 }

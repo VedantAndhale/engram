@@ -1,6 +1,7 @@
 import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useRef, type RefObject } from "react";
 import type { Annotation } from "../../model";
-import { squash } from "../../reader/quoteRects";
+import { bestOccurrence, snapRange } from "../../reader/anchor";
+import { squash, squashContext } from "../../reader/quoteRects";
 import type { Reflow, ReflowBlock } from "../../reader/reflow";
 import { toast } from "../../store/ui";
 import "../../styles/reflow.css";
@@ -21,10 +22,15 @@ const TOP_GAP = 24;
 /** The ::highlight(hl-picked) rule in app.css, shared with the article view. */
 const PICKED = "hl-picked";
 
-/** Text selected in the reading view: its quote, the page it starts on, and where its popover goes. */
+/** How much of the reading text is kept before and after a highlight, to tell repeats of its quote apart. */
+const CONTEXT = 32;
+
+/** Text selected in the reading view: its quote, the page it starts on, the text around it, and where its popover goes. */
 export interface ReflowSelection {
   text: string;
   page: number;
+  prefix: string;
+  suffix: string;
   anchor: DOMRect;
 }
 
@@ -90,7 +96,8 @@ export const ReflowView = memo(function ReflowView({ reflow, size, annotations, 
       setTimeout(() => {
         const sel = window.getSelection();
         if (sel && !sel.isCollapsed && sel.rangeCount) {
-          const range = sel.getRangeAt(0);
+          // A drag that starts or ends inside a word takes the whole word.
+          const range = snapRange(sel.getRangeAt(0));
           const text = range.toString().replace(/\s+/g, " ").trim();
           if (!el.contains(range.commonAncestorContainer) || !text) return;
           const from = pageOf(range.startContainer);
@@ -99,7 +106,8 @@ export const ReflowView = memo(function ReflowView({ reflow, size, annotations, 
           // A passage may run over one page break, which highlightReading splits; a longer one can't be placed.
           if (to > from + 1) return void toast("Select a shorter passage to highlight");
           const rects = Array.from(range.getClientRects());
-          return onSelect({ text, page: from, anchor: rects[rects.length - 1] ?? range.getBoundingClientRect() });
+          const { prefix, suffix } = contextOf(index, range);
+          return onSelect({ text, page: from, prefix, suffix, anchor: rects[rects.length - 1] ?? range.getBoundingClientRect() });
         }
         const at = caretAt(e.clientX, e.clientY, REFLOW_SURFACE.text);
         if (!at) return;
@@ -112,12 +120,13 @@ export const ReflowView = memo(function ReflowView({ reflow, size, annotations, 
       }, 0);
     el.addEventListener("pointerup", onUp);
     return () => el.removeEventListener("pointerup", onUp);
-  }, [onSelect, onPick, ranges]);
+  }, [onSelect, onPick, ranges, index]);
 
   if (!reflow.blocks.length) return <p className="reflow-status">This PDF has no text to read. Use the page view.</p>;
 
   return (
     <div ref={ref} className="reflow" style={{ "--reflow-size": `${size}px` } as React.CSSProperties}>
+      {reflow.columns && <p className="reflow-status">This PDF is set in columns, so some lines here may be out of order, and its figures and tables are left out. The page view shows it as printed.</p>}
       {!!reflow.skipped?.length && (
         <p className="reflow-status">
           Couldn't read {reflow.skipped.length > 1 ? "pages" : "page"} {reflow.skipped.join(", ")}, so {reflow.skipped.length > 1 ? "they are" : "it is"} left out. The page view has {reflow.skipped.length > 1 ? "them" : "it"}.
@@ -178,6 +187,8 @@ function pageOf(node: Node): number | null {
 }
 
 interface TextIndex {
+  /** The reading text, a newline between blocks. */
+  joined: string;
   /** The whole reading text, squashed for matching (quoteRects.ts). */
   text: string;
   /** For each character of `text`, its position in the joined text. */
@@ -198,7 +209,7 @@ function indexBlocks(blocks: ReflowBlock[]): TextIndex {
     starts.push(joined.length);
     joined += `${b.text}\n`;
   }
-  return { ...squash(joined), starts };
+  return { ...squash(joined), joined, starts };
 }
 
 /** The block a position in the joined text falls in: the last one that starts at or before it. */
@@ -213,21 +224,34 @@ function blockAt(starts: number[], pos: number): number {
   return lo;
 }
 
+/** The reading text just before and after a selection, kept with its highlight. */
+function contextOf(ix: TextIndex, range: Range): { prefix: string; suffix: string } {
+  const offset = (node: Node, at: number) => {
+    const block = (node instanceof Element ? node : node.parentElement)?.closest<HTMLElement>(".reflow-block");
+    if (!block) return null;
+    // Each block holds one text node; a boundary on the block itself is before or after all of it.
+    const inBlock = node.nodeType === Node.TEXT_NODE ? at : at > 0 ? (block.textContent ?? "").length : 0;
+    return ix.starts[Number(block.dataset.index)] + inBlock;
+  };
+  const s = offset(range.startContainer, range.startOffset);
+  const e = offset(range.endContainer, range.endOffset);
+  if (s === null || e === null) return { prefix: "", suffix: "" };
+  const tidy = (t: string) => t.replace(/\s+/g, " ");
+  return { prefix: tidy(ix.joined.slice(Math.max(0, s - CONTEXT * 2), s)).slice(-CONTEXT), suffix: tidy(ix.joined.slice(e, e + CONTEXT * 2)).slice(0, CONTEXT) };
+}
+
+/** How much being on the highlight's own page counts for, against characters of agreeing context. */
+const SAME_PAGE = 8;
+
 /**
  * The range of a highlight's quote in the reading text, or null when the quote isn't there. A quote
- * can occur more than once: the occurrence on the highlight's own page wins, else the first.
+ * can occur more than once: the text kept around it picks the place, helped by being on the
+ * highlight's own page; failing both, the first.
  */
 function quoteRange(els: HTMLElement[], ix: TextIndex, blocks: ReflowBlock[], a: Annotation): Range | null {
   const q = squash(a.quote ?? "").text;
   if (!q) return null;
-  let hit = -1;
-  for (let i = ix.text.indexOf(q); i >= 0; i = ix.text.indexOf(q, i + 1)) {
-    if (hit < 0) hit = i;
-    if (blocks[blockAt(ix.starts, ix.at[i])].page === a.page) {
-      hit = i;
-      break;
-    }
-  }
+  const hit = bestOccurrence(ix.text, q, squashContext(a), "first", (i) => (blocks[blockAt(ix.starts, ix.at[i])].page === a.page ? SAME_PAGE : 0));
   if (hit < 0) return null;
   const s = ix.at[hit];
   const e = ix.at[hit + q.length - 1] + 1;

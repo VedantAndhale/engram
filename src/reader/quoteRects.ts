@@ -1,6 +1,7 @@
 import { Util } from "pdfjs-dist";
 import type { PDFDoc } from "../lib/pdf";
 import type { Rect } from "../model";
+import { bestOccurrence } from "./anchor";
 
 /*
  * Where a quote sits on a page, so a highlight made in the reading view is painted on the page too.
@@ -45,10 +46,11 @@ interface Box {
 
 /**
  * Rectangles (0..1 of the page's width and height, top-left origin, as highlights are stored) that
- * cover the quote on one page. Null when the quote isn't on that page. `where` picks the occurrence
- * when the quote appears more than once: the first, or the last (a passage that ends a page).
+ * cover the quote on one page. Null when the quote isn't on that page. When the quote appears more
+ * than once, the text kept before and after it picks the place; failing that, `where` does: the
+ * first, or the last (a passage that ends a page).
  */
-export async function rectsForQuote(pdf: PDFDoc, page: number, quote: string, where: "first" | "last" = "first"): Promise<Rect[] | null> {
+export async function rectsForQuote(pdf: PDFDoc, page: number, quote: string, where: "first" | "last" = "first", context: Context = {}): Promise<Rect[] | null> {
   const wanted = squash(quote).text;
   if (!wanted) return null;
 
@@ -75,7 +77,7 @@ export async function rectsForQuote(pdf: PDFDoc, page: number, quote: string, wh
   }
 
   const squashed = squash(text);
-  const start = where === "last" ? squashed.text.lastIndexOf(wanted) : squashed.text.indexOf(wanted);
+  const start = bestOccurrence(squashed.text, wanted, squashContext(context), where);
   if (start < 0) return null;
 
   // For each item the quote touches, the characters it covers, from the first to the last.
@@ -123,41 +125,68 @@ export async function rectsForQuote(pdf: PDFDoc, page: number, quote: string, wh
   });
 }
 
+/** The text kept just before and after a highlight's quote. */
+export interface Context {
+  prefix?: string;
+  suffix?: string;
+}
+
+/** A context squashed as quotes are, for comparing with a page's squashed text. */
+export const squashContext = (c: Context): Context => ({ prefix: squash(c.prefix ?? "").text, suffix: squash(c.suffix ?? "").text });
+
+/** One page's part of a passage: where it is on the page, its own words, and the text around them. */
+export interface QuotePart extends Context {
+  page: number;
+  rects: Rect[];
+  quote: string;
+}
+
 /**
- * Where a passage sits when it may run over a page break: one part per page it touches, as a
- * highlight is saved on each page of a page-view selection. It is looked for whole on the page the
+ * Where a passage sits when it may run over a page break: one part per page it touches, each with
+ * only that page's words, as a page-view selection is saved. It is looked for whole on the page the
  * reading view says it starts on, then the page after and the page before, since a block can start
  * on any of them. Null when no such pages hold it.
  */
-export async function rectsForQuoteAcross(pdf: PDFDoc, page: number, quote: string): Promise<{ page: number; rects: Rect[] }[] | null> {
-  const wanted = squash(quote).text;
-  if (!wanted) return null;
+export async function rectsForQuoteAcross(pdf: PDFDoc, page: number, quote: string, context: Context = {}): Promise<QuotePart[] | null> {
+  const sq = squash(quote);
+  if (!sq.text) return null;
   const candidates = [page, page + 1, page - 1].filter((p) => p >= 1 && p <= pdf.numPages);
   for (const p of candidates) {
-    const rects = await rectsForQuote(pdf, p, quote);
-    if (rects) return [{ page: p, rects }];
+    const rects = await rectsForQuote(pdf, p, quote, "first", context);
+    if (rects) return [{ page: p, rects, quote, ...context }];
   }
   for (const p of candidates) {
     if (p + 1 > pdf.numPages) continue;
-    const parts = await splitAcross(pdf, p, wanted);
-    if (parts) return parts;
+    const split = await splitAcross(pdf, p, sq.text, context);
+    if (!split) continue;
+    const [head, tail] = splitQuote(quote, split.cut);
+    return [
+      { page: p, rects: split.head, quote: head, prefix: context.prefix, suffix: tail.slice(0, 32) },
+      { page: p + 1, rects: split.tail, quote: tail, prefix: head.slice(-32), suffix: context.suffix },
+    ];
   }
   return null;
+}
+
+/** A quote cut in two where its squashed text is cut at `cut` (quoteRects' squash), each part trimmed. */
+export function splitQuote(quote: string, cut: number): [string, string] {
+  const at = squash(quote).at[cut] ?? quote.length;
+  return [quote.slice(0, at).trim(), quote.slice(at).trim()];
 }
 
 /**
  * A passage that starts on `page` and ends on the next one. The longest start of it that is on `page`
  * is found first (the start only ever shortens to something still on the page, so a binary search
- * works), and the rest must be at the top of the next page.
+ * works), and the rest must be at the top of the next page. `cut` is where the squashed passage splits.
  */
-async function splitAcross(pdf: PDFDoc, page: number, wanted: string): Promise<{ page: number; rects: Rect[] }[] | null> {
+async function splitAcross(pdf: PDFDoc, page: number, wanted: string, context: Context): Promise<{ head: Rect[]; tail: Rect[]; cut: number } | null> {
   let lo = 1;
   let hi = wanted.length - 1;
   let head: Rect[] | null = null;
   let cut = 0;
   while (lo <= hi) {
     const mid = (lo + hi) >> 1;
-    const rects = await rectsForQuote(pdf, page, wanted.slice(0, mid), "last");
+    const rects = await rectsForQuote(pdf, page, wanted.slice(0, mid), "last", { prefix: context.prefix });
     if (rects) {
       head = rects;
       cut = mid;
@@ -165,6 +194,6 @@ async function splitAcross(pdf: PDFDoc, page: number, wanted: string): Promise<{
     } else hi = mid - 1;
   }
   if (!head) return null;
-  const tail = await rectsForQuote(pdf, page + 1, wanted.slice(cut), "first");
-  return tail ? [{ page, rects: head }, { page: page + 1, rects: tail }] : null;
+  const tail = await rectsForQuote(pdf, page + 1, wanted.slice(cut), "first", { suffix: context.suffix });
+  return tail ? { head, tail, cut } : null;
 }

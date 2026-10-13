@@ -4,7 +4,7 @@ import { useState, type CSSProperties } from "react";
 import { itemHref, TYPE_LABELS } from "../capture/capture";
 import { folderCtx, visibleFolders } from "../folders/registry";
 import { type Annotation, HIGHLIGHT_COLORS, ITEM_TYPES, type Folder, type Item, type ItemType } from "../model";
-import { citation, downloadMarkdown, markdownFilename } from "../notes/export";
+import { citation, downloadMarkdown, joinPageParts, markdownFilename } from "../notes/export";
 import { navigate, openQuickAdd, toast } from "../store/ui";
 import "../styles/highlights.css";
 
@@ -21,10 +21,9 @@ async function allHighlights(): Promise<Row[]> {
   for (const folder of await visibleFolders()) {
     const { db } = folderCtx(folder.id);
     const items = new Map((await db.items.toArray()).filter((i) => !i.deleted).map((i) => [i.id, i]));
-    for (const mark of await db.annotations.toArray()) {
-      const item = items.get(mark.doc);
-      if (item && !mark.deleted && mark.kind === "highlight" && mark.quote?.trim()) rows.push({ folder, item, mark });
-    }
+    const marks = (await db.annotations.toArray()).filter((m) => items.has(m.doc) && !m.deleted && m.kind === "highlight" && m.quote?.trim());
+    // A highlight over a page break is saved as a part per page; it is listed once.
+    for (const mark of joinPageParts(marks)) rows.push({ folder, item: items.get(mark.doc)!, mark });
   }
   return rows.sort((a, b) => b.mark.createdAt - a.mark.createdAt);
 }

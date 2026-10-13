@@ -121,8 +121,8 @@ export function NotesPanel({
                   )}
                   {a.note && <span className="note-text">{a.note}</span>}
                   <span className="note-meta">
-                    Page {a.page}
-                    {a.author && a.author !== me ? ` · ${a.author}` : ""} · {timeAgo(a.updatedAt)}
+                    {/* Articles keep their highlights on page 0: they have no pages to name. */}
+                    {[a.page > 0 && `Page ${a.page}`, a.author && a.author !== me && a.author, timeAgo(a.updatedAt)].filter(Boolean).join(" · ")}
                   </span>
                 </span>
               </button>
