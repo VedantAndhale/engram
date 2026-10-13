@@ -2,13 +2,32 @@ import { appDb, type ReaderDB } from "../db/db";
 import { newer, type Annotation, type Folder, type Item, type Position } from "../model";
 import { buildIndex, serializeIndex } from "./indexfile";
 import { parseItem, serializeItem } from "./itemfile";
+import { mergeAnnotations, mergeItem, sameItem } from "./itemmerge";
 import { itemPath } from "./paths";
 
 /*
- * Each synced record has an id and an updatedAt. Merging is per record: the newer edit wins,
- * and deletions are tombstones. Merging is order-independent, so two devices (or two people)
- * writing at the same time always converge without losing anything.
+ * Each synced record has an id and an updatedAt, and deletions are tombstones. Items and their
+ * annotations merge field by field against the version both sides last agreed on (see
+ * itemmerge.ts), so two devices editing the same note at once both keep their words. Positions
+ * and the first layout's files merge per record: the newer edit wins.
  */
+
+/** A file in the repository that isn't valid JSON (or not the shape we expect). Sync skips it. */
+export class BadFileError extends Error {}
+
+function parseJson<T>(text: string, check: (v: T) => boolean): T {
+  let value: T;
+  try {
+    value = JSON.parse(text) as T;
+  } catch (e) {
+    throw new BadFileError(e instanceof Error ? e.message : String(e));
+  }
+  if (!value || typeof value !== "object" || !check(value)) throw new BadFileError("not the expected format");
+  return value;
+}
+
+const validPositions = (f: PositionsFile) =>
+  f.positions === undefined || (Array.isArray(f.positions) && f.positions.every((p) => p && typeof p.doc === "string" && typeof p.updatedAt === "number"));
 
 /** reader.json: marks a repository as a Reader folder and carries its id and name. */
 export interface FolderFile {
@@ -128,11 +147,31 @@ export interface ItemMerge {
   orphan?: string;
 }
 
-/** Merge one item file from the repository. Returns null if the file isn't an Engram item. */
-export async function mergeItemFile(db: ReaderDB, path: string, text: string): Promise<ItemMerge | null> {
+/**
+ * The version of an item file both sides last agreed on. Given this device's current file text,
+ * returns the base text, or null if it can't be had (then the merge falls back to newer-wins).
+ */
+export type BaseLoader = (localText: string) => Promise<string | null>;
+
+/**
+ * Merge one item file from the repository. Returns null if the file isn't an Engram item.
+ * `loadBase` is asked only when this device's version differs from the file.
+ */
+export async function mergeItemFile(db: ReaderDB, path: string, text: string, loadBase?: BaseLoader): Promise<ItemMerge | null> {
   const parsed = parseItem(text, path);
   if (!parsed) return null;
   const { item, annotations } = parsed;
+  // Reading the base can mean a request to GitHub, which can't happen inside a transaction.
+  let base: ReturnType<typeof parseItem> = null;
+  const before = await db.items.get(item.id);
+  if (before && loadBase) {
+    const localText = serializeItem(before, await db.annotations.where("doc").equals(item.id).toArray());
+    if (localText !== text) {
+      const baseText = await loadBase(localText);
+      base = baseText === null ? null : parseItem(baseText, path);
+      if (base?.item.id !== item.id) base = null;
+    }
+  }
   return db.transaction("rw", db.items, db.annotations, async () => {
     const local = await db.items.get(item.id);
     let orphan: string | undefined;
@@ -142,17 +181,37 @@ export async function mergeItemFile(db: ReaderDB, path: string, text: string): P
       orphan = canonical === path ? local.path : path;
       if (canonical !== local.path) await db.items.update(item.id, { path: canonical });
     }
-    const localItem = local ? { ...local, path: canonical } : undefined;
-    const itemAhead = await mergeRecords([{ ...item, path: canonical }], localItem ? [localItem] : [], (i) => i.id, (r) =>
-      db.items.bulkPut(r),
-    );
-    const annAhead = await mergeRecords(
-      annotations,
-      await db.annotations.where("doc").equals(item.id).toArray(),
-      (a) => a.id,
-      (r) => db.annotations.bulkPut(r),
-    );
-    return { id: item.id, path: canonical, localAhead: itemAhead || annAhead || canonical !== path, orphan };
+    const remoteItem = { ...item, path: canonical };
+    const localAnns = await db.annotations.where("doc").equals(item.id).toArray();
+    if (!local) {
+      await db.items.put(remoteItem);
+      const ann = mergeAnnotations(undefined, localAnns, annotations);
+      if (ann.put.length) await db.annotations.bulkPut(ann.put);
+      return { id: item.id, path: canonical, localAhead: ann.localAhead || canonical !== path, orphan };
+    }
+    // Compare like with like: this device's records as the file would read back.
+    const view = parseItem(serializeItem({ ...local, path: canonical }, localAnns), canonical)!;
+    const merged = mergeItem(base?.item, view.item, remoteItem);
+    let itemAhead = false;
+    if (!sameItem(merged, view.item)) {
+      // Keep this device's own values (untrimmed text, fields the file doesn't carry) where the merge kept them.
+      const next = { ...local, path: canonical } as Record<string, unknown>;
+      const m = merged as unknown as Record<string, unknown>;
+      const v = view.item as unknown as Record<string, unknown>;
+      for (const k of new Set([...Object.keys(m), ...Object.keys(v)])) {
+        if (k === "path" || JSON.stringify(m[k]) === JSON.stringify(v[k])) continue;
+        if (m[k] === undefined) delete next[k];
+        else next[k] = m[k];
+      }
+      await db.items.put(next as unknown as Item);
+    }
+    if (!sameItem(merged, remoteItem)) itemAhead = true;
+    const viewAnns = new Map(view.annotations.map((a) => [a.id, a]));
+    // Annotations the file doesn't show (none today) are compared as stored.
+    const localForMerge = localAnns.map((a) => viewAnns.get(a.id) ?? a);
+    const ann = mergeAnnotations(base?.annotations, localForMerge, annotations);
+    if (ann.put.length) await db.annotations.bulkPut(ann.put);
+    return { id: item.id, path: canonical, localAhead: itemAhead || ann.localAhead || canonical !== path, orphan };
   });
 }
 
@@ -161,7 +220,12 @@ export async function mergeItemFile(db: ReaderDB, path: string, text: string): P
  * these; they keep merging in until every device is on items. Returns the item paths to push.
  */
 export async function mergeLegacyLibrary(db: ReaderDB, text: string): Promise<string[]> {
-  const file = JSON.parse(text) as LegacyLibraryFile;
+  const file = parseJson<LegacyLibraryFile>(
+    text,
+    (f) => f.docs === undefined || (Array.isArray(f.docs) && f.docs.every(
+          (d) => d && typeof d.hash === "string" && typeof d.title === "string" && typeof d.addedAt === "number" && typeof d.updatedAt === "number",
+        )),
+  );
   return db.transaction("rw", db.items, async () => {
     const dirty: string[] = [];
     for (const { hash, ...d } of file.docs ?? []) {
@@ -177,7 +241,10 @@ export async function mergeLegacyLibrary(db: ReaderDB, text: string): Promise<st
 
 /** Merge a first-layout annotations/<doc>.json. Returns the item path to push, if the item is known. */
 export async function mergeLegacyAnnotations(db: ReaderDB, doc: string, text: string): Promise<string | null> {
-  const file = JSON.parse(text) as LegacyAnnotationsFile;
+  const file = parseJson<LegacyAnnotationsFile>(
+    text,
+    (f) => f.items === undefined || (Array.isArray(f.items) && f.items.every((a) => a && typeof a.id === "string" && typeof a.updatedAt === "number")),
+  );
   return db.transaction("rw", db.items, db.annotations, async () => {
     await mergeRecords(
       (file.items ?? []).filter((a) => a.doc === doc),
@@ -190,14 +257,14 @@ export async function mergeLegacyAnnotations(db: ReaderDB, doc: string, text: st
 }
 
 export async function mergeMyPositions(db: ReaderDB, text: string): Promise<boolean> {
-  const file = JSON.parse(text) as PositionsFile;
+  const file = parseJson<PositionsFile>(text, validPositions);
   return db.transaction("rw", db.positions, async () =>
     mergeRecords(file.positions ?? [], await db.positions.toArray(), (p) => p.doc, (items) => db.positions.bulkPut(items)),
   );
 }
 
 export async function mergePeerPositions(db: ReaderDB, user: string, text: string): Promise<void> {
-  const file = JSON.parse(text) as PositionsFile;
+  const file = parseJson<PositionsFile>(text, validPositions);
   await db.peers.bulkPut((file.positions ?? []).map((p) => ({ ...p, user, key: `${user}:${p.doc}` })));
 }
 

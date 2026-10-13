@@ -14,7 +14,7 @@ export interface Folder {
   name: string;
   /** Unset until the folder has a repository (no GitHub account connected yet). */
   repo?: RepoRef;
-  /** False only for an adopted repo that turned out to be public; shown as a warning. */
+  /** False only for a repo that is (or became) public: shown as a warning, and sync to it pauses. */
   isPrivate?: boolean;
   createdAt: number;
   updatedAt: number;
@@ -64,6 +64,12 @@ export interface Item {
   addedBy?: string;
   updatedAt: number;
   deleted?: boolean;
+  /**
+   * When you last changed each field yourself, by field name (`updateItem` sets these; background
+   * updates such as an article fill-in don't). When two devices change the same field, the later
+   * stamp wins, so an automatic update never overwrites your own edit (see sync/itemmerge.ts).
+   */
+  edited?: Record<string, number>;
   /**
    * The item's file in the repository. Chosen once when the item is made and never moved,
    * so every device writes to the same file. Not part of the file itself.
@@ -155,7 +161,11 @@ export const HIGHLIGHT_COLORS = [
 
 export const INK_COLORS = ["#1f2a37", "#d64545", "#2f6fd6", "#2e9e5b", "#e08a1e"] as const;
 
-/** Later edit wins; ties broken deterministically so every device converges on the same answer. */
+/**
+ * Later edit wins; ties broken deterministically so every device converges on the same answer.
+ * Used for whole records that have no finer merge (positions, the first layout's files); items
+ * and their annotations merge field by field (sync/itemmerge.ts).
+ */
 export function newer<T extends { updatedAt: number }>(a: T, b: T): boolean {
   if (a.updatedAt !== b.updatedAt) return a.updatedAt > b.updatedAt;
   return JSON.stringify(a) > JSON.stringify(b);

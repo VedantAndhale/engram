@@ -8,6 +8,13 @@ export const INDEX_FILE = "index.json";
 export const positionsPath = (login: string) => `positions/${login}.json`;
 export const pdfPath = (doc: string) => `pdfs/${doc}.pdf`;
 
+/**
+ * The largest PDF Engram stores in a repository. GitHub refuses files over 100 MB outright, and
+ * a PDF goes up base64-encoded in one request (a third larger), so the cap leaves that request
+ * under 100 MB too. Bigger PDFs stay on the device that has them.
+ */
+export const MAX_PDF_BYTES = 70 * 1024 * 1024;
+
 /** The first layout (before items): kept so old folders and stale tabs still merge in. */
 export const LEGACY_LIBRARY = "library.json";
 export const legacyAnnotationsPath = (doc: string) => `annotations/${doc}.json`;

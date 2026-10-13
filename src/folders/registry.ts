@@ -61,8 +61,9 @@ export async function startFolders() {
     if (document.visibilityState === "visible") void discoverFolders().catch(() => {});
   }, 5 * 60_000);
 
+  // Leaving the tab sends what's waiting, but doesn't retry uploads that keep failing (a big PDF).
   const flushAll = () => {
-    for (const ctx of ctxs.values()) void ctx.sync.flush();
+    for (const ctx of ctxs.values()) void ctx.sync.flush(false);
   };
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") flushAll();
@@ -210,6 +211,8 @@ export async function discoverFolders(): Promise<number> {
     const known = byRepo.get(repoKey({ owner: r.owner.login, repo: r.name }));
     if (known) {
       if (known.isPrivate !== r.private) await appDb.folders.update(known.id, { isPrivate: r.private });
+      // A folder whose repository went public stops syncing until it is private again (see SyncEngine).
+      if (!known.hidden) ctxs.get(known.id)?.sync.notePrivacy(r.private);
       continue;
     }
     if (await addFolderFromRepo(gh, r)) added++;
@@ -228,6 +231,8 @@ async function addFolderFromRepo(gh: GitHub, r: RepoSummary): Promise<Folder | n
     ? { ...existing, repo: ref, isPrivate: r.private } // the repo was renamed or moved
     : { id: file.id, name: file.name, repo: ref, isPrivate: r.private, createdAt: Date.now(), updatedAt: file.updatedAt };
   await appDb.folders.put(folder);
+  // A public repository is adopted so it shows up (with its warning), but its engine stays paused:
+  // nothing from this device is pushed to it until it is private.
   await folderCtx(folder.id).sync.attach(ref);
   return folder;
 }

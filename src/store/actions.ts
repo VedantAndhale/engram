@@ -1,9 +1,10 @@
 import { folderCtx } from "../folders/registry";
 import { extractText, inspectPdf, openPdf } from "../lib/pdf";
-import { deviceId, deviceName, sha256Hex, uid } from "../lib/util";
+import { deviceId, deviceName, formatBytes, sha256Hex, uid } from "../lib/util";
 import type { Annotation, Item } from "../model";
 import { getAccount } from "../sync/account";
-import { itemPath, pdfPath, positionsPath } from "../sync/paths";
+import { itemPath, MAX_PDF_BYTES, pdfPath, positionsPath } from "../sync/paths";
+import { toast } from "./ui";
 
 /*
  * Every user action writes to the folder's IndexedDB first (instant, works offline), then
@@ -19,9 +20,46 @@ async function touchItem(folder: string, id: string, delayMs: number, maxWaitMs?
   if (item) await sync.markDirty(item.path, delayMs, maxWaitMs);
 }
 
+/**
+ * Change an item because you asked to. Each changed field is stamped with the time (`Item.edited`),
+ * so if another device changed the same field meanwhile, the later edit by hand wins.
+ */
 export async function updateItem(folder: string, id: string, patch: Partial<Item>, delayMs = 1500, maxWaitMs?: number) {
-  await folderCtx(folder).db.items.update(id, { ...patch, updatedAt: Date.now() });
+  const { db } = folderCtx(folder);
+  const now = Date.now();
+  await db.transaction("rw", db.items, async () => {
+    const cur = await db.items.get(id);
+    if (!cur) return;
+    const edited = { ...cur.edited };
+    for (const k of Object.keys(patch)) if (k !== "edited" && k !== "updatedAt" && k !== "path") edited[k] = now;
+    await db.items.update(id, { ...patch, edited, updatedAt: now });
+  });
   await touchItem(folder, id, delayMs, maxWaitMs);
+}
+
+/**
+ * Change an item in the background (filling in an article from the web, details found later).
+ * Only fields still as they were in `seen` (the item the update was worked out from) change, and
+ * no edit stamp is set, so neither a change you make meanwhile on this device nor one from
+ * another device is ever overwritten by it.
+ */
+export async function fillItem(folder: string, id: string, patch: Partial<Item>, seen?: Item, delayMs = 500) {
+  const { db } = folderCtx(folder);
+  let changed = false;
+  await db.transaction("rw", db.items, async () => {
+    const cur = await db.items.get(id);
+    if (!cur) return;
+    const apply: Partial<Item> = {};
+    for (const [k, v] of Object.entries(patch) as [keyof Item, unknown][]) {
+      if (seen && JSON.stringify(cur[k]) !== JSON.stringify(seen[k])) continue;
+      (apply as Record<string, unknown>)[k] = v;
+    }
+    if (!Object.keys(apply).length) return;
+    await db.items.update(id, { ...apply, updatedAt: Date.now() });
+    changed = true;
+  });
+  if (changed) await touchItem(folder, id, delayMs);
+  return changed;
 }
 
 /** Your own words about an item. Saved as you type, so uploads wait for a pause. */
@@ -77,6 +115,11 @@ export async function addPdf(folder: string, file: File): Promise<string> {
   });
   await sync.markDirty(pdfPath(hash), 0);
   await sync.markDirty(item.path, 500);
+  if (file.size > MAX_PDF_BYTES && getAccount()) {
+    toast(
+      `This PDF is ${formatBytes(file.size)}; GitHub takes files up to ${formatBytes(MAX_PDF_BYTES)}, so the PDF itself stays on this device. Its highlights and notes still sync.`,
+    );
+  }
   void indexDocument(folder, hash, data);
   return hash;
 }

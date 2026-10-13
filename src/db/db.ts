@@ -33,6 +33,15 @@ export interface OutboxRow {
   path: string;
   rev: number;
   dueAt: number;
+  /**
+   * Failed uploads of this file in a row. A failing file waits longer each time (`dueAt`) while
+   * the rest of the folder keeps syncing; a new change to it starts over.
+   */
+  tries?: number;
+  /** Why the last upload of this file failed, shown to the reader. */
+  error?: string;
+  /** The file can't go to GitHub as it is (a PDF over the size limit): it isn't retried on "Sync now". */
+  blocked?: boolean;
 }
 
 /**
