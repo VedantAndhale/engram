@@ -10,8 +10,10 @@ import { seal, unseal } from "./seal.js";
  *   client → /token (code + PKCE verifier) → access token
  *
  * Everything carried between steps is sealed (see seal.ts). The access token wraps the
- * GitHub token, so it is useless anywhere but this server, and nothing is stored: revoking
- * Engram in GitHub's settings (Applications → Authorized OAuth Apps) ends every session.
+ * GitHub token, so it is useless anywhere but this server, and nothing is stored. Access tokens
+ * last 30 days, then the client signs in again. /revoke ends one sign-in (the app's on one
+ * device, or one agent's) at GitHub; revoking Engram in GitHub's settings (Applications →
+ * Authorized OAuth Apps) ends every session.
  */
 
 /** Private folder repos need GitHub's "repo" scope; OAuth Apps have no read-only scope for them. */
@@ -20,6 +22,7 @@ const GITHUB_SCOPE = "repo";
 const APP_SCOPE = "repo user:email";
 const TOKEN_PREFIX = "eg1.";
 const MINUTE = 60_000;
+const TOKEN_TTL_MS = 30 * 24 * 60 * MINUTE;
 
 interface ClientData {
   redirectUris: string[];
@@ -30,6 +33,8 @@ interface Pending {
   redirectUri: string;
   state?: string;
   challenge: string;
+  /** Which registered client asked (a hash of its client_id): only it may redeem the code. */
+  clientKey: string;
   /** Set once the person approves: the same value goes into a cookie in their browser only. */
   browser?: string;
 }
@@ -47,6 +52,26 @@ const json = (body: unknown, status = 200, headers: Record<string, string> = {})
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store", ...headers } });
 const oauthError = (error: string, description: string, status = 400) => json({ error, error_description: description }, status);
 const redirect = (to: string) => new Response(null, { status: 302, headers: { Location: to, "Cache-Control": "no-store" } });
+
+/** A short, fixed-size stand-in for a client_id (which is a whole sealed registration). */
+async function clientKey(clientId: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(clientId));
+  return Buffer.from(digest).toString("base64url").slice(0, 22);
+}
+
+/** A token or revoke request's fields, sent as a form or as JSON. Null if the body can't be read. */
+async function bodyParams(req: Request): Promise<URLSearchParams | null> {
+  const raw = await req.text().catch(() => null);
+  if (raw === null) return null;
+  if (!(req.headers.get("content-type") ?? "").includes("application/json")) return new URLSearchParams(raw);
+  try {
+    const body: unknown = JSON.parse(raw || "{}");
+    if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+    return new URLSearchParams(Object.entries(body).filter((e): e is [string, string] => typeof e[1] === "string"));
+  } catch {
+    return null;
+  }
+}
 
 const CONSENT_COOKIE = "engram_consent";
 
@@ -81,6 +106,8 @@ export function authorizationServer(req: Request) {
     authorization_endpoint: `${o}/api/oauth/authorize`,
     token_endpoint: `${o}/api/oauth/token`,
     registration_endpoint: `${o}/api/oauth/register`,
+    revocation_endpoint: `${o}/api/oauth/revoke`,
+    revocation_endpoint_auth_methods_supported: ["none"],
     response_types_supported: ["code"],
     grant_types_supported: ["authorization_code"],
     code_challenge_methods_supported: ["S256"],
@@ -143,24 +170,23 @@ export async function authorize(req: Request) {
     return res;
   }
 
-  const client = await unseal<ClientData>("client", params.get("client_id") ?? "");
+  const clientId = params.get("client_id") ?? "";
+  const client = await unseal<ClientData>("client", clientId);
   const redirectUri = params.get("redirect_uri") ?? client?.redirectUris[0] ?? "";
-  // Until the redirect address is known good, errors are shown here, never sent there.
+  // Errors are shown here, never sent to the return address: anyone can register any https
+  // address, so an error sent there would let a link on Engram's domain lead anywhere.
   if (!client) return page("Unknown app", "<p>This app isn't registered with Engram. Remove the server from your app and add it again.</p>", 400);
   if (!client.redirectUris.includes(redirectUri)) return page("Wrong return address", "<p>The app asked to return to an address it didn't register.</p>", 400);
-  const back = (error: string, description: string) => {
-    const u = new URL(redirectUri);
-    u.searchParams.set("error", error);
-    u.searchParams.set("error_description", description);
-    if (params.get("state")) u.searchParams.set("state", params.get("state")!);
-    return redirect(u.toString());
-  };
-  if (params.get("response_type") !== "code") return back("unsupported_response_type", "Only response_type=code is supported.");
+  if (params.get("response_type") !== "code") return page("Can't connect this app", "<p>The app asked for a kind of sign-in Engram doesn't offer (only response_type=code).</p>", 400);
   const challenge = params.get("code_challenge");
-  if (!challenge || params.get("code_challenge_method") !== "S256") return back("invalid_request", "PKCE with S256 is required.");
+  if (!challenge || params.get("code_challenge_method") !== "S256") return page("Can't connect this app", "<p>The app didn't use PKCE with S256, which Engram requires.</p>", 400);
 
   // Sealed as "consent", not "state": it must come back through the form, never straight from GitHub.
-  const pending = await seal("consent", { clientName: client.name, redirectUri, state: params.get("state") ?? undefined, challenge } satisfies Pending, 10 * MINUTE);
+  const pending = await seal(
+    "consent",
+    { clientName: client.name, redirectUri, state: params.get("state") ?? undefined, challenge, clientKey: await clientKey(clientId) } satisfies Pending,
+    10 * MINUTE,
+  );
   const who = esc(client.name || "An app");
   const to = new URL(redirectUri);
   const dest = to.protocol === "http:" || to.protocol === "https:" ? to.host : to.protocol.slice(0, -1);
@@ -168,7 +194,7 @@ export async function authorize(req: Request) {
     "Connect to Engram",
     `<p><strong>${who}</strong> wants to use your Engram library: read your notes, highlights and saved items, and send things to your inbox for you to accept.</p>
 <p>It will reach your library through <strong>${esc(dest)}</strong>. Only continue if you started this from that app.</p>
-<p class="small">Next, GitHub asks you to authorize Engram. Agents never change your items: what they send waits in your inbox until you accept it. You can revoke access any time in GitHub → Settings → Applications.</p>
+<p class="small">Next, GitHub asks you to authorize Engram. Agents never change your items: what they send waits in your inbox until you accept it. Access lasts 30 days, and you can revoke it any time in GitHub → Settings → Applications.</p>
 <form method="post" action="${esc(origin(req))}/api/oauth/authorize">
   <input type="hidden" name="pending" value="${esc(pending)}">
   <button type="submit">Continue with GitHub</button>
@@ -240,7 +266,9 @@ export async function callback(req: Request) {
   }
   const r = await exchange(req, code);
   if (!("token" in r)) return page("GitHub sign-in failed", `<p>${esc(r.error)}</p>`, 502);
-  back.searchParams.set("code", await seal("code", { t: r.token, c: pending.clientName, challenge: pending.challenge, redirectUri: pending.redirectUri }, 5 * MINUTE));
+  // A sealed code can't be marked as used, so it lives one minute and only its own client may redeem it.
+  const sealed = { t: r.token, c: pending.clientName, k: pending.clientKey, challenge: pending.challenge, redirectUri: pending.redirectUri } satisfies Code;
+  back.searchParams.set("code", await seal("code", sealed, MINUTE));
   return redirect(back.toString());
 }
 
@@ -260,19 +288,68 @@ async function exchange(req: Request, code: string): Promise<{ token: string } |
   return body.access_token ? { token: body.access_token } : { error: body.error_description ?? "GitHub didn't return a token." };
 }
 
+interface Code {
+  t: string;
+  c?: string;
+  k: string;
+  challenge: string;
+  redirectUri: string;
+}
+
 /** Step 4: the client proves it started the flow (PKCE) and gets its access token. */
 export async function token(req: Request) {
-  const type = req.headers.get("content-type") ?? "";
-  const raw = await req.text();
-  const p = type.includes("application/json") ? new URLSearchParams(Object.entries(JSON.parse(raw || "{}") as Record<string, string>)) : new URLSearchParams(raw);
-  if (p.get("grant_type") !== "authorization_code") return oauthError("unsupported_grant_type", "Only authorization_code is supported; tokens don't expire.");
-  const code = await unseal<{ t: string; c?: string; challenge: string; redirectUri: string }>("code", p.get("code") ?? "");
+  const p = await bodyParams(req);
+  if (!p) return oauthError("invalid_request", "Send the request as a form or a JSON object.");
+  if (p.get("grant_type") !== "authorization_code") return oauthError("unsupported_grant_type", "Only authorization_code is supported. Tokens last 30 days; then connect again.");
+  const code = await unseal<Code>("code", p.get("code") ?? "");
   if (!code) return oauthError("invalid_grant", "The code is invalid or expired.");
+  const clientId = p.get("client_id");
+  if (!clientId || !code.k || (await clientKey(clientId)) !== code.k) return oauthError("invalid_grant", "The code was issued to another client.");
   if (p.get("redirect_uri") && p.get("redirect_uri") !== code.redirectUri) return oauthError("invalid_grant", "redirect_uri doesn't match.");
   const verifier = p.get("code_verifier") ?? "";
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
   if (!verifier || Buffer.from(digest).toString("base64url") !== code.challenge) return oauthError("invalid_grant", "PKCE check failed.");
-  return json({ access_token: TOKEN_PREFIX + (await seal("token", { t: code.t, c: code.c })), token_type: "Bearer" });
+  return json({
+    access_token: TOKEN_PREFIX + (await seal("token", { t: code.t, c: code.c }, TOKEN_TTL_MS)),
+    token_type: "Bearer",
+    expires_in: TOKEN_TTL_MS / 1000,
+  });
+}
+
+/**
+ * Token revocation (RFC 7009): ends one sign-in at GitHub. Takes the app's GitHub token or an
+ * agent's access token (whose GitHub token it unwraps), so signing out on one device or
+ * disconnecting one agent leaves the others alone. As the RFC says, any token gets a 200.
+ */
+export async function revoke(req: Request) {
+  const p = await bodyParams(req);
+  if (!p) return oauthError("invalid_request", "Send the request as a form or a JSON object.");
+  let t = p.get("token") ?? "";
+  if (t.startsWith(TOKEN_PREFIX)) t = (await unseal<{ t: string }>("token", t.slice(TOKEN_PREFIX.length)))?.t ?? "";
+  if (/^gh[opsu]_[A-Za-z0-9_]{20,255}$/.test(t) && !(await revokeAtGitHub(t))) {
+    return oauthError("temporarily_unavailable", "GitHub didn't confirm the sign-out. Try again.", 503);
+  }
+  return new Response(null, { status: 200, headers: { "Cache-Control": "no-store" } });
+}
+
+/** GitHub's own revocation of one token of this OAuth App. Needs the client secret. */
+async function revokeAtGitHub(githubToken: string): Promise<boolean> {
+  const id = process.env.GITHUB_CLIENT_ID;
+  const secret = process.env.GITHUB_CLIENT_SECRET;
+  if (!id || !secret) return false;
+  const res = await fetch(`https://api.github.com/applications/${encodeURIComponent(id)}/token`, {
+    method: "DELETE",
+    headers: {
+      Accept: "application/vnd.github+json",
+      Authorization: `Basic ${Buffer.from(`${id}:${secret}`).toString("base64")}`,
+      "Content-Type": "application/json",
+      "User-Agent": "Engram",
+      "X-GitHub-Api-Version": "2022-11-28",
+    },
+    body: JSON.stringify({ access_token: githubToken }),
+  }).catch(() => null);
+  // 404/422: GitHub doesn't know the token (already revoked, or another app's), so it's done.
+  return !!res && (res.status === 204 || res.status === 404 || res.status === 422);
 }
 
 /**

@@ -2,6 +2,13 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { viteStaticCopy } from "vite-plugin-static-copy";
 import { VitePWA } from "vite-plugin-pwa";
+import { readFileSync } from "node:fs";
+
+// The hosted site's security headers (vercel.json), also sent by `vite preview` so the build can be checked under them.
+// Not by the dev server: its hot reload runs inline scripts the policy forbids.
+const siteHeaders: Record<string, string> = Object.fromEntries(
+  (JSON.parse(readFileSync(new URL("./vercel.json", import.meta.url), "utf8")) as { headers: { headers: { key: string; value: string }[] }[] }).headers[0].headers.map((h) => [h.key, h.value]),
+);
 
 // Relative base so the build works on GitHub Pages under /<repo>/ as well as at a domain root.
 export default defineConfig({
@@ -50,4 +57,5 @@ export default defineConfig({
   build: { target: "es2022" },
   // Sign-in lives in the server (npm run mcp); in production it shares the app's domain.
   server: { proxy: { "/api": "http://localhost:8787", "/.well-known": "http://localhost:8787" } },
+  preview: { headers: siteHeaders },
 });

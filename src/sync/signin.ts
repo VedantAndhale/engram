@@ -41,6 +41,20 @@ export function takeSignIn(): SignInReturn | null {
   return r;
 }
 
+/**
+ * Ends a sign-in at GitHub, so the token stops working even if a copy of it survives somewhere.
+ * Only this token: other devices and connected agents stay signed in. Best effort: offline, or
+ * on a copy with no server, the token is only forgotten here.
+ */
+export function revokeSignIn(token: string) {
+  void fetch(new URL("/api/oauth/revoke", location.origin), {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ token, token_type_hint: "access_token" }),
+    keepalive: true,
+  }).catch(() => {});
+}
+
 /** Off to GitHub. Engram's server is on this same site (see mcp/oauth.ts). */
 export function startSignIn() {
   const nonce = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(24))))

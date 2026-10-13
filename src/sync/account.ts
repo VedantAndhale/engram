@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { Account } from "./github";
+import { revokeSignIn } from "./signin";
 
 const ACCOUNT_KEY = "reader.account";
 
@@ -33,7 +34,10 @@ export const useAccount = create<AccountStore>(() => ({ ...load(), authError: fa
 
 export const getAccount = () => useAccount.getState().account;
 
+/** Saving null signs out (Disconnect): the token is revoked at GitHub as well as forgotten here. */
 export function saveAccount(account: Account | null) {
+  const before = getAccount()?.token;
+  if (before && before !== account?.token) revokeSignIn(before);
   if (account) localStorage.setItem(ACCOUNT_KEY, JSON.stringify(account));
   else localStorage.removeItem(ACCOUNT_KEY);
   useAccount.setState({ account, authError: false, legacyToken: false });

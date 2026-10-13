@@ -1,5 +1,5 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { authorizationServer, authorize, callback, caller, login, origin, protectedResource, register, token } from "./oauth.js";
+import { authorizationServer, authorize, callback, caller, login, origin, protectedResource, register, revoke, token } from "./oauth.js";
 import { page } from "./page.js";
 import { createServer } from "./server.js";
 
@@ -46,6 +46,8 @@ async function route(req: Request): Promise<Response> {
       return callback(req);
     case "token":
       return req.method === "POST" ? token(req) : new Response(null, { status: 405 });
+    case "revoke":
+      return req.method === "POST" ? revoke(req) : new Response(null, { status: 405 });
     case "page":
       return page(req);
     case "mcp":
@@ -58,11 +60,13 @@ async function route(req: Request): Promise<Response> {
 async function mcp(req: Request): Promise<Response> {
   const who = await caller(req);
   if (!who) {
+    // No token, or one that expired (30 days) or was revoked: the header sends the client back to sign in.
+    const presented = req.headers.has("authorization");
     return new Response(JSON.stringify({ error: "invalid_token", error_description: "Sign in with GitHub to use Engram." }), {
       status: 401,
       headers: {
         "Content-Type": "application/json",
-        "WWW-Authenticate": `Bearer resource_metadata="${origin(req)}/.well-known/oauth-protected-resource"`,
+        "WWW-Authenticate": `Bearer resource_metadata="${origin(req)}/.well-known/oauth-protected-resource"${presented ? ', error="invalid_token"' : ""}`,
       },
     });
   }
@@ -78,8 +82,12 @@ export async function handle(req: Request): Promise<Response> {
   try {
     res = await route(req);
   } catch (e) {
+    // The details go to the log only: an exception's message can carry internals.
     console.error(e);
-    res = new Response(JSON.stringify({ error: "server_error", error_description: e instanceof Error ? e.message : String(e) }), { status: 500, headers: { "Content-Type": "application/json" } });
+    res = new Response(JSON.stringify({ error: "server_error", error_description: "Something went wrong on Engram's server. Try again." }), {
+      status: 500,
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+    });
   }
   const headers = new Headers(res.headers);
   for (const [k, v] of Object.entries(CORS)) headers.set(k, v);

@@ -49,7 +49,9 @@ logs that a sign-up wasn't recorded, without the address.
 ## Connect a client
 
 Add `https://engram.vedant.me/api/mcp` as a remote MCP server. The client opens a page where you
-approve it, then GitHub sign-in.
+approve it, then GitHub sign-in. Access lasts 30 days, then the client asks you to approve it again.
+A client can end its own access early at `/api/oauth/revoke` (RFC 7009); the app's Disconnect uses
+the same route for its own sign-in.
 
 ## Run it locally
 

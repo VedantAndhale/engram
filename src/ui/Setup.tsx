@@ -166,7 +166,8 @@ function SignInCard({ again }: { again: boolean }) {
       {signIn?.state === "error" && <p className="error">{signIn.message}</p>}
       <p className="hint">
         <ShieldCheck size={13} /> GitHub asks you to let Engram use your repositories, so it can create a private one for each folder and
-        sync it. Your sign-in stays in this browser and is sent only to api.github.com.
+        sync it. Engram's server handles the sign-in and records your GitHub login, name and primary email. Your token then
+        stays in this browser and goes only to api.github.com, and to Engram's server to revoke it when you disconnect.
       </p>
       <footer className="setup-actions">
         <button

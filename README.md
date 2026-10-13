@@ -79,14 +79,17 @@ what you saved and suggest additions, which you accept or dismiss.
 | Engram's server | Nothing of yours is kept. It exchanges GitHub's sign-in code for a token, answers MCP requests using your own GitHub access, fetches pages for links you save, writes agent suggestions into your repository's `inbox/`, and, on sign-in, records your primary GitHub email, login and name in the Airtable table its owner configures |
 
 **Page views.** The hosted site counts page views with [GoatCounter](https://www.goatcounter.com/). It
-counts the screen you open (today, library, item, search), never folder or item IDs. Self-hosted
+counts the screen you open (today, library, item, search), never folder or item IDs, page or item
+titles, or shared text, and loads no GoatCounter script. Self-hosted
 copies count nothing unless you set `VITE_GOATCOUNTER` to your own GoatCounter code.
 
 **Signing in.** Engram asks GitHub for `repo` access, which covers every private repository your GitHub
 account has, not only Engram's folders. It also asks for your email address, which the hosted site
 keeps in a sign-up list its owner can see (see the server setup in [mcp/README.md](mcp/README.md)). Your token is kept in this browser and sent only to
-`api.github.com`. To disconnect, use **Disconnect** in Engram, then revoke it under GitHub → Settings →
-Applications.
+`api.github.com`, and to Engram's server when you **Disconnect**, which revokes that token at GitHub (other
+devices and agents stay connected). Agents' access lasts 30 days, then they sign in again. To cut off
+everything at once, revoke Engram under GitHub → Settings → Applications. The app is served with a strict
+Content-Security-Policy: scripts only from Engram itself and YouTube's player.
 
 **Limits to plan around.** GitHub repositories should stay under about 5 GB, with a 100 MB limit per
 file and a rate limit on API requests, so large PDF or video libraries need care. The iPhone has no
