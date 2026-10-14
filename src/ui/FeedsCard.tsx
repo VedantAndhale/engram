@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Folder } from "../model";
 import { getAccount } from "../sync/account";
 import { GitHub } from "../sync/github";
@@ -64,8 +64,6 @@ export function FeedsCard({ folder }: { folder: Folder }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const urlId = useId();
-  const nameId = useId();
 
   useEffect(() => {
     if (!gh) return;
@@ -162,7 +160,9 @@ export function FeedsCard({ folder }: { folder: Folder }) {
   }
 
   const feeds = file?.data.feeds ?? [];
-  const newFileUrl = `https://github.com/${repo.owner}/${repo.repo}/new/${encodeURI(repo.branch)}?filename=${WORKFLOW_PATH}`;
+  const workflowText = FEED_INSTALL_FILES.find((f) => f.path === WORKFLOW_PATH)?.text ?? "";
+  // GitHub fills in the file name and contents and the reader presses Commit. Engram can't add the file itself: that needs a permission it doesn't ask for.
+  const newFileUrl = `https://github.com/${repo.owner}/${repo.repo}/new/${encodeURI(repo.branch)}?filename=${WORKFLOW_PATH}&value=${encodeURIComponent(workflowText)}`;
 
   return (
     <div>
@@ -202,50 +202,57 @@ export function FeedsCard({ folder }: { folder: Folder }) {
         </ul>
       )}
 
-      <form onSubmit={onAdd}>
-        <div>
-          <label htmlFor={urlId}>Feed address</label>
+      <form className="form" onSubmit={onAdd}>
+        <label>
+          <span>Feed address</span>
           <input
-            id={urlId}
-            type="url"
+            type="text"
+            inputMode="url"
             required
             placeholder="https://example.com/feed.xml"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
           />
-        </div>
-        <div>
-          <label htmlFor={nameId}>Name (optional)</label>
-          <input id={nameId} type="text" value={name} onChange={(e) => setName(e.target.value)} />
-        </div>
-        <button className="btn btn-primary" type="submit" disabled={busy || !url.trim()}>
-          Add feed
-        </button>
+        </label>
+        <label>
+          <span>Name (optional)</span>
+          <input type="text" value={name} onChange={(e) => setName(e.target.value)} />
+        </label>
+        <footer>
+          <button className="btn btn-primary" type="submit" disabled={busy || !url.trim()}>
+            Add feed
+          </button>
+        </footer>
       </form>
 
-      <h4>Action status</h4>
-      <p>{status ? (STATUS_TEXT[status] ?? String(status)) : "Checking…"}</p>
-      <button className="btn" disabled={busy} onClick={installScript}>
-        Install script
-      </button>
+      <section className="setup-card">
+        <h4>Step 1: install the script</h4>
+        <p className="muted">{status ? (STATUS_TEXT[status] ?? String(status)) : "Checking…"}</p>
+        <button className="btn" disabled={busy} onClick={installScript}>
+          Install script
+        </button>
+      </section>
+
+      <section className="setup-card">
+        <h4>Step 2: add the workflow</h4>
+        {status === "current" ? (
+          <p className="muted">The workflow is in place.</p>
+        ) : (
+          <>
+            <a className="btn btn-primary" href={newFileUrl} target="_blank" rel="noreferrer">
+              Add workflow file on GitHub
+            </a>
+            <p className="muted">
+              GitHub opens with the file already filled in. Press Commit changes there, then open the Actions tab and
+              press Run workflow once.
+            </p>
+          </>
+        )}
+      </section>
 
       <details>
-        <summary>Show the workflow files</summary>
-        <p className="muted">
-          GitHub does not let apps create workflow files, so you add the workflow by hand. The script is installed by
-          the button above.
-        </p>
-        <ol>
-          <li>
-            Open{" "}
-            <a className="link" href={newFileUrl} target="_blank" rel="noreferrer">
-              the new-file page in your repo
-            </a>{" "}
-            (the file name is already filled in).
-          </li>
-          <li>Copy the workflow below, paste it into the editor, and commit it to {repo.branch}.</li>
-          <li>Open the Actions tab, pick "Engram feeds", and press Run workflow. After that it runs every 6 hours.</li>
-        </ol>
+        <summary>Copy the workflow instead</summary>
+        <p className="muted">Only if the button above doesn't open GitHub. The file goes at {WORKFLOW_PATH} in your repo.</p>
         {FEED_INSTALL_FILES.map((f) => (
           <div key={f.path}>
             <p>
