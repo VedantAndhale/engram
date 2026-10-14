@@ -35,10 +35,8 @@ import { createPlaylist } from "../video/actions";
 import { setHabit, useHabit } from "../habit/prefs";
 import { TopicsDialog } from "./habit";
 import { navigate, openQuickAdd, rememberFolder, toast } from "../store/ui";
-import { getAccount, useAccount } from "../sync/account";
-import { GitHub } from "../sync/github";
-import { reachRepo } from "../sync/install";
-import { CANT_REACH_MESSAGE } from "../sync/engine";
+import { useAccount } from "../sync/account";
+import { useGrantAccess } from "./grantaccess";
 import { ConfirmDialog, Modal, PrivateBadge, PromptDialog, SyncBadge, useFolderSync, useMenu, type MenuItem } from "./common";
 import "../styles/library.css";
 
@@ -91,7 +89,7 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
   const { db, sync } = folderCtx(folder.id);
   const s = useFolderSync(folder.id);
   const account = useAccount((a) => a.account);
-  const [granting, setGranting] = useState(false);
+  const access = useGrantAccess(folder, s.message);
   const backupDismissed = useHabit((h) => h.backupDismissed);
   const [sort, setSort] = useState<Sort>(() => (localStorage.getItem("reader.sort") as Sort) ?? "recent");
   const [view, setViewState] = useState<View>(() => (localStorage.getItem("reader.view") as View | null) ?? "inbox");
@@ -124,29 +122,6 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
     rememberFolder(folder.id);
     setAttention(folder.id, "open");
   }, [folder.id]);
-
-  // Adds this folder's repo to the Engram Reader App's install, then syncs again. The user only presses the button.
-  async function grantAccess() {
-    const token = getAccount()?.token;
-    if (!token || !folder.repo) return;
-    setGranting(true);
-    try {
-      const gh = new GitHub(token, folder.repo);
-      const result = await reachRepo(gh, (await gh.getRepo()).id);
-      if (result === "added") {
-        sync.wake();
-        toast("Engram can reach this folder's repository now. Syncing again.");
-      } else if (result === "not-installed") {
-        toast("Install Engram Reader on your GitHub account first, then try again.", { ttl: 12_000 });
-      } else {
-        toast("GitHub didn't let Engram add this repository. Select it in the Engram Reader App's settings.", { ttl: 12_000 });
-      }
-    } catch (e) {
-      toast(e instanceof Error ? e.message : String(e), { ttl: 12_000 });
-    } finally {
-      setGranting(false);
-    }
-  }
 
   const rows = useLiveQuery(async () => {
     const out: Row[] = [];
@@ -450,9 +425,9 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
               Sign in again
             </button>
           )}
-          {s.message === CANT_REACH_MESSAGE && account?.refresh && folder.repo && (
-            <button className="btn btn-small" disabled={granting} onClick={() => void grantAccess()}>
-              {granting ? "Adding…" : "Give Engram access"}
+          {access.needed && (
+            <button className="btn btn-small" disabled={access.granting} onClick={() => void access.grant()}>
+              {access.granting ? "Adding…" : "Give Engram access"}
             </button>
           )}
         </div>

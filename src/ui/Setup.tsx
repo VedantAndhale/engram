@@ -5,6 +5,7 @@ import { anyPending, disconnectAccount, ensureRepos, hiddenFolders, restoreFolde
 import type { Folder } from "../model";
 import { navigate, toast } from "../store/ui";
 import { useAccount } from "../sync/account";
+import { useGrantAccess } from "./grantaccess";
 import { startSignIn } from "../sync/signin";
 import { ConfirmDialog, GitHubMark, PrivateBadge, SyncDot, syncLabel, useFolderSync } from "./common";
 import { FeedsCard } from "./FeedsCard";
@@ -139,6 +140,8 @@ function AccountCard() {
 
 function RepoRow({ folder }: { folder: Folder }) {
   const s = useFolderSync(folder.id);
+  const access = useGrantAccess(folder, s.message);
+
   return (
     <li>
       <SyncDot s={s} />
@@ -156,6 +159,11 @@ function RepoRow({ folder }: { folder: Folder }) {
         <span className="muted repo-link">No repository yet</span>
       )}
       <span className="muted repo-state">{s.message ?? syncLabel(s)}</span>
+      {access.needed && (
+        <button className="btn btn-small" disabled={access.granting} onClick={() => void access.grant()}>
+          {access.granting ? "Adding…" : "Give Engram access"}
+        </button>
+      )}
     </li>
   );
 }

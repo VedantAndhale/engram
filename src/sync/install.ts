@@ -1,3 +1,6 @@
+import { GitHub } from "./github";
+import type { RepoRef } from "../model";
+
 // Where people install the Engram Reader GitHub App, and how a new folder repo gets added to that
 // install. The App only reaches the repos the user picked, so each new folder repo must be added.
 
@@ -37,4 +40,9 @@ export async function reachRepo(gh: InstallGh, repoId: number): Promise<"added" 
     // 403, 404 and 422 come back as thrown errors from the client; so does a dropped connection.
     return "failed";
   }
+}
+/** Adds one folder's repo to the App's install, by looking up its id on GitHub. */
+export async function grantFolderRepo(token: string, repo: RepoRef): Promise<"added" | "not-installed" | "failed"> {
+  const gh = new GitHub(token, repo);
+  return reachRepo(gh, (await gh.getRepo()).id);
 }
