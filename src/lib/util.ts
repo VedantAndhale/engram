@@ -115,3 +115,8 @@ export function deviceName(): string {
           : "Browser";
   return `${os} · ${browser}`;
 }
+
+/** Smooth scrolling, unless the device asks for less motion. */
+export function scrollMotion(): ScrollBehavior {
+  return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+}

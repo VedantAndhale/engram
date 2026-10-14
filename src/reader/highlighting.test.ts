@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Annotation, Item } from "../model";
-import { itemToMarkdown, joinPageParts } from "../notes/export";
+import { itemToMarkdown, joinPageParts, pagePartGroups } from "../notes/export";
 import { bestOccurrence, joinBlocks, snapToWords } from "./anchor";
 import { splitQuote, squash, squashContext } from "./quoteRects";
 import { hasColumns, inColumns } from "./reflow";
@@ -118,6 +118,19 @@ test("a highlight saved as a part per page is listed once, with its words joined
   assert.equal(joined[0].page, 3);
   assert.equal(joined[0].quote, "the end of one page and the start of the next");
   assert.equal(joined[1].id, "c");
+});
+
+test("a review card knows every stored part of a highlight over a page break", () => {
+  const groups = pagePartGroups([
+    mark({ id: "a", page: 3, quote: "the end of one page", createdAt: 1000 }),
+    mark({ id: "b", page: 4, quote: "and the start of the next", createdAt: 1050 }),
+  ]);
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].whole.quote, "the end of one page and the start of the next");
+  assert.deepEqual(
+    groups[0].parts.map((a) => a.id),
+    ["a", "b"],
+  );
 });
 
 test("older copies of a highlight over a page break, each with the whole quote, are kept once", () => {

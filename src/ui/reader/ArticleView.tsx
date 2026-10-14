@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { scrollMotion } from "../../lib/util";
 import type { Annotation, Folder, Item } from "../../model";
 import { noteFromHighlight } from "../../notes/notes";
 import { findQuote, indexText, quoteOf, type TextIndex } from "../../reader/anchor";
@@ -183,7 +184,7 @@ export function ArticleView({
 export function scrollArticleTo(scroller: HTMLElement, range: Range) {
   const bar = scroller.querySelector(".topbar")?.getBoundingClientRect().height ?? 0;
   const top = scroller.scrollTop + range.getBoundingClientRect().top - scroller.getBoundingClientRect().top - bar - JUMP_GAP;
-  scroller.scrollTo({ top, behavior: "smooth" });
+  scroller.scrollTo({ top, behavior: scrollMotion() });
 }
 
 /** One style element for the highlight colours, shared by whichever article is open. */

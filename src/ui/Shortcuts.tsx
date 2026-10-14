@@ -17,6 +17,19 @@ const GROUPS: { title: string; keys: [string, string][] }[] = [
     ],
   },
   {
+    title: "Library and items",
+    keys: [
+      ["E", "Archive"],
+      ["L", "Read later"],
+      ["I", "Back to the Inbox"],
+      ["S", "Favourite"],
+      ["X", "Select (library)"],
+      ["#  Delete", "Move to Trash (library)"],
+      ["U", "Restore (in the Trash)"],
+      ["Esc", "Clear the selection"],
+    ],
+  },
+  {
     title: "Writing",
     keys: [
       ["/", "Headings, lists, to-dos, math and more"],

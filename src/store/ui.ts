@@ -30,6 +30,8 @@ export interface QuickAddPrefill {
 interface UIState {
   route: Route;
   theme: Theme;
+  /** False while the theme follows the device's dark-mode setting, before you pick one. */
+  themeChosen: boolean;
   toasts: Toast[];
   quickAdd: QuickAddPrefill | null;
   palette: boolean;
@@ -92,9 +94,18 @@ export function routeHash(route: Route): string {
   }
 }
 
+const THEMES: Theme[] = ["light", "sepia", "dark"];
+const chosenTheme = () => {
+  const t = localStorage.getItem("reader.theme") as Theme | null;
+  return t && THEMES.includes(t) ? t : null;
+};
+const darkMode = window.matchMedia?.("(prefers-color-scheme: dark)");
+const deviceTheme = (): Theme => (darkMode?.matches ? "dark" : "light");
+
 export const useUI = create<UIState>(() => ({
   route: parseHash(),
-  theme: (localStorage.getItem("reader.theme") as Theme) ?? "light",
+  theme: chosenTheme() ?? deviceTheme(),
+  themeChosen: chosenTheme() !== null,
   toasts: [],
   quickAdd: null,
   palette: false,
@@ -132,10 +143,17 @@ export function rememberFolder(id: string) {
   localStorage.setItem("reader.folder", id);
 }
 
-export function setTheme(theme: Theme) {
-  localStorage.setItem("reader.theme", theme);
-  useUI.setState({ theme });
+/** Pick a theme, or pass null to follow the device's dark-mode setting again. */
+export function setTheme(theme: Theme | null) {
+  if (theme) localStorage.setItem("reader.theme", theme);
+  else localStorage.removeItem("reader.theme");
+  useUI.setState({ theme: theme ?? deviceTheme(), themeChosen: theme !== null });
 }
+
+// Until you pick a theme, it follows the device as it switches between light and dark.
+darkMode?.addEventListener?.("change", () => {
+  if (!useUI.getState().themeChosen) useUI.setState({ theme: deviceTheme() });
+});
 
 let toastId = 0;
 export function toast(text: string, opts: Omit<Toast, "id" | "text"> = {}) {

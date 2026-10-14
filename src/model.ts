@@ -25,6 +25,22 @@ export interface Folder {
 export const ITEM_TYPES = ["pdf", "article", "post", "tweet", "thread", "bookmark", "video", "note", "quote", "playlist"] as const;
 export type ItemType = (typeof ITEM_TYPES)[number];
 
+export const LOCATIONS = ["inbox", "later", "archive"] as const;
+export type Location = (typeof LOCATIONS)[number];
+
+/** A day's note (see notes/notes.ts dailyNote). Its id is the date, the same on every device. */
+export const isDailyNote = (item: Pick<Item, "id" | "type">) => item.type === "note" && item.id.startsWith("daily-");
+
+/**
+ * Where an item sits in the library. Daily notes live under Today and are never triaged (null).
+ * Items saved before triage have no location: read ones count as archived, the rest as Inbox.
+ * `finished` says whether the reading position is at the end, for older items with no readAt.
+ */
+export function itemLocation(item: Pick<Item, "id" | "type" | "location" | "readAt">, finished = false): Location | null {
+  if (isDailyNote(item)) return null;
+  return item.location ?? (item.readAt || finished ? "archive" : "inbox");
+}
+
 /**
  * One thing in the brain: a PDF, an article, a post, a note. Each is one Markdown file in the
  * folder's repository (see sync/itemfile.ts). A PDF item's id is the SHA-256 of its bytes, so
@@ -63,7 +79,21 @@ export interface Item {
   addedAt: number;
   addedBy?: string;
   updatedAt: number;
+  /**
+   * Where it sits in the library: new things land in the Inbox, you move them to Later or the
+   * Archive. Unset on items saved before triage existed: see itemLocation.
+   */
+  location?: Location;
+  /** When you finished it (read or watched to near the end). Unset means unread. */
+  readAt?: number;
+  favorite?: boolean;
+  /** In the Trash: shown there until you restore it or delete it for good. */
   deleted?: boolean;
+  /**
+   * Deleted for good: its text, highlights and file are gone and only this tombstone is kept, so
+   * every device drops it too. Not shown in the Trash.
+   */
+  purged?: boolean;
   /**
    * When you last changed each field yourself, by field name (`updateItem` sets these; background
    * updates such as an article fill-in don't). When two devices change the same field, the later

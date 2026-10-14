@@ -1,7 +1,7 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { AlertTriangle, ExternalLink, LoaderCircle, LogOut, Menu as MenuIcon, ShieldCheck } from "lucide-react";
 import { useState } from "react";
-import { anyPending, disconnectAccount, ensureRepos, visibleFolders } from "../folders/registry";
+import { anyPending, disconnectAccount, ensureRepos, hiddenFolders, restoreFolder, visibleFolders } from "../folders/registry";
 import type { Folder } from "../model";
 import { navigate, toast } from "../store/ui";
 import { useAccount } from "../sync/account";
@@ -44,6 +44,7 @@ export function Setup({ onOpenSidebar }: { onOpenSidebar: () => void }) {
 function AccountCard() {
   const account = useAccount((a) => a.account)!;
   const folders = useLiveQuery(visibleFolders, []) ?? [];
+  const removed = useLiveQuery(hiddenFolders, []) ?? [];
   const [confirm, setConfirm] = useState<{ pending: boolean } | null>(null);
   const [fixing, setFixing] = useState(false);
   const missing = folders.filter((f) => !f.repo).length;
@@ -81,6 +82,32 @@ function AccountCard() {
         >
           {fixing && <LoaderCircle size={14} className="spin" />} Create {missing === 1 ? "the missing repository" : `${missing} missing repositories`}
         </button>
+      )}
+
+      {removed.length > 0 && (
+        <>
+          <h2>Removed from this device</h2>
+          <p className="hint">These folders are still in your GitHub account. Add one back to sync it here again.</p>
+          <ul className="repo-list">
+            {removed.map((f) => (
+              <li key={f.id}>
+                <span className="repo-folder">{f.name}</span>
+                <span className="muted repo-link">
+                  {f.repo!.owner}/{f.repo!.repo}
+                </span>
+                <button
+                  className="btn btn-small"
+                  onClick={async () => {
+                    await restoreFolder(f.id);
+                    toast(`${f.name} is back. Its files are coming down from GitHub.`);
+                  }}
+                >
+                  Add back
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
 
       {confirm && (

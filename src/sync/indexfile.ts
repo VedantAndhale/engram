@@ -1,4 +1,4 @@
-import type { Annotation, Item, ItemType } from "../model.js";
+import { itemLocation, type Annotation, type Item, type ItemType, type Location } from "../model.js";
 import { highlightRef } from "../notes/links.js";
 import { withoutPictures } from "../notes/images.js";
 
@@ -39,6 +39,9 @@ export interface IndexItem {
   /** Saved text from the source exists in the item file (read_item returns it, marked untrusted). */
   hasContent?: true;
   highlights?: IndexHighlight[];
+  /** Where it sits in the library: inbox, later or archive. Unset for daily notes. */
+  location?: Location;
+  favorite?: true;
 }
 
 export interface IndexFile {
@@ -70,6 +73,9 @@ export function buildIndex(folder: { id: string; name: string }, items: Item[], 
     const words = it.body ? withoutPictures(it.body).trim() : "";
     if (words) entry.words = words.length > MAX_WORDS ? `${words.slice(0, MAX_WORDS)}…` : words;
     if (it.content?.trim()) entry.hasContent = true;
+    const location = itemLocation(it);
+    if (location) entry.location = location;
+    if (it.favorite) entry.favorite = true;
     const hl = (byItem.get(it.id) ?? []).sort((a, b) => a.page - b.page || a.createdAt - b.createdAt || (a.id < b.id ? -1 : 1));
     if (hl.length) {
       entry.highlights = hl.map((a) => {

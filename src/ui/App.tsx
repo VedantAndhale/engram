@@ -1,5 +1,5 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { folderCtx, visibleFolders } from "../folders/registry";
 import { setHabit, useHabit } from "../habit/prefs";
 import { findUrl } from "../capture/capture";
@@ -25,6 +25,28 @@ export function App() {
   const theme = useUI((s) => s.theme);
   const folders = useLiveQuery(visibleFolders, []);
   const [drawer, setDrawer] = useState(false);
+  const narrow = useNarrow();
+  const sidebar = useRef<HTMLElement>(null);
+  // On a narrow screen the folder list is a drawer. Opening it moves focus into it; closing it
+  // puts focus back on the button that opened it. Escape closes it.
+  const opener = useRef<HTMLElement | null>(null);
+  const openDrawer = () => {
+    opener.current = document.activeElement as HTMLElement | null;
+    setDrawer(true);
+  };
+  useEffect(() => {
+    if (!narrow) return;
+    if (drawer) {
+      sidebar.current?.querySelector<HTMLElement>("button, a[href]")?.focus();
+      const onKey = (e: KeyboardEvent) => e.key === "Escape" && setDrawer(false);
+      window.addEventListener("keydown", onKey);
+      return () => window.removeEventListener("keydown", onKey);
+    }
+    if (sidebar.current?.contains(document.activeElement) || document.activeElement === document.body) {
+      if (opener.current?.isConnected) opener.current.focus();
+    }
+    opener.current = null;
+  }, [drawer, narrow]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -169,24 +191,29 @@ export function App() {
   // Every route renders inside the shell, so the sidebar and the save box are there on PDFs too.
   return (
     <div className={`shell ${drawer ? "drawer-open" : ""}`}>
-      <Sidebar active={route.name === "library" ? folder?.id : undefined} onNavigate={() => setDrawer(false)} />
+      <Sidebar
+        active={route.name === "library" ? folder?.id : undefined}
+        onNavigate={() => setDrawer(false)}
+        inert={narrow && !drawer}
+        navRef={sidebar}
+      />
       <div className="drawer-scrim" onClick={() => setDrawer(false)} />
       {route.name === "today" ? (
-        <Today onOpenSidebar={() => setDrawer(true)} />
+        <Today onOpenSidebar={openDrawer} />
       ) : route.name === "highlights" ? (
-        <Highlights onOpenSidebar={() => setDrawer(true)} />
+        <Highlights onOpenSidebar={openDrawer} />
       ) : route.name === "search" ? (
-        <Search q={route.q ?? ""} onOpenSidebar={() => setDrawer(true)} />
+        <Search q={route.q ?? ""} onOpenSidebar={openDrawer} />
       ) : route.name === "reader" && folder ? (
         <Suspense fallback={<div className="loading-screen" />}>
           <Reader key={`${folder.id}:${route.doc}`} folder={folder} doc={route.doc} page={route.page} find={route.find} startPanel={route.panel} />
         </Suspense>
       ) : route.name === "item" && folder ? (
-        <ItemView key={route.item} folder={folder} id={route.item} />
+        <ItemView key={`${folder.id}:${route.item}`} folder={folder} id={route.item} />
       ) : route.name === "setup" ? (
-        <Setup onOpenSidebar={() => setDrawer(true)} />
+        <Setup onOpenSidebar={openDrawer} />
       ) : folder ? (
-        <Library key={folder.id} folder={folder} onOpenSidebar={() => setDrawer(true)} />
+        <Library key={folder.id} folder={folder} onOpenSidebar={openDrawer} />
       ) : (
         <main className="empty">
           <h2>That folder isn't on this device</h2>
@@ -208,4 +235,17 @@ export function App() {
 function folderOnScreen(): { folder?: string } {
   const r = useUI.getState().route;
   return r.name === "library" || r.name === "item" || r.name === "reader" ? { folder: r.folder } : {};
+}
+
+/** True while the window is narrow enough for the folder list to be a drawer (as in app.css). */
+function useNarrow(): boolean {
+  const query = "(max-width: 760px)";
+  const [narrow, setNarrow] = useState(() => window.matchMedia(query).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(query);
+    const on = () => setNarrow(mq.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  return narrow;
 }

@@ -1,4 +1,4 @@
-import { ITEM_TYPES, type Annotation, type Item, type ItemType } from "../model.js";
+import { ITEM_TYPES, LOCATIONS, type Annotation, type Item, type ItemType, type Location } from "../model.js";
 import { highlightRef } from "../notes/links.js";
 import { pdfPath } from "./paths.js";
 
@@ -132,12 +132,16 @@ export function serializeItem(item: Item, annotations: Annotation[]): string {
     ["captured_at", iso(item.addedAt)],
     ["added_by", item.addedBy],
     ["topics", item.topics?.length ? item.topics : undefined],
-    ["attachments", item.type === "pdf" ? [pdfPath(item.id)] : undefined],
+    ["attachments", item.type === "pdf" && !item.purged ? [pdfPath(item.id)] : undefined],
     ["file_name", item.fileName],
     ["size", item.size],
     ["pages", item.pages],
     ["updated_at", iso(item.updatedAt)],
+    ["location", item.location],
+    ["read_at", item.readAt ? iso(item.readAt) : undefined],
+    ["favorite", item.favorite || undefined],
     ["deleted", item.deleted || undefined],
+    ["purged", item.purged || undefined],
     ["edited_at", editedAt(item.edited)],
   ];
   let out = "---\n";
@@ -233,7 +237,11 @@ export function parseItem(text: string, path: string): { item: Item; annotations
   if (num("size") !== undefined) item.size = num("size");
   if (num("pages") !== undefined) item.pages = num("pages");
   if (str("added_by")) item.addedBy = str("added_by");
+  if (LOCATIONS.includes(fm.location as Location)) item.location = fm.location as Location;
+  if (time("read_at") !== undefined) item.readAt = time("read_at");
+  if (fm.favorite === true) item.favorite = true;
   if (fm.deleted === true) item.deleted = true;
+  if (fm.purged === true) item.purged = true;
   if (Object.keys(edited).length) item.edited = edited;
 
   const annotations: Annotation[] = [];

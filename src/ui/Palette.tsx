@@ -21,8 +21,10 @@ import { escapeTitle, sameTitle } from "../notes/links";
 import { closePalette, lastFolder, navigate, openQuickAdd, openShortcuts, setTheme, useUI } from "../store/ui";
 
 /*
- * Ctrl+K (or Cmd+K) from anywhere: type to jump to any item in any folder, or to run a command.
- * Everything the app does from a button is reachable here without the mouse.
+ * Ctrl+K (or Cmd+K) from anywhere: type to jump to any item in any folder by its title, or to run
+ * one of the commands listed below (go to a place, save, search, the shortcuts, the theme). It
+ * doesn't reach actions on an item, such as archiving or renaming: those are on the item's menu
+ * and its keys (see Shortcuts.tsx).
  */
 
 interface ItemRow {
@@ -86,6 +88,7 @@ function PaletteDialog() {
   const [items, setItems] = useState<ItemRow[]>([]);
   const list = useRef<HTMLDivElement>(null);
   const theme = useUI((s) => s.theme);
+  const themeChosen = useUI((s) => s.themeChosen);
 
   // Closing without going anywhere puts you back where you were typing.
   const [before] = useState(() => document.activeElement as HTMLElement | null);
@@ -103,18 +106,11 @@ function PaletteDialog() {
       const fs = await visibleFolders();
       const rows: ItemRow[] = [];
       for (const f of fs) {
-        for (const i of await folderCtx(f.id)
-          .db.items.filter((i) => !i.deleted)
-          .toArray()) {
-          rows.push({
-            folder: f.id,
-            folderName: f.name,
-            id: i.id,
-            type: i.type,
-            title: i.title || "Untitled",
-            updatedAt: i.updatedAt,
-          });
-        }
+        // Only what the list shows is kept, not each item's whole text.
+        await folderCtx(f.id).db.items.each((i) => {
+          if (i.deleted) return;
+          rows.push({ folder: f.id, folderName: f.name, id: i.id, type: i.type, title: i.title || "Untitled", updatedAt: i.updatedAt });
+        });
       }
       if (!live) return;
       setFolders(fs);
@@ -188,6 +184,9 @@ function PaletteDialog() {
           label: `Use the ${t} theme`,
           run: () => setTheme(t),
         })),
+      ...(themeChosen
+        ? [{ key: "theme:device", icon: <Moon size={16} />, label: "Match the device's light or dark setting", run: () => setTheme(null) }]
+        : []),
     ];
 
     const itemChoice = (r: ItemRow): Choice => ({
@@ -228,7 +227,7 @@ function PaletteDialog() {
         run: async () => {
           // Asked for by name, so no second question; escaped, so a # or | in it is part of the title.
           const note = await openOrCreate(into.id, escapeTitle(q), false);
-          navigate({ name: "item", folder: into.id, item: note.id });
+          if (note) navigate({ name: "item", folder: into.id, item: note.id });
         },
       });
     }
@@ -239,7 +238,7 @@ function PaletteDialog() {
       run: () => navigate({ name: "search", q }),
     });
     return out;
-  }, [query, items, folders, theme]);
+  }, [query, items, folders, theme, themeChosen]);
 
   useEffect(() => setActive(0), [query]);
   useEffect(() => {
@@ -266,6 +265,9 @@ function PaletteDialog() {
       e.preventDefault();
       e.stopPropagation();
       closePalette();
+    } else if (e.key === "Tab") {
+      // The list is reached with the arrow keys; Tab stays in the box rather than leaving the dialog.
+      e.preventDefault();
     }
   };
 
@@ -279,7 +281,7 @@ function PaletteDialog() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onKey}
-            placeholder="Go to an item, or type a command"
+            placeholder="Go to an item by title, or type a command"
             aria-label="Go to anything"
             role="combobox"
             aria-expanded="true"

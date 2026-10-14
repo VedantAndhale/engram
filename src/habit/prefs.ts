@@ -14,6 +14,8 @@ interface HabitPrefs {
   welcomed: boolean;
   /** The reader tip about writing in your own words has done its job. */
   coachDone: boolean;
+  /** "Not now" on the suggestion to back up to GitHub. */
+  backupDismissed?: boolean;
   /** When Engram was first opened on this device. */
   firstUse: number;
 }

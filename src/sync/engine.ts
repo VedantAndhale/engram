@@ -685,7 +685,16 @@ export class SyncEngine {
       }
       if (row?.resolved) await db.inbox.delete(path);
     } else if (p.kind === "pdf") {
-      if (!this.remote.shas[path]) {
+      const sha = this.remote.shas[path];
+      // Deleted for good: the file goes from the repository too.
+      if (sha && (await db.items.get(p.doc))?.purged) {
+        if (!canWrite(1)) return false;
+        await gh.deleteFile(path, sha, "Delete a PDF for good");
+        recordWrites(1);
+        delete this.remote.shas[path];
+        this.uploaded(path);
+        await this.saveRemote();
+      } else if (!sha) {
         const blob = await db.blobs.get(p.doc);
         const meta = await db.items.get(p.doc);
         if (blob && !meta?.deleted) {

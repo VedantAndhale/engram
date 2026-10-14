@@ -75,7 +75,57 @@ export function PrivateBadge({ isPrivate }: { isPrivate?: boolean }) {
 // Dialogs
 // ---------------------------------------------------------------------------------------------
 
+/** What Tab can reach inside an element, in order. */
+const FOCUSABLE = 'a[href], button:not(:disabled), input:not(:disabled):not([type="hidden"]), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"]), [contenteditable="true"]';
+
+export function focusables(el: HTMLElement): HTMLElement[] {
+  return [...el.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((x) => !x.closest("[inert]") && x.getClientRects().length > 0);
+}
+
+/**
+ * Keeps keyboard focus inside a dialog while it is open: focus moves in when it opens (unless a
+ * field in it already took it), Tab and Shift+Tab go round inside it, and when it closes focus
+ * goes back to what had it before, so you don't lose your place.
+ */
+export function useFocusTrap(ref: React.RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    // A dialog opened from a menu goes back to the button that opened the menu.
+    const active = document.activeElement as HTMLElement | null;
+    const before = active && active !== document.body && active.isConnected ? active : lastMenuAnchor;
+    lastMenuAnchor = null;
+    if (!el.contains(document.activeElement)) (focusables(el)[0] ?? el).focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const all = focusables(el);
+      if (!all.length) return e.preventDefault();
+      const first = all[0];
+      const last = all[all.length - 1];
+      const inside = el.contains(document.activeElement);
+      if (e.shiftKey && (document.activeElement === first || !inside)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (document.activeElement === last || !inside)) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      // After the dialog is gone, unless whatever closed it moved focus somewhere on purpose.
+      setTimeout(() => {
+        const now = document.activeElement;
+        if (before?.isConnected && (!now || now === document.body || !now.isConnected)) before.focus();
+      }, 0);
+    };
+  }, [ref]);
+}
+
 export function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useFocusTrap(ref);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
@@ -83,7 +133,7 @@ export function Modal({ title, onClose, children, wide }: { title: string; onClo
   }, [onClose]);
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className={`modal ${wide ? "modal-wide" : ""}`} role="dialog" aria-modal="true" aria-label={title}>
+      <div ref={ref} tabIndex={-1} className={`modal ${wide ? "modal-wide" : ""}`} role="dialog" aria-modal="true" aria-label={title}>
         <header>
           <h2>{title}</h2>
           <button className="icon-btn" onClick={onClose} aria-label="Close">
@@ -175,11 +225,12 @@ export function ConfirmDialog({
       <div className="form">
         {children}
         <footer>
-          <button className="btn" onClick={onClose}>
+          {/* Something that can't be undone starts on Cancel, so one keystroke never confirms it. */}
+          <button className="btn" autoFocus={danger} onClick={onClose}>
             Cancel
           </button>
           <button
-            autoFocus
+            autoFocus={!danger}
             className={`btn ${danger ? "btn-danger" : "btn-primary"}`}
             disabled={busy}
             onClick={async () => {
@@ -211,6 +262,9 @@ export interface MenuItem {
   run: () => void;
 }
 
+/** The button that opened the menu last closed, for a dialog that menu opened to return to. */
+let lastMenuAnchor: HTMLElement | null = null;
+
 /** A popover menu anchored to the element that opened it: under its right edge, or its left with `align="start"`. */
 export function Menu({
   anchor,
@@ -233,6 +287,17 @@ export function Menu({
     const below = a.bottom + 4 + m.height < window.innerHeight;
     setPos({ top: below ? a.bottom + 4 : a.top - m.height - 4, left: Math.max(8, left) });
   }, [anchor, align]);
+  // Closing puts focus back on what opened the menu, unless a click elsewhere or a pick moved it on purpose.
+  useEffect(
+    () => () => {
+      lastMenuAnchor = anchor;
+      setTimeout(() => {
+        const now = document.activeElement;
+        if (anchor.isConnected && (!now || now === document.body || !now.isConnected)) anchor.focus();
+      }, 0);
+    },
+    [anchor],
+  );
   useEffect(() => {
     const away = (e: Event) => {
       if (!ref.current?.contains(e.target as Node) && !anchor.contains(e.target as Node)) onClose({ away: e.target });

@@ -1,4 +1,5 @@
 import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useRef, type RefObject } from "react";
+import { scrollMotion } from "../../lib/util";
 import type { Annotation } from "../../model";
 import { bestOccurrence, snapRange } from "../../reader/anchor";
 import { squash, squashContext } from "../../reader/quoteRects";
@@ -177,7 +178,7 @@ export function readingBlockOnPage(scroller: HTMLElement, page: number): HTMLEle
 /** Scrolls the reading view so a block, or a highlight's range, sits just under the top edge. */
 export function scrollReadingTo(scroller: HTMLElement, target: Element | Range, smooth: boolean) {
   const top = scroller.scrollTop + target.getBoundingClientRect().top - scroller.getBoundingClientRect().top - TOP_GAP;
-  scroller.scrollTo({ top, behavior: smooth ? "smooth" : "auto" });
+  scroller.scrollTo({ top, behavior: smooth ? scrollMotion() : "auto" });
 }
 
 /** The page of the block a node sits in, or null outside the text (the "Page N" lines, the margins). */

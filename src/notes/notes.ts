@@ -48,14 +48,18 @@ const confirmNew = (title: string) => window.confirm(`Nothing is called “${tit
 
 /**
  * The item a [[link]] names. A link to something that doesn't exist yet makes a new note, once
- * `ask` agrees (pass false when the person already asked for a new note). When they decline, or
- * the link has no title, the returned promise never settles, so the caller simply doesn't open anything.
+ * `ask` agrees (pass false when the person already asked for a new note). Null when they decline,
+ * or the link has no title: then there is nothing to open.
  */
-export async function openOrCreate(folder: string, target: string, ask: ((title: string) => boolean | Promise<boolean>) | false = confirmNew): Promise<Item> {
+export async function openOrCreate(
+  folder: string,
+  target: string,
+  ask: ((title: string) => boolean | Promise<boolean>) | false = confirmNew,
+): Promise<Item | null> {
   const found = await findTarget(folderCtx(folder).db, target);
   if (found) return found.item;
   const { title } = parseTarget(target);
-  if (!title || (ask && !(await ask(title)))) return new Promise<Item>(() => {});
+  if (!title || (ask && !(await ask(title)))) return null;
   return createItem(folder, { type: "note", title });
 }
 

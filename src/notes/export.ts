@@ -73,9 +73,14 @@ const PARTS_WITHIN_MS = 2_000;
  * each hold the whole quote; they are kept once. The first part's id and page stand for the whole.
  */
 export function joinPageParts(marks: Annotation[]): Annotation[] {
-  const out: Annotation[] = [];
-  /** By document: the joined highlight so far, and its latest part. */
-  const open = new Map<string, { whole: Annotation; part: Annotation }>();
+  return pagePartGroups(marks).map((g) => g.whole);
+}
+
+/** As joinPageParts, with the stored parts each joined highlight was made from. */
+export function pagePartGroups(marks: Annotation[]): { whole: Annotation; parts: Annotation[] }[] {
+  const out: { whole: Annotation; parts: Annotation[] }[] = [];
+  /** By document: the joined highlight so far, its parts, and its latest part. */
+  const open = new Map<string, { whole: Annotation; parts: Annotation[]; part: Annotation }>();
   for (const a of [...marks].sort((x, y) => x.createdAt - y.createdAt)) {
     const o = open.get(a.doc);
     const follows =
@@ -85,12 +90,13 @@ export function joinPageParts(marks: Annotation[]): Annotation[] {
       const sofar = o.whole.quote?.trim() ?? "";
       if (quote && !sofar.endsWith(quote)) o.whole.quote = `${sofar} ${quote}`.trim();
       o.whole.note ||= a.note;
+      o.parts.push(a);
       o.part = a;
       continue;
     }
-    const whole = { ...a };
-    out.push(whole);
-    open.set(a.doc, { whole, part: a });
+    const group = { whole: { ...a }, parts: [a] };
+    out.push(group);
+    open.set(a.doc, { ...group, part: a });
   }
   return out;
 }

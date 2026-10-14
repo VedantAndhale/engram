@@ -11,6 +11,7 @@
     "preview": "vite preview",
     "typecheck": "tsc -b",
     "mcp": "tsx mcp/dev.ts",
+    "icons": "node scripts/icons.mjs",
     "test": "node --import tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {

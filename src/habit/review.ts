@@ -1,11 +1,13 @@
 import { folderCtx, visibleFolders } from "../folders/registry";
 import type { Annotation, Item, Folder, Review } from "../model";
+import { pagePartGroups } from "../notes/export";
 import { updateAnnotation } from "../store/actions";
 import { DAY, isRetired, nextReview, retireReview, type Schedule } from "./schedule";
 
 /**
  * One highlighted passage. A highlight that crosses pages is stored as one annotation per page
- * with the same quote, so those are grouped and reviewed once.
+ * (each with its page's words, or in older saves the same whole quote), so those are joined and
+ * reviewed once.
  */
 export interface Card {
   key: string;
@@ -32,21 +34,24 @@ export async function allCards(): Promise<Card[]> {
   for (const folder of await visibleFolders()) {
     const { db } = folderCtx(folder.id);
     const docs = new Map((await db.items.toArray()).filter((d) => !d.deleted).map((d) => [d.id, d]));
-    const groups = new Map<string, Annotation[]>();
-    for (const a of await db.annotations.toArray()) {
-      if (!reviewable(a) || !docs.has(a.doc)) continue;
-      const key = `${folder.id}|${a.doc}|${a.quote!.trim()}`;
-      groups.set(key, [...(groups.get(key) ?? []), a]);
+    const groups = new Map<string, { quote: string; parts: Annotation[] }>();
+    const marks = (await db.annotations.toArray()).filter((a) => reviewable(a) && docs.has(a.doc));
+    for (const { whole, parts } of pagePartGroups(marks)) {
+      const quote = whole.quote!.trim();
+      const key = `${folder.id}|${whole.doc}|${quote}`;
+      const g = groups.get(key);
+      if (g) g.parts.push(...parts);
+      else groups.set(key, { quote, parts: [...parts] });
     }
-    for (const [key, parts] of groups) {
-      parts.sort((a, b) => a.page - b.page);
+    for (const [key, { quote, parts }] of groups) {
+      parts.sort((a, b) => a.page - b.page || a.createdAt - b.createdAt);
       const latest = parts.reduce((x, y) => ((y.review?.last ?? 0) > (x.review?.last ?? 0) ? y : x));
       cards.push({
         key,
         folder,
         doc: docs.get(parts[0].doc)!,
         parts,
-        quote: parts[0].quote!.trim(),
+        quote,
         note: parts.find((p) => p.note?.trim())?.note,
         due: dueAt(latest),
         createdAt: Math.min(...parts.map((p) => p.createdAt)),

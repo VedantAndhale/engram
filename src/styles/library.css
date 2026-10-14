@@ -13,3 +13,137 @@
     padding: 4px 12px 0;
   }
 }
+
+/* Inbox, Later, Archive and the rest, with the type filter beside them. */
+.library-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 24px 6px;
+}
+.views {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  overflow-x: auto;
+  scrollbar-width: none;
+  min-width: 0;
+}
+.view {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.view:hover {
+  color: var(--text);
+}
+.view.on {
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: var(--shadow);
+}
+.view-count {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+.view-hint {
+  margin: 4px 24px 0;
+}
+.empty-view {
+  padding-top: 56px;
+}
+
+/* What to do with the items picked with their checkboxes. */
+.bulk-bar {
+  position: sticky;
+  top: 58px;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 24px 0;
+  padding: 6px 8px 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.bulk-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 6px;
+  font-weight: 600;
+}
+
+/* A card: the link, with its checkbox and options button beside it rather than inside. */
+.doc-item {
+  position: relative;
+}
+.card-select {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
+  opacity: 0;
+}
+.doc-item:hover .card-select,
+.doc-item:focus-within .card-select,
+.selecting .card-select,
+.doc-item.selected .card-select {
+  opacity: 1;
+}
+.doc-item.selected .cover {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+@media (hover: none) {
+  .card-select {
+    opacity: 1;
+  }
+}
+.fav-star {
+  margin-right: 4px;
+  vertical-align: -1px;
+  color: var(--accent);
+  fill: currentColor;
+}
+.trash-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-right: 28px;
+}
+.backup-nudge > span {
+  flex: 1;
+}
+
+@media (max-width: 760px) {
+  .library-bar {
+    padding: 0 12px 6px;
+  }
+  .bulk-bar {
+    top: 52px;
+    margin: 6px 12px 0;
+  }
+  .view-hint {
+    margin: 4px 12px 0;
+  }
+}

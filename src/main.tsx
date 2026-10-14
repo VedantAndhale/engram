@@ -6,14 +6,20 @@ import { registerSW } from "virtual:pwa-register";
 import { completeSignIn, startFolders, visibleFolders } from "./folders/registry";
 import "./lib/install"; // listen for the install prompt before it fires
 import { startAnalytics } from "./analytics";
-import { evictCache } from "./store/actions";
+import { evictCache, keepStorage } from "./store/actions";
+import { toast } from "./store/ui";
 import "./styles/app.css";
 import { App } from "./ui/App";
 
-registerSW({ immediate: true });
+// A new version of the app is ready: it is used once you choose to reload, never in the middle of
+// something (a share arriving, a note being typed).
+const updateSW = registerSW({
+  immediate: true,
+  onNeedRefresh: () => toast("Update ready.", { action: { label: "Reload", run: () => void updateSW(true) }, ttl: 0 }),
+});
 startAnalytics();
 
-void navigator.storage?.persist?.();
+void keepStorage();
 
 startFolders()
   .then(async () => {

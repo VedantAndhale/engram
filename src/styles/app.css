@@ -432,6 +432,17 @@ main {
 .folder-title:hover {
   background: var(--surface-2);
 }
+/* The folder's name is the heading; the button inside it renames the folder. */
+.topbar h1:has(> .folder-title) {
+  min-width: 0;
+}
+.topbar h1 > .folder-title {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .banner {
   display: flex;
   align-items: center;
@@ -2689,4 +2700,69 @@ input[type="time"] {
   border-radius: 5px;
   font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
   white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- reduced motion */
+
+/* Movement is cut to nothing for people who ask their device for less of it. A spinner keeps
+   turning, slowly, so a wait still shows as a wait. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .spin {
+    animation-duration: 2.4s !important;
+    animation-iteration-count: infinite !important;
+  }
+}
+
+/* ---------------------------------------------------------------- welcome additions */
+
+.welcome-demo-wrap {
+  position: relative;
+  margin: 0;
+}
+.welcome-demo[hidden] {
+  display: none;
+}
+.demo-toggle {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+}
+.welcome-link {
+  display: flex;
+  gap: 8px;
+}
+.welcome-link input {
+  flex: 1;
+  min-width: 0;
+  height: 38px;
+}
+.welcome-link .btn {
+  height: 38px;
+}
+@media (max-width: 480px) {
+  .welcome-actions {
+    flex-wrap: wrap;
+  }
+}
+
+/* Read by screen readers, not shown. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }

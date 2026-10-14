@@ -1,5 +1,25 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { AArrowDown, AArrowUp, ArrowLeft, Copy, Download, Ellipsis, ExternalLink, Highlighter, Link2, NotebookPen, Pencil, Tag, Trash2, X } from "lucide-react";
+import {
+  AArrowDown,
+  AArrowUp,
+  Archive,
+  ArrowLeft,
+  Clock,
+  Copy,
+  Download,
+  Ellipsis,
+  ExternalLink,
+  FolderInput,
+  Highlighter,
+  Inbox,
+  Link2,
+  NotebookPen,
+  Pencil,
+  Star,
+  Tag,
+  Trash2,
+  X,
+} from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { hostOf, itemHref, safeHref, TYPE_LABELS } from "../capture/capture";
 import { fillFromWeb } from "../capture/fetchpage";
@@ -10,10 +30,12 @@ import { backlinks, findHighlight, highlightsOf, noteFromHighlight, openOrCreate
 import { setHabit, useHabit } from "../habit/prefs";
 import { useArticlePosition } from "../reader/articlePosition";
 import { articleHeadings } from "../reader/markdown";
-import type { Annotation, Folder } from "../model";
-import { deleteAnnotation, removeItem, restoreItem, setItemBody, setItemTopics, updateAnnotation } from "../store/actions";
+import { itemLocation, type Annotation, type Folder, type Location } from "../model";
+import { deleteAnnotation, removeItem, restoreItem, setFavorite, setItemBody, setItemTopics, setLocation, updateAnnotation } from "../store/actions";
+import { MoveDialog } from "./Library";
 import { navigate, toast } from "../store/ui";
 import { useAccount } from "../sync/account";
+import type { TitleChoice } from "../editor/completions";
 import { PromptDialog, useMenu } from "./common";
 import { TopicsDialog } from "./habit";
 import { ArticleToc, useRailFits } from "./ArticleToc";
@@ -34,7 +56,7 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
     [id],
   );
   const topics = useHabit((h) => h.topics);
-  const [dialog, setDialog] = useState<"rename" | "topics" | null>(null);
+  const [dialog, setDialog] = useState<"rename" | "topics" | "move" | null>(null);
   const menu = useMenu();
   const scroller = useRef<HTMLElement>(null);
   const [highlighter, setHighlighter] = useState(false);
@@ -49,13 +71,21 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
   const ranges = useRef(new Map<string, Range>());
 
   const linkedFrom = useLiveQuery(async () => (item ? backlinks(db, item.title, item.id) : []), [item?.title, item?.id]);
-  const titles = useLiveQuery(async () => (await db.items.toArray()).filter((i) => !i.deleted && i.id !== id).map((i) => i.title), [id]);
-  const titlesRef = useRef<string[]>([]);
+  // With ids, two items of the same title each get their own choice after "[[".
+  const titles = useLiveQuery(async () => {
+    const out: TitleChoice[] = [];
+    await db.items.each((i) => {
+      if (!i.deleted && i.id !== id) out.push({ title: i.title, id: i.id, detail: `${TYPE_LABELS[i.type]} · ${dayOf(i.addedAt)}` });
+    });
+    return out;
+  }, [id]);
+  const titlesRef = useRef<TitleChoice[]>([]);
   titlesRef.current = titles ?? [];
 
   // A link to one highlight in a PDF opens the PDF at that highlight's page.
   const openWiki = async (link: string) => {
     const target = await openOrCreate(folder.id, link);
+    if (!target) return;
     if (target.type !== "pdf") return navigate({ name: "item", folder: folder.id, item: target.id });
     const { ref } = parseTarget(link);
     const page = ref ? (await findHighlight(db, target.id, ref))?.page : undefined;
@@ -97,6 +127,37 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
     return () => void (document.title = "Engram");
   }, [item?.title]);
 
+  // Triage from the item itself: E archive, L later, I inbox, S favourite (as in the library).
+  const triage = useRef<(e: KeyboardEvent) => void>(() => {});
+  triage.current = (e) => {
+    if (!item || item.deleted || e.metaKey || e.ctrlKey || e.altKey) return;
+    if ((e.target as HTMLElement | null)?.closest?.("input, textarea, select, [contenteditable]") || document.querySelector(".modal, .menu")) return;
+    const key = e.key.toLowerCase();
+    if (key === "s") void star(!item.favorite);
+    else if (key === "e" || key === "l" || key === "i") void place(key === "e" ? "archive" : key === "l" ? "later" : "inbox");
+    else return;
+    e.preventDefault();
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => triage.current(e);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  const place = async (to: Location) => {
+    if (!item) return;
+    const from = itemLocation(item);
+    if (!from || from === to) return;
+    await setLocation(folder.id, [item.id], to);
+    toast(to === "archive" ? "Archived." : to === "later" ? "Moved to Later." : "Moved to the Inbox.", {
+      action: { label: "Undo", run: () => void setLocation(folder.id, [item.id], from) },
+    });
+  };
+  const star = async (on: boolean) => {
+    if (!item) return;
+    await setFavorite(folder.id, item.id, on);
+    toast(on ? "Added to Favourites." : "Removed from Favourites.");
+  };
+
   // A saved text has a reading place and a contents list. Notes and bare links have neither.
   const articleShown = !!item && !item.deleted && !!item.content && item.type !== "note";
   useArticlePosition(folder.id, id, scroller, articleShown);
@@ -114,13 +175,21 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
 
   if (item === undefined) return <div className="item-stage"><main className="item-view" /></div>;
   if (!item || item.deleted) {
+    const inTrash = !!item?.deleted && !item.purged;
     return (
       <main className="empty">
-        <h2>That item isn't here</h2>
-        <p>It may have been removed, or it hasn't synced to this device yet.</p>
-        <button className="btn btn-primary" onClick={() => navigate({ name: "library", folder: folder.id })}>
-          Back to {folder.name}
-        </button>
+        <h2>{inTrash ? "This item is in the Trash" : "That item isn't here"}</h2>
+        <p>{inTrash ? "Restore it to read it again." : "It may have been deleted or moved, or it hasn't synced to this device yet."}</p>
+        <div className="row">
+          {inTrash && (
+            <button className="btn btn-primary" onClick={() => void restoreItem(folder.id, item.id)}>
+              Restore
+            </button>
+          )}
+          <button className={`btn ${inTrash ? "" : "btn-primary"}`} onClick={() => navigate({ name: "library", folder: folder.id })}>
+            Back to {folder.name}
+          </button>
+        </div>
       </main>
     );
   }
@@ -135,8 +204,19 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
   const published = item.published && publishedDay(item.published);
 
   const asMarkdown = () => itemToMarkdown(item, quotes ?? []);
+  const at = itemLocation(item);
   const openMenu = (e: React.MouseEvent) =>
     menu.open(e, [
+      ...(at
+        ? (["inbox", "later", "archive"] as const)
+            .filter((l) => l !== at)
+            .map((l) => ({
+              label: l === "inbox" ? "Move to Inbox" : l === "later" ? "Read later" : "Archive",
+              icon: l === "inbox" ? <Inbox size={15} /> : l === "later" ? <Clock size={15} /> : <Archive size={15} />,
+              run: () => void place(l),
+            }))
+        : []),
+      { label: item.favorite ? "Remove from Favourites" : "Add to Favourites", icon: <Star size={15} />, run: () => void star(!item.favorite) },
       { label: "Rename", icon: <Pencil size={15} />, run: () => setDialog("rename") },
       { label: "Topics", icon: <Tag size={15} />, run: () => setDialog("topics") },
       {
@@ -156,14 +236,15 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
         icon: <Download size={15} />,
         run: () => downloadMarkdown(markdownFilename(item.title), asMarkdown()),
       },
+      { label: "Move to another folder", icon: <FolderInput size={15} />, run: () => setDialog("move") },
       {
-        label: "Remove",
+        label: "Move to Trash",
         icon: <Trash2 size={15} />,
         danger: true,
         run: async () => {
           await removeItem(folder.id, item.id);
           navigate({ name: "library", folder: folder.id });
-          toast(`Removed "${item.title}".`, { action: { label: "Undo", run: () => void restoreItem(folder.id, item.id) } });
+          toast(`Moved "${item.title}" to Trash.`, { action: { label: "Undo", run: () => void restoreItem(folder.id, item.id) } });
         },
       },
     ]);
@@ -199,6 +280,25 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
           </button>
           <span className="muted">{folder.name}</span>
           <div className="spacer" />
+          {at && (
+            <button
+              className="icon-btn"
+              aria-label={at === "archive" ? "Move to Inbox" : "Archive"}
+              title={at === "archive" ? "Move to Inbox (I)" : "Archive (E)"}
+              onClick={() => void place(at === "archive" ? "inbox" : "archive")}
+            >
+              {at === "archive" ? <Inbox size={18} /> : <Archive size={18} />}
+            </button>
+          )}
+          <button
+            className={`icon-btn ${item.favorite ? "on" : ""}`}
+            aria-label="Favourite"
+            aria-pressed={!!item.favorite}
+            title="Favourite (S)"
+            onClick={() => void star(!item.favorite)}
+          >
+            <Star size={18} fill={item.favorite ? "currentColor" : "none"} />
+          </button>
           {articleShown && (
             <button className={`icon-btn ${panel ? "on" : ""}`} aria-label="Notes" title="Notes" onClick={openNotes}>
               <NotebookPen size={18} />
@@ -361,6 +461,14 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
             action="Rename"
             onClose={() => setDialog(null)}
             onSubmit={(t) => renameWithLinks(folder.id, item.id, t)}
+          />
+        )}
+        {dialog === "move" && (
+          <MoveDialog
+            from={folder}
+            items={[item]}
+            onDone={(to) => navigate({ name: "item", folder: to.id, item: item.id }, { replace: true })}
+            onClose={() => setDialog(null)}
           />
         )}
         {dialog === "topics" && (

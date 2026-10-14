@@ -77,6 +77,8 @@ export function createServer(token: string, appUrl: string, agent = "An agent"):
       const { item, annotations } = parsed;
       const out = [lib.headline(hit), `added ${hit.item.added.slice(0, 10)} · updated ${hit.item.updated.slice(0, 10)} · ${hit.folder.owner}/${hit.folder.repo}/${item.path}`];
       if (item.topics?.length) out.push(`topics: ${item.topics.join(", ")}`);
+      const shelf = [hit.item.location, hit.item.favorite && "favourite", item.readAt && `read ${new Date(item.readAt).toISOString().slice(0, 10)}`].filter(Boolean);
+      if (shelf.length) out.push(`in the library: ${shelf.join(" · ")}`);
       out.push("", "## Your notes", item.body?.trim() || "(none)");
       const hl = annotations
         .filter((a) => a.kind === "highlight" && !a.deleted && a.quote?.trim())

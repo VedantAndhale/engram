@@ -22,7 +22,9 @@ export default defineConfig({
       })),
     }),
     VitePWA({
-      registerType: "autoUpdate",
+      // A new version waits until you choose to reload (see main.tsx), so an update never drops a
+      // share or a half-typed save.
+      registerType: "prompt",
       workbox: {
         globPatterns: ["**/*.{js,mjs,css,html,svg,png,woff2}"],
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
@@ -43,7 +45,13 @@ export default defineConfig({
         theme_color: "#f6f1e7",
         background_color: "#f6f1e7",
         display: "standalone",
-        icons: [{ src: "icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any maskable" }],
+        // PNGs made from icon.svg by scripts/icons.mjs; the maskable one has room for the launcher's crop.
+        icons: [
+          { src: "icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" },
+          { src: "icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+          { src: "icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+          { src: "icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+        ],
         // "Share → Engram" on Android. The installed app opens from its own cache, and the
         // shared text is read and dropped from the address at once (see App.tsx).
         share_target: {

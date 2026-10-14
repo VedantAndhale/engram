@@ -1,5 +1,6 @@
 import Dexie from "dexie";
 import { appDb, folderDbName, ReaderDB } from "../db/db";
+import { setHabit } from "../habit/prefs";
 import { uid } from "../lib/util";
 import type { Folder, RepoRef } from "../model";
 import { LibrarySearch, type SearchHit } from "../search/index";
@@ -126,6 +127,20 @@ export async function removeFolder(id: string) {
   if (folder.repo) await appDb.folders.update(id, { hidden: true });
   else await appDb.folders.delete(id);
   if ((await visibleFolders()).length === 0) await createFolder("My library");
+}
+
+/** Folders removed from this device whose repositories are still on GitHub. */
+export async function hiddenFolders(): Promise<Folder[]> {
+  const all = await appDb.folders.toArray();
+  return all.filter((f) => f.hidden && f.repo).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Bring a removed folder back to this device. Its files come down from its repository again. */
+export async function restoreFolder(id: string) {
+  const folder = await appDb.folders.get(id);
+  if (!folder?.hidden) return;
+  await appDb.folders.update(id, { hidden: undefined, updatedAt: Date.now() });
+  await folderCtx(id).sync.attach(folder.repo);
 }
 
 /** Unsynced changes in a folder, so the UI can warn before removing it. */
@@ -265,7 +280,9 @@ async function connectAccount(token: string): Promise<ConnectResult> {
   const found = await discoverFolders();
   // A brand-new device starts with an empty "My library". If this account already has
   // folders, drop the empty placeholder instead of making a second repository for it.
+  // Someone who already uses Engram skips the first-run steps on this device.
   if (found > 0) {
+    setHabit({ welcomed: true });
     for (const f of await visibleFolders()) {
       if (!f.repo && (await folderCtx(f.id).db.items.count()) === 0) await removeFolder(f.id);
     }

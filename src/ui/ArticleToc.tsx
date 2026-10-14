@@ -1,4 +1,5 @@
 import { useEffect, useState, type CSSProperties, type MouseEvent, type RefObject } from "react";
+import { scrollMotion } from "../lib/util";
 import type { ArticleHeading } from "../reader/markdown";
 import "../styles/article.css";
 
@@ -58,7 +59,7 @@ export function ArticleToc({ headings, scroller, rail }: { headings: ArticleHead
   // list away first, so the heading's place is measured after the list has gone and it lands in view.
   const go = (id: string, e: MouseEvent<HTMLButtonElement>) => {
     e.currentTarget.closest("details")?.removeAttribute("open");
-    document.getElementById(id)?.scrollIntoView({ block: "start", behavior: "smooth" });
+    document.getElementById(id)?.scrollIntoView({ block: "start", behavior: scrollMotion() });
   };
 
   const list = (

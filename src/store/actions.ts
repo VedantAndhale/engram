@@ -1,7 +1,7 @@
 import { folderCtx } from "../folders/registry";
 import { extractText, inspectPdf, openPdf } from "../lib/pdf";
 import { deviceId, deviceName, formatBytes, sha256Hex, uid } from "../lib/util";
-import type { Annotation, Item } from "../model";
+import { isDailyNote, type Annotation, type Item, type Location, type Position } from "../model";
 import { getAccount } from "../sync/account";
 import { itemPath, MAX_PDF_BYTES, pdfPath, positionsPath } from "../sync/paths";
 import { toast } from "./ui";
@@ -75,8 +75,11 @@ export async function createItem(folder: string, fields: Omit<Item, "id" | "path
   const { db, sync } = folderCtx(folder);
   const now = Date.now();
   const item: Item = { id, ...fields, addedAt: now, addedBy: login(), updatedAt: now, path: itemPath(id, fields.title, now) };
+  // New things land in the Inbox; a day's note lives under Today instead.
+  if (!item.location && !isDailyNote(item)) item.location = "inbox";
   await db.items.put(item);
   await sync.markDirty(item.path, 500);
+  void keepStorage();
   return item;
 }
 
@@ -105,7 +108,10 @@ export async function addPdf(folder: string, file: File): Promise<string> {
     addedAt,
     addedBy: login(),
     updatedAt: now,
+    // Added again after it was deleted: back in the Inbox, as new.
+    location: existing && !existing.deleted ? existing.location : "inbox",
     deleted: undefined,
+    purged: undefined,
     path: existing?.path ?? itemPath(hash, existing?.title ?? title, addedAt),
   };
   await db.transaction("rw", [db.items, db.blobs, db.thumbs], async () => {
@@ -121,7 +127,22 @@ export async function addPdf(folder: string, file: File): Promise<string> {
     );
   }
   void indexDocument(folder, hash, data);
+  void keepStorage();
   return hash;
+}
+
+/**
+ * Ask the browser to keep this site's storage (Safari otherwise clears it after a week without a
+ * visit). Asked at start-up and again once there is something to lose: some browsers only agree
+ * after the site has been used.
+ */
+export async function keepStorage(): Promise<boolean> {
+  try {
+    if (await navigator.storage?.persisted?.()) return true;
+    return (await navigator.storage?.persist?.()) ?? false;
+  } catch {
+    return false;
+  }
 }
 
 /** Extract page text once per device for search. */
@@ -166,6 +187,102 @@ export async function removeItem(folder: string, id: string) {
 
 export async function restoreItem(folder: string, id: string) {
   await updateItem(folder, id, { deleted: undefined }, 500);
+}
+
+/** Move items to the Inbox, Later or the Archive. */
+export async function setLocation(folder: string, ids: string[], location: Location) {
+  for (const id of ids) await updateItem(folder, id, { location }, 500);
+}
+
+export async function setFavorite(folder: string, id: string, favorite: boolean) {
+  await updateItem(folder, id, { favorite: favorite || undefined }, 500);
+}
+
+/** True when a reading position is at (or near) the end of the item. */
+export function isFinished(item: Pick<Item, "type" | "pages">, p: Pick<Position, "page" | "offset"> | undefined): boolean {
+  if (!p) return false;
+  if (item.type === "pdf") {
+    const pages = item.pages ?? 0;
+    return pages > 0 && (p.page >= pages || (p.page - 1 + p.offset) / pages >= 0.9);
+  }
+  return p.page === 0 && p.offset >= 0.9;
+}
+
+/** Note when an item is first read to the end. It stays where it is in the library. */
+async function noteFinished(folder: string, doc: string, page: number, offset: number) {
+  const item = await folderCtx(folder).db.items.get(doc);
+  if (!item || item.readAt || item.deleted || !isFinished(item, { page, offset })) return;
+  await updateItem(folder, doc, { readAt: Date.now() }, 1_500);
+}
+
+/** Fields that are the item's bookkeeping rather than what it holds. */
+const BOOKKEEPING = new Set(["id", "type", "path", "addedAt", "updatedAt", "edited"]);
+
+/**
+ * Delete an item for good: its words, saved text, highlights and file go, from this device and
+ * from GitHub. A bare tombstone stays in its file, so every other device deletes it too.
+ */
+export async function purgeItem(folder: string, id: string) {
+  const { db, sync } = folderCtx(folder);
+  const now = Date.now();
+  const cur = await db.items.get(id);
+  if (!cur) return;
+  const edited = { ...cur.edited };
+  for (const k of Object.keys(cur)) if (!BOOKKEEPING.has(k)) edited[k] = now;
+  edited.title = edited.deleted = edited.purged = now;
+  const tombstone: Item = { id, type: cur.type, title: "Deleted", addedAt: cur.addedAt, updatedAt: now, deleted: true, purged: true, edited, path: cur.path };
+  await db.transaction("rw", [db.items, db.annotations, db.blobs, db.thumbs, db.pageText], async () => {
+    await db.items.put(tombstone);
+    const marks = await db.annotations.where("doc").equals(id).toArray();
+    // Each highlight keeps only what says it was deleted.
+    await db.annotations.bulkPut(marks.map((a) => ({ id: a.id, doc: a.doc, kind: a.kind, page: a.page, color: a.color, createdAt: a.createdAt, updatedAt: now, deleted: true })));
+    await db.blobs.delete(id);
+    await db.thumbs.delete(id);
+    await db.pageText.where("doc").equals(id).delete();
+  });
+  await sync.markDirty(cur.path, 500);
+  if (cur.type === "pdf") await sync.markDirty(pdfPath(id), 0);
+}
+
+/**
+ * Move an item to another folder with everything that belongs to it: your words, highlights and
+ * notes, its reading place and, for a PDF, the file. It is then deleted for good from the folder
+ * it left. False if a PDF's file can't be had (not on this device, and GitHub can't be reached).
+ */
+export async function moveItem(from: string, to: string, id: string): Promise<boolean> {
+  if (from === to) return true;
+  const src = folderCtx(from).db;
+  const { db, sync } = folderCtx(to);
+  const item = await src.items.get(id);
+  if (!item || item.purged) return false;
+  const pdf = item.type === "pdf" ? await loadPdfData(from, id) : null;
+  if (item.type === "pdf" && !pdf) return false;
+  const marks = await src.annotations.where("doc").equals(id).toArray();
+  const position = await src.positions.get(id);
+  const thumb = await src.thumbs.get(id);
+  const pages = await src.pageText.where("doc").equals(id).toArray();
+  const now = Date.now();
+  const there = await db.items.get(id);
+  // Stamped as your edit, so it wins over a tombstone the other folder may hold for the same id.
+  const edited = { ...item.edited };
+  for (const k of [...Object.keys(item), "deleted", "purged"]) if (!BOOKKEEPING.has(k)) edited[k] = now;
+  const moved: Item = { ...item, updatedAt: now, edited, path: there?.path ?? item.path };
+  delete moved.deleted;
+  delete moved.purged;
+  await db.transaction("rw", [db.items, db.annotations, db.blobs, db.thumbs, db.pageText, db.positions], async () => {
+    await db.items.put(moved);
+    await db.annotations.bulkPut(marks);
+    if (pdf) await db.blobs.put({ hash: id, data: new Blob([pdf], { type: "application/pdf" }), lastUsed: now });
+    if (thumb) await db.thumbs.put(thumb);
+    if (pages.length) await db.pageText.bulkPut(pages);
+    if (position) await db.positions.put(position);
+  });
+  await sync.markDirty(moved.path, 500);
+  if (pdf) await sync.markDirty(pdfPath(id), 0);
+  const user = login();
+  if (position && user) await sync.markDirty(positionsPath(user), 2_000);
+  await purgeItem(from, id);
+  return true;
 }
 
 /**
@@ -227,6 +344,7 @@ export async function savePosition(folder: string, doc: string, page: number, of
     device: deviceId(),
     deviceName: deviceName(),
   });
+  void noteFinished(folder, doc, page, offset);
   const user = login();
   // Position writes are frequent, so they wait longer and flush when the tab hides.
   if (user) await sync.markDirty(positionsPath(user), 15_000, 45_000);

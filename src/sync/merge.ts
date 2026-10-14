@@ -172,7 +172,7 @@ export async function mergeItemFile(db: ReaderDB, path: string, text: string, lo
       if (base?.item.id !== item.id) base = null;
     }
   }
-  return db.transaction("rw", db.items, db.annotations, async () => {
+  const result = await db.transaction("rw", db.items, db.annotations, async () => {
     const local = await db.items.get(item.id);
     let orphan: string | undefined;
     let canonical = path;
@@ -213,6 +213,15 @@ export async function mergeItemFile(db: ReaderDB, path: string, text: string, lo
     if (ann.put.length) await db.annotations.bulkPut(ann.put);
     return { id: item.id, path: canonical, localAhead: itemAhead || ann.localAhead || canonical !== path, orphan };
   });
+  // Deleted for good on another device: its file and page text go from this one too.
+  if ((await db.items.get(item.id))?.purged) {
+    await db.transaction("rw", db.blobs, db.thumbs, db.pageText, async () => {
+      await db.blobs.delete(item.id);
+      await db.thumbs.delete(item.id);
+      await db.pageText.where("doc").equals(item.id).delete();
+    });
+  }
+  return result;
 }
 
 /**

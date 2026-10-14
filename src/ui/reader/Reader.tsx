@@ -17,7 +17,7 @@ import {
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { folderCtx, setAttention } from "../../folders/registry";
 import { openPdf, type PDFDoc } from "../../lib/pdf";
-import { clamp } from "../../lib/util";
+import { clamp, scrollMotion } from "../../lib/util";
 import { INK_COLORS, type Annotation, type Folder } from "../../model";
 import { snapRange } from "../../reader/anchor";
 import { selectionParts, type PagePart } from "../../reader/geometry";
@@ -213,7 +213,7 @@ export function Reader({
         return;
       }
       const i = clamp(page, 1, sizes.length) - 1;
-      el.scrollTo({ top: tops[i] + offset * Math.floor(sizes[i].h * scale) - (offset ? 0 : PAD / 2), behavior: smooth ? "smooth" : "auto" });
+      el.scrollTo({ top: tops[i] + offset * Math.floor(sizes[i].h * scale) - (offset ? 0 : PAD / 2), behavior: smooth ? scrollMotion() : "auto" });
     },
     [sizes, tops, scale, reading],
   );

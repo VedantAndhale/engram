@@ -18,14 +18,27 @@ import { ConfirmDialog, GitHubMark, PromptDialog, SyncDot, useFolderSync, useMen
 const MOD = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl+";
 
 const NEXT_THEME: Record<Theme, Theme> = { light: "sepia", sepia: "dark", dark: "light" };
+const THEME_NAME: Record<Theme, string> = { light: "Light", sepia: "Sepia", dark: "Dark" };
 
 type Dialog = { kind: "new" } | { kind: "rename"; folder: Folder } | { kind: "remove"; folder: Folder; pending: number };
 
-export function Sidebar({ active, onNavigate }: { active?: string; onNavigate?: () => void }) {
+export function Sidebar({
+  active,
+  onNavigate,
+  inert,
+  navRef,
+}: {
+  active?: string;
+  onNavigate?: () => void;
+  /** The closed drawer on a narrow screen: out of the Tab order and hidden from screen readers. */
+  inert?: boolean;
+  navRef?: React.Ref<HTMLElement>;
+}) {
   const folders = useLiveQuery(visibleFolders, []) ?? [];
   const { account, authError } = useAccount();
   const route = useUI((s) => s.route);
   const theme = useUI((s) => s.theme);
+  const themeChosen = useUI((s) => s.themeChosen);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const menu = useMenu();
 
@@ -47,7 +60,7 @@ export function Sidebar({ active, onNavigate }: { active?: string; onNavigate?: 
           ]
         : []),
       {
-        label: "Remove from this device",
+        label: f.repo ? "Remove from this device" : "Delete folder",
         icon: <Trash2 size={15} />,
         danger: true,
         run: async () => setDialog({ kind: "remove", folder: f, pending: await pendingChanges(f.id) }),
@@ -55,7 +68,7 @@ export function Sidebar({ active, onNavigate }: { active?: string; onNavigate?: 
     ]);
 
   return (
-    <nav className="sidebar">
+    <nav className="sidebar" aria-label="Engram" inert={inert} ref={navRef}>
       <div className="brand">
         <img src="./icon.svg" alt="" width={22} height={22} />
         <span>Engram</span>
@@ -63,6 +76,7 @@ export function Sidebar({ active, onNavigate }: { active?: string; onNavigate?: 
 
       <button
         className={`nav-item ${route.name === "today" ? "active" : ""}`}
+        aria-current={route.name === "today" ? "page" : undefined}
         onClick={() => {
           navigate({ name: "today" });
           onNavigate?.();
@@ -74,6 +88,7 @@ export function Sidebar({ active, onNavigate }: { active?: string; onNavigate?: 
 
       <button
         className={`nav-item ${route.name === "highlights" ? "active" : ""}`}
+        aria-current={route.name === "highlights" ? "page" : undefined}
         onClick={() => {
           navigate({ name: "highlights" });
           onNavigate?.();
@@ -85,6 +100,7 @@ export function Sidebar({ active, onNavigate }: { active?: string; onNavigate?: 
 
       <button
         className={`nav-item ${route.name === "search" ? "active" : ""}`}
+        aria-current={route.name === "search" ? "page" : undefined}
         onClick={() => {
           navigate({ name: "search" });
           onNavigate?.();
@@ -126,13 +142,23 @@ export function Sidebar({ active, onNavigate }: { active?: string; onNavigate?: 
             <span>Sign in to GitHub again</span>
           </button>
         )}
-        <button className={`nav-item ${route.name === "setup" ? "active" : ""}`} onClick={() => navigate({ name: "setup" })}>
+        <button
+          className={`nav-item ${route.name === "setup" ? "active" : ""}`}
+          aria-current={route.name === "setup" ? "page" : undefined}
+          onClick={() => navigate({ name: "setup" })}
+        >
           {account?.avatarUrl ? <img className="avatar" src={account.avatarUrl} alt="" /> : <GitHubMark />}
           <span>{account ? account.login : "Connect GitHub"}</span>
         </button>
-        <button className="nav-item" onClick={() => setTheme(NEXT_THEME[theme])} title="Change theme">
+        {/* Says what a press does; the label starts with what is shown, so voice control can find it by its words. */}
+        <button
+          className="nav-item"
+          onClick={() => setTheme(NEXT_THEME[theme])}
+          aria-label={`${THEME_NAME[theme]} theme${themeChosen ? "" : " (from your device)"}. Switch to ${THEME_NAME[NEXT_THEME[theme]].toLowerCase()}`}
+          title={`Switch to the ${THEME_NAME[NEXT_THEME[theme]].toLowerCase()} theme`}
+        >
           {theme === "light" ? <Sun size={16} /> : theme === "sepia" ? <Coffee size={16} /> : <Moon size={16} />}
-          <span>{theme === "light" ? "Light" : theme === "sepia" ? "Sepia" : "Dark"}</span>
+          <span>{THEME_NAME[theme]} theme</span>
         </button>
       </div>
 
@@ -173,8 +199,8 @@ export function Sidebar({ active, onNavigate }: { active?: string; onNavigate?: 
       )}
       {dialog?.kind === "remove" && (
         <ConfirmDialog
-          title={`Remove "${dialog.folder.name}"?`}
-          action="Remove from this device"
+          title={dialog.folder.repo ? `Remove "${dialog.folder.name}" from this device?` : `Delete "${dialog.folder.name}"?`}
+          action={dialog.folder.repo ? "Remove from this device" : "Delete folder and its items"}
           danger
           onClose={() => setDialog(null)}
           onConfirm={async () => {
@@ -189,10 +215,10 @@ export function Sidebar({ active, onNavigate }: { active?: string; onNavigate?: 
               <strong>
                 {dialog.folder.repo.owner}/{dialog.folder.repo.repo}
               </strong>
-              .
+              . You can add it back to this device from GitHub settings.
             </p>
           ) : (
-            <p>This folder has no repository yet, so its documents and notes will be deleted.</p>
+            <p>This folder has no repository yet, so its items, highlights and notes are deleted for good. This can't be undone.</p>
           )}
           {dialog.pending > 0 && (
             <p className="error">
@@ -209,7 +235,7 @@ function FolderRow({ folder, active, onOpen, onMenu }: { folder: Folder; active:
   const s = useFolderSync(folder.id);
   return (
     <li className={`folder-row ${active ? "active" : ""}`}>
-      <button className="nav-item" onClick={onOpen} onContextMenu={onMenu}>
+      <button className="nav-item" aria-current={active ? "page" : undefined} onClick={onOpen} onContextMenu={onMenu}>
         <SyncDot s={s} />
         <span className="folder-name">{folder.name}</span>
         {folder.isPrivate === false && <AlertTriangle size={14} className="warn-icon" aria-label="Public repository" />}

@@ -20,12 +20,11 @@ import { AgentInbox } from "./Inbox";
 const Editor = lazy(() => import("../editor/Editor"));
 
 const PER_SESSION = 3;
-const WEEK = 7 * 86_400_000;
 
 export function Today({ onOpenSidebar }: { onOpenSidebar: () => void }) {
   const cards = useLiveQuery(allCards, []);
   const account = useAccount((a) => a.account);
-  const { topics, reminder, firstUse } = useHabit();
+  const { topics, reminder, backupDismissed } = useHabit();
   const [dialog, setDialog] = useState<"reminder" | "topics" | null>(null);
 
   // The session is fixed when it starts, so a card doesn't jump away while you're writing on it.
@@ -117,7 +116,8 @@ export function Today({ onOpenSidebar }: { onOpenSidebar: () => void }) {
     const hashes = new Set(docs.map((d) => d.hash));
     return { topic: t, docs: docs.length, highlights: cards.filter((c) => hashes.has(c.doc.id)).length };
   });
-  const offerBackup = !account && now - firstUse > WEEK && cards.length > 0;
+  // From the first thing saved: a browser can clear a site's storage (Safari after a week away).
+  const offerBackup = !account && !backupDismissed && library.length > 0;
 
   return (
     <main className="today">
@@ -281,10 +281,18 @@ export function Today({ onOpenSidebar }: { onOpenSidebar: () => void }) {
               <h2>
                 <CloudUpload size={17} /> Keep it safe
               </h2>
-              <p className="muted">Everything lives on this device. Connect GitHub to back it up privately and use it on your other devices.</p>
-              <button className="btn" onClick={() => navigate({ name: "setup" })}>
-                Back up to GitHub
-              </button>
+              <p className="muted">
+                Everything is in this browser only, and browsers can clear it. Connect GitHub to keep a private copy and use it on your
+                other devices.
+              </p>
+              <div className="row">
+                <button className="btn" onClick={() => navigate({ name: "setup" })}>
+                  Back up to GitHub
+                </button>
+                <button className="link" onClick={() => setHabit({ backupDismissed: true })}>
+                  Not now
+                </button>
+              </div>
             </section>
           )}
         </div>
