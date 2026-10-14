@@ -4,6 +4,7 @@ import { getAccount } from "../sync/account";
 import { GitHub } from "../sync/github";
 import { addFeed, parseFeedsJson, removeFeed, type FeedsFile } from "../feeds/config";
 import { FEED_INSTALL_FILES, checkInstall } from "../feeds/install";
+import { putFeedScript } from "../feeds/putscript";
 
 type Loaded = { data: FeedsFile; sha: string | undefined };
 type StateFeeds = Record<string, { title?: string; lastError?: { message?: string } | null }>;
@@ -143,8 +144,7 @@ export function FeedsCard({ folder }: { folder: Folder }) {
     void run(async () => {
       const script = FEED_INSTALL_FILES.find((f) => f.path === SCRIPT_PATH);
       if (!script) throw new Error("The script text is missing from this build.");
-      const existing = await gh!.getFile(SCRIPT_PATH);
-      await gh!.putFile(SCRIPT_PATH, script.text, existing?.sha, "Install Engram feeds script");
+      await putFeedScript(gh!, SCRIPT_PATH, script.text);
       setStatus(await checkInstall(gh!));
       setNotice("Script installed. Now add the workflow file (see the steps below).");
     });
