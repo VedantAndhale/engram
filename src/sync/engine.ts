@@ -22,6 +22,9 @@ import {
 } from "./merge";
 import { FOLDER_FILE, INDEX_FILE, isLegacy, MAX_PDF_BYTES, parsePath, pathPriority, pdfPath, positionsPath } from "./paths";
 
+/** Shown when GitHub answers 404 or 403 for the folder repo. The Library offers to fix it. */
+export const CANT_REACH_MESSAGE = "Can't reach this folder's repository. Check you still have access to it on GitHub.";
+
 /** Bumped when the repository layout changes; 2 is one Markdown file per item, 3 adds index.json. */
 const LAYOUT = 3;
 
@@ -445,7 +448,7 @@ export class SyncEngine {
       }
       if (e.status === 404 || e.status === 403) {
         this.backoffUntil = Date.now() + 60_000;
-        set({ state: "error", message: "Can't reach this folder's repository. Check you still have access to it on GitHub." });
+        set({ state: "error", message: CANT_REACH_MESSAGE });
         return;
       }
     }
