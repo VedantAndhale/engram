@@ -17,6 +17,9 @@ what you saved and suggest additions, which you accept or dismiss.
 **Save**
 
 - Press `N`, or paste anywhere, to save a link, a quote or a note.
+- **Import** brings highlights from a Kindle `My Clippings.txt` or a Readwise CSV export. Each book is one
+  item, and importing the same file again adds only what is new. Nothing is written until you press Import.
+- A link like `#/save?url=…&text=…` opens the save box filled in. It never saves by itself.
 - The **Save to Engram** bookmark keeps a page's formatted text and your selection. Allow pop-ups for
   the page when you use it. Some sites with strict security settings block bookmarks; paste the link
   instead.
@@ -56,7 +59,8 @@ what you saved and suggest additions, which you accept or dismiss.
 
 **Connect an AI agent**
 
-- Engram has a hosted MCP server. An agent can search your library, read items and highlights, and
+- Engram has a hosted MCP server. An agent can search your library, including the start of the text
+  saved from articles (shown as untrusted), read items and highlights, and
   quiz you on highlights due for review.
 - Agents can also suggest a link or some text to save, or lines for an item's notes. Suggestions wait
   under **From your agents** on Today until you accept or dismiss them.

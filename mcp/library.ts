@@ -95,7 +95,8 @@ export class Library {
   /**
    * Keyword search that copes with meaning: the agent sends the query plus related phrasings
    * (`also`), words match by stem, rare words count for more than common ones, and items that
-   * match more of the phrasings rank higher.
+   * match more of the phrasings rank higher. The start of the saved article text is searched
+   * too, but counts least: your own words and highlights say more about what matters to you.
    */
   search(query: string, also: string[], limit: number, folder?: string): SearchResult[] {
     const phrasings = [query, ...also].map((p) => [...new Set(tokens(p))]).filter((p) => p.length > 0);
@@ -105,13 +106,14 @@ export class Library {
       title: new Set(tokens(item.title)),
       topics: new Set(tokens(item.topics?.join(" ") ?? "")),
       words: new Set(tokens(item.words ?? "")),
+      text: new Set(tokens(item.text ?? "")),
       highlights: (item.highlights ?? []).map((h) => new Set(tokens(`${h.quote} ${h.note ?? ""}`))),
     }));
 
     // How rare each query word is across the library: rare words decide relevance.
     const df = new Map<string, number>();
     for (const t of new Set(phrasings.flat())) {
-      df.set(t, docs.filter((d) => d.title.has(t) || d.topics.has(t) || d.words.has(t) || d.highlights.some((h) => h.has(t))).length);
+      df.set(t, docs.filter((d) => d.title.has(t) || d.topics.has(t) || d.words.has(t) || d.text.has(t) || d.highlights.some((h) => h.has(t))).length);
     }
     const idf = (t: string) => Math.log(1 + hits.length / Math.max(1, df.get(t) ?? 0));
     const exact = query.toLowerCase().trim();
@@ -125,7 +127,7 @@ export class Library {
         const total = p.reduce((s, t) => s + idf(t), 0);
         let got = 0;
         for (const t of p) {
-          const w = d.title.has(t) ? 3 : d.topics.has(t) ? 2 : d.highlights.some((h) => h.has(t)) ? 1.5 : d.words.has(t) ? 1 : 0;
+          const w = d.title.has(t) ? 3 : d.topics.has(t) ? 2 : d.highlights.some((h) => h.has(t)) ? 1.5 : d.words.has(t) ? 1 : d.text.has(t) ? 0.5 : 0;
           got += w * idf(t);
         }
         if (got > 0) matchedPhrasings++;
@@ -133,16 +135,19 @@ export class Library {
       }
       if (score === 0) return;
       score += matchedPhrasings; // matching several phrasings beats matching one strongly
-      const text = `${hit.item.title}\n${hit.item.words ?? ""}`.toLowerCase();
+      const text = `${hit.item.title}\n${hit.item.words ?? ""}\n${hit.item.text ?? ""}`.toLowerCase();
       if (exact.length > 3 && text.includes(exact)) score += 2;
       const all = phrasings.flat();
       const matched = (hit.item.highlights ?? []).filter((_, j) => all.some((t) => d.highlights[j].has(t)));
-      out.push({ hit, score, matched: matched.slice(0, 3), snippet: snippetOf(hit.item.words, all) });
+      // Your words win the snippet; a hit only in the saved text is fenced as someone else's words.
+      const fromWords = snippetOf(hit.item.words, all);
+      const fromText = fromWords ? undefined : snippetOf(hit.item.text, all);
+      out.push({ hit, score, matched: matched.slice(0, 3), snippet: fromWords ?? (fromText ? untrusted(fromText) : undefined) });
     });
     return out.sort((a, b) => b.score - a.score || b.hit.item.updated.localeCompare(a.hit.item.updated)).slice(0, limit);
   }
 
-  /** The item file, parsed: the index only has a cut of the words and none of the saved text. */
+  /** The item file, parsed: the index only has a cut of the words and the start of the saved text. */
   async read(hit: Hit) {
     const text = await this.gh.file(hit.folder, hit.item.path);
     return text ? parseItem(text, hit.item.path) : null;

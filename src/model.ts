@@ -22,7 +22,7 @@ export interface Folder {
   hidden?: boolean;
 }
 
-export const ITEM_TYPES = ["pdf", "article", "post", "tweet", "thread", "bookmark", "video", "note", "quote", "playlist"] as const;
+export const ITEM_TYPES = ["pdf", "article", "post", "tweet", "thread", "bookmark", "video", "note", "quote", "playlist", "book"] as const;
 export type ItemType = (typeof ITEM_TYPES)[number];
 
 export const LOCATIONS = ["inbox", "later", "archive"] as const;
@@ -87,6 +87,11 @@ export interface Item {
   /** When you finished it (read or watched to near the end). Unset means unread. */
   readAt?: number;
   favorite?: boolean;
+  /**
+   * Where an imported book came from (kindle:… or readwise:…, a hash of its title and author).
+   * Importing the same export again finds the book by this and adds only what is new.
+   */
+  importRef?: string;
   /** In the Trash: shown there until you restore it or delete it for good. */
   deleted?: boolean;
   /**

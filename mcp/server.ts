@@ -32,7 +32,7 @@ export function createServer(token: string, appUrl: string, agent = "An agent"):
     {
       title: "Search your notes and highlights",
       description:
-        "Search titles, topics, your own notes and your highlights across every Engram folder. It matches words, not meaning, so also pass related words, synonyms and other phrasings in `also` (for \"pricing power\": [\"moats\", \"margins\", \"raising prices\"]). Returns the best matches with ids for read_item and links to open them.",
+        "Search titles, topics, your own words, highlights, notes, and the text saved from articles (shown as untrusted) across every Engram folder. It matches words, not meaning, so also pass related words, synonyms and other phrasings in `also` (for \"pricing power\": [\"moats\", \"margins\", \"raising prices\"]). Returns the best matches with ids for read_item and links to open them.",
       inputSchema: {
         query: z.string().min(1).describe("What to look for."),
         also: z.array(z.string().min(1)).max(10).default([]).describe("Related words, synonyms and other phrasings of the same idea."),
@@ -48,7 +48,8 @@ export function createServer(token: string, appUrl: string, agent = "An agent"):
       const lines = results.map(({ hit, matched, snippet }, i) => {
         const out = [`${i + 1}. ${lib.headline(hit)}`];
         if (hit.item.topics?.length) out.push(`  topics: ${hit.item.topics.join(", ")}`);
-        if (snippet) out.push(`  notes: ${snippet}`);
+        // Saved text arrives fenced ("The text below…"); label it so it isn't read as your notes.
+        if (snippet) out.push(snippet.startsWith("The text below") ? `  saved text:\n${snippet}` : `  notes: ${snippet}`);
         for (const h of matched) out.push(lib.highlightLine(hit, h));
         return out.join("\n");
       });

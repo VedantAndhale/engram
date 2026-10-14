@@ -140,6 +140,7 @@ export function serializeItem(item: Item, annotations: Annotation[]): string {
     ["location", item.location],
     ["read_at", item.readAt ? iso(item.readAt) : undefined],
     ["favorite", item.favorite || undefined],
+    ["import_ref", item.importRef || undefined],
     ["deleted", item.deleted || undefined],
     ["purged", item.purged || undefined],
     ["edited_at", editedAt(item.edited)],
@@ -229,6 +230,7 @@ export function parseItem(text: string, path: string): { item: Item; annotations
   if (str("description")) item.description = str("description");
   if (str("published")) item.published = str("published");
   if (str("source")) item.source = str("source");
+  if (str("import_ref")) item.importRef = str("import_ref");
   if (body) item.body = body;
   if (content) item.content = content;
   if (content && fm.content_format === "markdown") item.contentFormat = "markdown";

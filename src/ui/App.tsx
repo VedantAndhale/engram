@@ -3,6 +3,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { folderCtx, visibleFolders } from "../folders/registry";
 import { setHabit, useHabit } from "../habit/prefs";
 import { findUrl } from "../capture/capture";
+import { parseSaveLink } from "../capture/deeplink";
 import { closePalette, lastFolder, navigate, openPalette, openQuickAdd, openShortcuts, useUI } from "../store/ui";
 import { QuickAdd, SavePage } from "./Capture";
 import { Toasts } from "./common";
@@ -143,6 +144,15 @@ export function App() {
     const rest = url ? text.replace(url, "").trim() : text.trim();
     history.replaceState(null, "", location.pathname + location.hash); // don't keep it in the address
     openQuickAdd(url ? { text: url, title: q.get("title") || rest || undefined } : { text: [q.get("title"), rest].filter(Boolean).join("\n\n") });
+  }, []);
+
+  // A save link (#/save?url=…&text=…) only opens the save box, filled in. It never saves by itself,
+  // because any page can link to it. The replace drops the link from the address.
+  useEffect(() => {
+    const link = parseSaveLink(location.hash);
+    if (!link) return;
+    openQuickAdd({ text: link.url ?? link.text, title: link.title });
+    navigate({ name: "library" }, { replace: true });
   }, []);
 
   useEffect(() => setDrawer(false), [route]);

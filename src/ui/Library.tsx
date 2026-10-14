@@ -18,9 +18,11 @@ import {
   Star,
   Tag,
   Trash2,
+  BookUp,
   Upload,
   X,
 } from "lucide-react";
+import { ImportDialog } from "../import/ImportDialog";
 import { hostOf, itemHref, titleFromText, TYPE_LABELS } from "../capture/capture";
 import { useEffect, useRef, useState } from "react";
 import { folderCtx, renameFolder, setAttention, visibleFolders } from "../folders/registry";
@@ -103,6 +105,7 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
   const [adding, setAdding] = useState(0);
   const [dragging, setDragging] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
   const menu = useMenu();
   // After an item leaves the list from the keyboard, the next one takes focus.
   const focusNext = useRef<string | null>(null);
@@ -393,6 +396,9 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
         <button className="btn" aria-label="Add PDF" onClick={() => fileInput.current?.click()}>
           <Upload size={16} /> <span className="hide-narrow">Add PDF</span>
         </button>
+        <button className="btn" aria-label="Import highlights" title="Import highlights from a Kindle or Readwise export" onClick={() => setImporting(true)}>
+          <BookUp size={16} /> <span className="hide-narrow">Import</span>
+        </button>
         <button className="btn btn-primary" aria-label="Save" title="Save a link, a quote or a note (N)" onClick={() => openQuickAdd({ folder: folder.id })}>
           <Plus size={16} /> <span className="hide-narrow">Save</span>
         </button>
@@ -589,6 +595,7 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
 
       {menu.node}
 
+      {importing && <ImportDialog onClose={() => setImporting(false)} />}
       {dialog?.kind === "rename" && (
         <PromptDialog
           title="Rename"

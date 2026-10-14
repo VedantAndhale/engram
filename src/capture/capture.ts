@@ -364,4 +364,5 @@ export const TYPE_LABELS: Record<ItemType, string> = {
   note: "Note",
   quote: "Quote",
   playlist: "Playlist",
+  book: "Book",
 };
