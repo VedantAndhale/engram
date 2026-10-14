@@ -12,12 +12,27 @@ const NONCE_KEY = "engram.signin";
 const MARK = "#engram-auth";
 const NONCE_TTL_MS = 15 * 60_000;
 
-export type SignInReturn = { token: string } | { error: string };
+/** refresh and expiresAt only come back from GitHub App sign-in, where tokens last 8 hours. */
+export type SignInReturn = { token: string; refresh?: string; expiresAt?: number } | { error: string };
+
+/** Reads what the server put in the fragment. Pure, so it can be tested without a browser. */
+export function signInFromParams(p: URLSearchParams, now = Date.now()): SignInReturn {
+  const token = p.get("token");
+  if (!token) return { error: p.get("error") || "GitHub sign-in failed." };
+  const out: { token: string; refresh?: string; expiresAt?: number } = { token };
+  const refresh = p.get("refresh");
+  if (refresh) out.refresh = refresh;
+  // "expires" is seconds from now; anything that isn't a positive number is ignored.
+  const expires = Number(p.get("expires"));
+  if (Number.isFinite(expires) && expires > 0) out.expiresAt = now + expires * 1000;
+  return out;
+}
 
 let returned: SignInReturn | null = take();
 
 function take(): SignInReturn | null {
-  if (!location.hash.startsWith(MARK)) return null;
+  // No address bar outside a browser (unit tests), so there is nothing to read.
+  if (typeof location === "undefined" || !location.hash.startsWith(MARK)) return null;
   const p = new URLSearchParams(location.hash.slice(MARK.length));
   history.replaceState(null, "", `${location.pathname}${location.search}#/setup`);
   let expected: { nonce: string; at: number } | null = null;
@@ -30,8 +45,7 @@ function take(): SignInReturn | null {
   if (!expected || Date.now() - expected.at > NONCE_TTL_MS || p.get("nonce") !== expected.nonce) {
     return { error: "That sign-in wasn't started on this device, or took too long. Try again." };
   }
-  const token = p.get("token");
-  return token ? { token } : { error: p.get("error") || "GitHub sign-in failed." };
+  return signInFromParams(p);
 }
 
 /** What came back from GitHub on this page load, once. */

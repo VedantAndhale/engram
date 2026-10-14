@@ -1,5 +1,6 @@
 // First: it takes a returning GitHub sign-in out of the address before the router reads it.
 import { takeSignIn } from "./sync/signin";
+import { refreshIfDue } from "./sync/refresh";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { registerSW } from "virtual:pwa-register";
@@ -20,6 +21,10 @@ const updateSW = registerSW({
 startAnalytics();
 
 void keepStorage();
+
+// Keep an App sign-in fresh: its token lasts 8 hours. Also checks each 20 minutes while the app is open.
+void refreshIfDue();
+setInterval(() => void refreshIfDue(), 20 * 60_000);
 
 startFolders()
   .then(async () => {

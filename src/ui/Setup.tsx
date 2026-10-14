@@ -8,6 +8,7 @@ import { useAccount } from "../sync/account";
 import { startSignIn } from "../sync/signin";
 import { ConfirmDialog, GitHubMark, PrivateBadge, SyncDot, syncLabel, useFolderSync } from "./common";
 import { FeedsCard } from "./FeedsCard";
+import { AppInstallCard } from "./AppInstallCard";
 
 export function Setup({ onOpenSidebar }: { onOpenSidebar: () => void }) {
   const { account, authError, legacyToken, signIn } = useAccount();
@@ -65,6 +66,7 @@ function AccountCard() {
 
       <h2>Folders</h2>
       <p className="hint">Each folder syncs to its own private repository.</p>
+      <AppInstallCard />
       <ul className="repo-list">
         {folders.map((f) => (
           <RepoRow key={f.id} folder={f} />

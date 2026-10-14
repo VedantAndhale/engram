@@ -1,5 +1,5 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { authorizationServer, authorize, callback, caller, login, origin, protectedResource, register, revoke, token } from "./oauth.js";
+import { authorizationServer, authorize, callback, caller, login, origin, protectedResource, refresh, register, revoke, token } from "./oauth.js";
 import { page } from "./page.js";
 import { createServer } from "./server.js";
 
@@ -46,6 +46,8 @@ async function route(req: Request): Promise<Response> {
       return callback(req);
     case "token":
       return req.method === "POST" ? token(req) : new Response(null, { status: 405 });
+    case "refresh":
+      return req.method === "POST" ? refresh(req) : new Response(null, { status: 405 });
     case "revoke":
       return req.method === "POST" ? revoke(req) : new Response(null, { status: 405 });
     case "page":

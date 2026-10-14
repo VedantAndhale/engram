@@ -8,6 +8,7 @@ import { toast } from "../store/ui";
 import { getAccount, saveAccount, useAccount, type SignInStatus } from "../sync/account";
 import { type Attention, getFolderSync, recordWrites, SyncEngine } from "../sync/engine";
 import { GitHub, GitHubError, isFolderDescription, type RepoSummary } from "../sync/github";
+import { reachRepo } from "../sync/install";
 import { parseFolderFile } from "../sync/merge";
 import { FOLDER_FILE } from "../sync/paths";
 import type { SignInReturn } from "../sync/signin";
@@ -183,6 +184,13 @@ async function createRepoFor(folder: Folder): Promise<void> {
   if (!created) throw new Error("Couldn't find a free repository name for this folder.");
   if (!created.private) throw new Error("GitHub created the repository as public. Make it private before adding files.");
   await appDb.folders.update(folder.id, { repo: refOf(created), isPrivate: true });
+  // In app mode the new repo must be added to the App's installation, or Engram can't reach it.
+  if (getAccount()?.refresh) {
+    const result = await reachRepo(gh, created.id);
+    if (result !== "added") {
+      throw new RepoPermissionError("Engram can't reach this new repository yet. Open the Engram Reader App's settings, select this repository, then try again.");
+    }
+  }
   await folderCtx(folder.id).sync.attach(refOf(created));
 }
 
@@ -264,7 +272,7 @@ export interface ConnectResult {
 }
 
 /** Check the token from Sign in with GitHub, save it, then link every folder to its repository. */
-async function connectAccount(token: string): Promise<ConnectResult> {
+async function connectAccount(token: string, extra: { refresh?: string; expiresAt?: number } = {}): Promise<ConnectResult> {
   const gh = new GitHub(token);
   let user: Awaited<ReturnType<GitHub["getUser"]>>;
   try {
@@ -274,8 +282,9 @@ async function connectAccount(token: string): Promise<ConnectResult> {
     if (e instanceof GitHubError && e.status === 0) throw new Error("Can't reach GitHub. Check your connection.");
     throw e;
   }
-  if (!user.scopes.includes("repo")) throw new Error("Engram needs access to your private repositories. Sign in again and approve it.");
-  saveAccount({ token, login: user.login, name: user.name ?? undefined, avatarUrl: user.avatar_url });
+  // GitHub App tokens report no scopes; the installation decides what they can reach instead.
+  if (!extra.refresh && !user.scopes.includes("repo")) throw new Error("Engram needs access to your private repositories. Sign in again and approve it.");
+  saveAccount({ token, login: user.login, name: user.name ?? undefined, avatarUrl: user.avatar_url, refresh: extra.refresh, expiresAt: extra.expiresAt });
 
   const found = await discoverFolders();
   // A brand-new device starts with an empty "My library". If this account already has
@@ -298,7 +307,7 @@ export async function completeSignIn(r: SignInReturn) {
   if ("error" in r) return set({ state: "error", message: r.error });
   set({ state: "busy" });
   try {
-    const { login, repoProblem } = await connectAccount(r.token);
+    const { login, repoProblem } = await connectAccount(r.token, { refresh: r.refresh, expiresAt: r.expiresAt });
     if (repoProblem) return set({ state: "repoProblem", login, message: repoProblem });
     set(null);
     toast(`Signed in as ${login}.`);

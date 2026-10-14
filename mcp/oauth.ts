@@ -1,5 +1,6 @@
 import { recordSignup } from "./signups.js";
 import { seal, unseal } from "./seal.js";
+import { REFRESH_TTL_MS, accessTtlMs, clientFor, refreshable, signInMode, type SignInMode } from "./oauth-config.js";
 
 /*
  * Sign in with GitHub, for the Engram app (login below) and for MCP clients, with no database.
@@ -22,7 +23,6 @@ const GITHUB_SCOPE = "repo";
 const APP_SCOPE = "repo user:email";
 const TOKEN_PREFIX = "eg1.";
 const MINUTE = 60_000;
-const TOKEN_TTL_MS = 30 * 24 * 60 * MINUTE;
 
 interface ClientData {
   redirectUris: string[];
@@ -203,12 +203,17 @@ export async function authorize(req: Request) {
 }
 
 async function toGitHub(req: Request, pending: Record<string, unknown>, scope = GITHUB_SCOPE) {
-  const clientId = process.env.GITHUB_CLIENT_ID;
-  if (!clientId) return page("Not set up", "<p>This server has no GitHub OAuth App configured (GITHUB_CLIENT_ID).</p>", 500);
+  const mode = signInMode(process.env);
+  const client = clientFor(process.env, mode);
+  if (!client) {
+    const name = mode === "app" ? "GITHUB_APP_CLIENT_ID" : "GITHUB_CLIENT_ID";
+    return page("Not set up", `<p>This server has no GitHub ${mode === "app" ? "App" : "OAuth App"} configured (${name}).</p>`, 500);
+  }
   const gh = new URL("https://github.com/login/oauth/authorize");
-  gh.searchParams.set("client_id", clientId);
+  gh.searchParams.set("client_id", client.id);
   gh.searchParams.set("redirect_uri", `${origin(req)}/api/oauth/callback`);
-  gh.searchParams.set("scope", scope);
+  // GitHub Apps take their permissions from the App itself, so only the OAuth App sends a scope.
+  if (mode === "oauth") gh.searchParams.set("scope", scope);
   gh.searchParams.set("state", await seal("state", pending, 10 * MINUTE));
   return redirect(gh.toString());
 }
@@ -249,7 +254,8 @@ export async function callback(req: Request) {
     if (!code) return backToApp(pending, { error: "GitHub sign-in was cancelled." });
     const r = await exchange(req, code);
     if ("token" in r) await recordSignup(r.token);
-    return backToApp(pending, "token" in r ? { token: r.token } : { error: r.error });
+    if (!("token" in r)) return backToApp(pending, { error: r.error });
+    return backToApp(pending, await appResult(r));
   }
 
   // Only the browser that approved may finish. Without this, a state from an attacker's own run
@@ -267,40 +273,143 @@ export async function callback(req: Request) {
   const r = await exchange(req, code);
   if (!("token" in r)) return page("GitHub sign-in failed", `<p>${esc(r.error)}</p>`, 502);
   // A sealed code can't be marked as used, so it lives one minute and only its own client may redeem it.
-  const sealed = { t: r.token, c: pending.clientName, k: pending.clientKey, challenge: pending.challenge, redirectUri: pending.redirectUri } satisfies Code;
+  const sealed: Code = { t: r.token, c: pending.clientName, k: pending.clientKey, challenge: pending.challenge, redirectUri: pending.redirectUri };
+  if (refreshable(signInMode(process.env))) {
+    if (r.refresh) sealed.r = r.refresh;
+    if (r.expiresIn) sealed.expires = r.expiresIn;
+  }
   back.searchParams.set("code", await seal("code", sealed, MINUTE));
   return redirect(back.toString());
 }
 
 /** GitHub's code for a GitHub token. Needs the client secret, which is why this runs here. */
-async function exchange(req: Request, code: string): Promise<{ token: string } | { error: string }> {
+async function exchange(
+  req: Request,
+  code: string,
+): Promise<{ token: string; refresh?: string; expiresIn?: number } | { error: string }> {
+  const client = clientFor(process.env, signInMode(process.env));
+  if (!client) return { error: "Sign-in is not set up on the server." };
   const res = await fetch("https://github.com/login/oauth/access_token", {
     method: "POST",
     headers: { Accept: "application/json", "Content-Type": "application/json" },
     body: JSON.stringify({
-      client_id: process.env.GITHUB_CLIENT_ID,
-      client_secret: process.env.GITHUB_CLIENT_SECRET,
+      client_id: client.id,
+      client_secret: client.secret,
       code,
       redirect_uri: `${origin(req)}/api/oauth/callback`,
     }),
   });
-  const body = (await res.json().catch(() => ({}))) as { access_token?: string; error_description?: string };
-  return body.access_token ? { token: body.access_token } : { error: body.error_description ?? "GitHub didn't return a token." };
+  const body = (await res.json().catch(() => ({}))) as {
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    error_description?: string;
+  };
+  if (!body.access_token) return { error: body.error_description ?? "GitHub didn't return a token." };
+  const out: { token: string; refresh?: string; expiresIn?: number } = { token: body.access_token };
+  // Only GitHub App tokens come with these two, so they stay out of the OAuth result.
+  if (body.refresh_token) out.refresh = body.refresh_token;
+  if (typeof body.expires_in === "number" && body.expires_in > 0) out.expiresIn = body.expires_in;
+  return out;
 }
 
-interface Code {
+type Code = {
   t: string;
   c?: string;
   k: string;
   challenge: string;
   redirectUri: string;
+  /** GitHub's refresh token: only in app mode. */
+  r?: string;
+  /** Seconds the GitHub access token lives: only in app mode. */
+  expires?: number;
+};
+
+/** The web app's fragment: the token, and in app mode a sealed refresh token and the token's lifetime. */
+async function appResult(r: { token: string; refresh?: string; expiresIn?: number }): Promise<Record<string, string>> {
+  const out: Record<string, string> = { token: r.token };
+  if (!refreshable(signInMode(process.env))) return out;
+  if (r.refresh) out.refresh = await seal("refresh", { r: r.refresh }, REFRESH_TTL_MS);
+  if (r.expiresIn) out.expires = String(r.expiresIn);
+  return out;
+}
+
+/** Trades GitHub's refresh token for a new access token AND a new refresh token (GitHub rotates both). */
+async function refreshWith(
+  refreshToken: string,
+): Promise<{ token: string; refresh: string; expiresIn: number } | { error: string }> {
+  const client = clientFor(process.env, signInMode(process.env));
+  if (!client) return { error: "Sign-in is not set up on the server." };
+  const res = await fetch("https://github.com/login/oauth/access_token", {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify({
+      client_id: client.id,
+      client_secret: client.secret,
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+    }),
+  });
+  // GitHub answers a dead refresh token with an error body, so read the body whatever the status.
+  const body = (await res.json().catch(() => ({}))) as {
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    error_description?: string;
+  };
+  if (!body.access_token || !body.refresh_token) return { error: body.error_description ?? "GitHub refused the refresh." };
+  return {
+    token: body.access_token,
+    refresh: body.refresh_token,
+    expiresIn: typeof body.expires_in === "number" && body.expires_in > 0 ? body.expires_in : 28800,
+  };
+}
+
+/** Opens a sealed refresh token. Null for anything missing, expired or altered. */
+async function openRefresh(value: string | null | undefined): Promise<{ r: string; c?: string; k?: string } | null> {
+  if (!value) return null;
+  const data = await unseal<{ r?: string; c?: string; k?: string }>("refresh", value);
+  return data?.r ? { r: data.r, c: data.c, k: data.k } : null;
+}
+
+/** The /token response. The refresh token is bound to the client (k) it was issued to. */
+async function issueTokens(
+  mode: SignInMode,
+  grant: { t: string; c?: string; k: string; r?: string; expires?: number },
+): Promise<Response> {
+  const ttl = accessTtlMs(mode, grant.expires);
+  const body: Record<string, unknown> = {
+    access_token: TOKEN_PREFIX + (await seal("token", { t: grant.t, c: grant.c }, ttl)),
+    token_type: "Bearer",
+    expires_in: Math.floor(ttl / 1000),
+  };
+  if (grant.r) body.refresh_token = await seal("refresh", { r: grant.r, c: grant.c, k: grant.k }, REFRESH_TTL_MS);
+  return json(body);
+}
+
+/** The MCP client's refresh_token grant (app mode only). */
+async function refreshGrant(p: URLSearchParams, mode: SignInMode): Promise<Response> {
+  if (!refreshable(mode)) return oauthError("unsupported_grant_type", "Refresh tokens need the GitHub App sign-in.");
+  const old = await openRefresh(p.get("refresh_token"));
+  if (!old) return oauthError("invalid_grant", "Connect again.");
+  const clientId = p.get("client_id");
+  if (!old.k || !clientId || (await clientKey(clientId)) !== old.k) {
+    return oauthError("invalid_grant", "The refresh token was issued to another client.");
+  }
+  const fresh = await refreshWith(old.r);
+  if ("error" in fresh) return oauthError("invalid_grant", "Connect again.");
+  return issueTokens(mode, { t: fresh.token, c: old.c, k: old.k, r: fresh.refresh, expires: fresh.expiresIn });
 }
 
 /** Step 4: the client proves it started the flow (PKCE) and gets its access token. */
 export async function token(req: Request) {
   const p = await bodyParams(req);
   if (!p) return oauthError("invalid_request", "Send the request as a form or a JSON object.");
-  if (p.get("grant_type") !== "authorization_code") return oauthError("unsupported_grant_type", "Only authorization_code is supported. Tokens last 30 days; then connect again.");
+  const mode = signInMode(process.env);
+  if (p.get("grant_type") === "refresh_token") return refreshGrant(p, mode);
+  if (p.get("grant_type") !== "authorization_code") {
+    return oauthError("unsupported_grant_type", "Use authorization_code, or refresh_token with the GitHub App sign-in.");
+  }
   const code = await unseal<Code>("code", p.get("code") ?? "");
   if (!code) return oauthError("invalid_grant", "The code is invalid or expired.");
   const clientId = p.get("client_id");
@@ -309,11 +418,7 @@ export async function token(req: Request) {
   const verifier = p.get("code_verifier") ?? "";
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
   if (!verifier || Buffer.from(digest).toString("base64url") !== code.challenge) return oauthError("invalid_grant", "PKCE check failed.");
-  return json({
-    access_token: TOKEN_PREFIX + (await seal("token", { t: code.t, c: code.c }, TOKEN_TTL_MS)),
-    token_type: "Bearer",
-    expires_in: TOKEN_TTL_MS / 1000,
-  });
+  return issueTokens(mode, { t: code.t, c: code.c, k: code.k, r: code.r, expires: code.expires });
 }
 
 /**
@@ -332,11 +437,28 @@ export async function revoke(req: Request) {
   return new Response(null, { status: 200, headers: { "Cache-Control": "no-store" } });
 }
 
-/** GitHub's own revocation of one token of this OAuth App. Needs the client secret. */
+/** The web app renews its App sign-in: its sealed refresh token in, a new token and a new refresh token out. */
+export async function refresh(req: Request): Promise<Response> {
+  if (req.method !== "POST") return new Response(null, { status: 405 });
+  if (!refreshable(signInMode(process.env))) return json({ error: "invalid_grant" }, 401);
+  const p = await bodyParams(req);
+  const old = await openRefresh(p?.get("refresh"));
+  if (!old) return json({ error: "invalid_grant" }, 401);
+  const fresh = await refreshWith(old.r);
+  if ("error" in fresh) return json({ error: "invalid_grant" }, 401);
+  return json({
+    token: fresh.token,
+    refresh: await seal("refresh", { r: fresh.refresh }, REFRESH_TTL_MS),
+    expires_in: fresh.expiresIn,
+  });
+}
+
+/** GitHub's own revocation of one token of this sign-in's client. Needs the client secret. */
 async function revokeAtGitHub(githubToken: string): Promise<boolean> {
-  const id = process.env.GITHUB_CLIENT_ID;
-  const secret = process.env.GITHUB_CLIENT_SECRET;
-  if (!id || !secret) return false;
+  const client = clientFor(process.env, signInMode(process.env));
+  if (!client) return false;
+  const id = client.id;
+  const secret = client.secret;
   const res = await fetch(`https://api.github.com/applications/${encodeURIComponent(id)}/token`, {
     method: "DELETE",
     headers: {
