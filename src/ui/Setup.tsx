@@ -7,6 +7,7 @@ import { navigate, toast } from "../store/ui";
 import { useAccount } from "../sync/account";
 import { startSignIn } from "../sync/signin";
 import { ConfirmDialog, GitHubMark, PrivateBadge, SyncDot, syncLabel, useFolderSync } from "./common";
+import { FeedsCard } from "./FeedsCard";
 
 export function Setup({ onOpenSidebar }: { onOpenSidebar: () => void }) {
   const { account, authError, legacyToken, signIn } = useAccount();
@@ -69,6 +70,9 @@ function AccountCard() {
           <RepoRow key={f.id} folder={f} />
         ))}
       </ul>
+      {folders.filter((f) => f.repo).map((f) => (
+        <FeedsCard key={f.id} folder={f} />
+      ))}
       {missing > 0 && (
         <button
           className="btn btn-small"

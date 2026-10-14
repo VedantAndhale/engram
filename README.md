@@ -1,8 +1,12 @@
 # Engram
 
+[![CI](https://github.com/VedantAndhale/engram/actions/workflows/ci.yml/badge.svg)](https://github.com/VedantAndhale/engram/actions/workflows/ci.yml)
+
 A second brain that lives in your own GitHub account.
 
 **Try it:** [engram.vedant.me](https://engram.vedant.me/)
+
+![Engram: the library with a sample article, and the Save button and "Press N to save a quote" hint](public/engram-demo.gif)
 
 Engram is a web app for reading and keeping what matters: PDFs, articles, posts, links, quotes and
 your own notes. Everything you keep is a Markdown file, with your highlights and your own words about
@@ -20,6 +24,9 @@ what you saved and suggest additions, which you accept or dismiss.
 - **Import** brings highlights from a Kindle `My Clippings.txt` or a Readwise CSV export. Each book is one
   item, and importing the same file again adds only what is new. Nothing is written until you press Import.
 - A link like `#/save?url=…&text=…` opens the save box filled in. It never saves by itself.
+- **Feeds** (in Setup): add RSS or Atom feeds, and new entries arrive in your Inbox. A scheduled GitHub
+  Action in your own folder repository fetches them every six hours. You copy its workflow file into the
+  repository once; it uses your own free Actions minutes.
 - The **Save to Engram** bookmark keeps a page's formatted text and your selection. Allow pop-ups for
   the page when you use it. Some sites with strict security settings block bookmarks; paste the link
   instead.
