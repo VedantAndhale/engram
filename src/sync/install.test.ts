@@ -98,17 +98,34 @@ test("grantFolderRepo looks the id up for an older folder without one", async ()
     },
   );
   assert.deepEqual(outcome, { result: "added", status: 204 });
-  assert.deepEqual(calls, ["GET /repos/vedant/folder-x", "GET /user/installations", "PUT /user/installations/11/repositories/99"]);
+  assert.deepEqual(calls, [
+    "GET /user/installations",
+    "GET /repos/vedant/folder-x",
+    "GET /user/installations",
+    "PUT /user/installations/11/repositories/99",
+  ]);
 });
 
 test("grantFolderRepo reports a 404 from the lookup instead of throwing", async () => {
   let outcome: unknown;
   const calls = await withFetch(
-    () => json({ message: "Not Found" }, 404),
+    (_method, path) => (path === "/user/installations" ? json({ installations: [mine] }) : json({ message: "Not Found" }, 404)),
     async () => {
       outcome = await grantFolderRepo("token", folderRepo);
     },
   );
   assert.deepEqual(outcome, { result: "failed", status: 404 });
-  assert.deepEqual(calls, ["GET /repos/vedant/folder-x"]);
+  assert.deepEqual(calls, ["GET /user/installations", "GET /repos/vedant/folder-x"]);
+});
+
+test("grantFolderRepo says not-installed, without a lookup, when the App isn't on the account", async () => {
+  let outcome: unknown;
+  const calls = await withFetch(
+    () => json({ installations: [other] }),
+    async () => {
+      outcome = await grantFolderRepo("token", folderRepo);
+    },
+  );
+  assert.deepEqual(outcome, { result: "not-installed" });
+  assert.deepEqual(calls, ["GET /user/installations"]);
 });

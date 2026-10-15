@@ -56,14 +56,17 @@ export async function reachRepo(gh: InstallGh, repoId: number): Promise<"added" 
 
 /**
  * Adds one folder's repo to the App's install. The repo id is saved with the folder, so no lookup
- * is needed. Older folders have no saved id, and the lookup only succeeds while the App can already
- * see the repo. Otherwise GitHub answers 404 and the user has to select the repo in the App's settings.
+ * is needed. Older folders have no saved id, so the id is looked up first. That lookup only works
+ * while the App can see the repo. Without the App installed, GitHub also answers 404, so the
+ * install is checked before the lookup to say which of the two is the problem.
  */
 export async function grantFolderRepo(token: string, repo: RepoRef): Promise<ReachOutcome> {
   const gh = new GitHub(token, repo);
   if (repo.id !== undefined) return reachRepoDetail(gh, repo.id);
   let id: number;
   try {
+    const { installations } = await gh.json<{ installations: Installation[] }>("/user/installations");
+    if (!pickInstallation(installations ?? [])) return { result: "not-installed" };
     id = (await gh.getRepo()).id;
   } catch (e) {
     return { result: "failed", status: e instanceof GitHubError ? e.status : undefined };
