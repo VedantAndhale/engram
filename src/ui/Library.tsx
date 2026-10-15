@@ -430,6 +430,7 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
               {access.granting ? "Adding…" : "Give Engram access"}
             </button>
           )}
+          {access.needed && access.problem && <span>{access.problem}</span>}
         </div>
       )}
       {folder.isPrivate === false && (

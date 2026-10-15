@@ -39,7 +39,7 @@ export async function visibleFolders(): Promise<Folder[]> {
 }
 
 const repoKey = (r: { owner: string; repo: string }) => `${r.owner}/${r.repo}`.toLowerCase();
-const refOf = (r: RepoSummary): RepoRef => ({ owner: r.owner.login, repo: r.name, branch: r.default_branch });
+const refOf = (r: RepoSummary): RepoRef => ({ id: r.id, owner: r.owner.login, repo: r.name, branch: r.default_branch });
 
 // ---------------------------------------------------------------------------------------------
 // Start-up and scheduling
@@ -234,6 +234,8 @@ export async function discoverFolders(): Promise<number> {
     const known = byRepo.get(repoKey({ owner: r.owner.login, repo: r.name }));
     if (known) {
       if (known.isPrivate !== r.private) await appDb.folders.update(known.id, { isPrivate: r.private });
+      // Folders made before the repo id was saved get it now, while the repo is visible to the token.
+      if (known.repo && known.repo.id === undefined) await appDb.folders.update(known.id, { repo: { ...known.repo, id: r.id } });
       // A folder whose repository went public stops syncing until it is private again (see SyncEngine).
       if (!known.hidden) ctxs.get(known.id)?.sync.notePrivacy(r.private);
       continue;

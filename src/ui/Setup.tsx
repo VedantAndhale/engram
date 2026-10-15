@@ -164,6 +164,7 @@ function RepoRow({ folder }: { folder: Folder }) {
           {access.granting ? "Adding…" : "Give Engram access"}
         </button>
       )}
+      {access.needed && access.problem && <span className="muted repo-state">{access.problem}</span>}
     </li>
   );
 }

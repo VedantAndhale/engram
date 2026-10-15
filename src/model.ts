@@ -3,6 +3,8 @@ export interface RepoRef {
   owner: string;
   repo: string;
   branch: string;
+  /** GitHub's numeric repo id. Saved whenever it is seen, so the App can be given the repo later. */
+  id?: number;
 }
 
 /**

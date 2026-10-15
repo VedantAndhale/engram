@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { APP_SLUG, pickInstallation, reachRepo, type Installation } from "./install";
+import { APP_SLUG, grantFolderRepo, pickInstallation, reachRepo, type Installation } from "./install";
 
 const mine: Installation = { id: 11, app_slug: APP_SLUG, repository_selection: "selected" };
 const other: Installation = { id: 22, app_slug: "some-other-app", repository_selection: "all" };
@@ -49,4 +49,66 @@ test("reachRepo returns failed for refusals and thrown errors", async () => {
   assert.equal(await reachRepo(fakeGh([mine], 404), 99), "failed");
   assert.equal(await reachRepo(fakeGh([mine], 422), 99), "failed");
   assert.equal(await reachRepo(fakeGh([mine], new Error("offline")), 99), "failed");
+});
+
+// grantFolderRepo calls GitHub through fetch. Each request is recorded as "METHOD /path".
+async function withFetch(answer: (method: string, path: string) => Response, run: () => Promise<void>): Promise<string[]> {
+  const calls: string[] = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    const method = init?.method ?? "GET";
+    const path = new URL(String(url)).pathname;
+    calls.push(`${method} ${path}`);
+    return answer(method, path);
+  }) as typeof fetch;
+  try {
+    await run();
+  } finally {
+    globalThis.fetch = real;
+  }
+  return calls;
+}
+
+const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+const empty = (status: number) => new Response(null, { status });
+const folderRepo = { owner: "vedant", repo: "folder-x", branch: "main" };
+
+test("grantFolderRepo uses the saved repo id, so no lookup is made", async () => {
+  let outcome: unknown;
+  const calls = await withFetch(
+    (_method, path) => (path === "/user/installations" ? json({ installations: [mine] }) : empty(204)),
+    async () => {
+      outcome = await grantFolderRepo("token", { ...folderRepo, id: 99 });
+    },
+  );
+  assert.deepEqual(outcome, { result: "added", status: 204 });
+  assert.deepEqual(calls, ["GET /user/installations", "PUT /user/installations/11/repositories/99"]);
+});
+
+test("grantFolderRepo looks the id up for an older folder without one", async () => {
+  let outcome: unknown;
+  const calls = await withFetch(
+    (_method, path) => {
+      if (path === "/repos/vedant/folder-x") return json({ id: 99 });
+      if (path === "/user/installations") return json({ installations: [mine] });
+      return empty(204);
+    },
+    async () => {
+      outcome = await grantFolderRepo("token", folderRepo);
+    },
+  );
+  assert.deepEqual(outcome, { result: "added", status: 204 });
+  assert.deepEqual(calls, ["GET /repos/vedant/folder-x", "GET /user/installations", "PUT /user/installations/11/repositories/99"]);
+});
+
+test("grantFolderRepo reports a 404 from the lookup instead of throwing", async () => {
+  let outcome: unknown;
+  const calls = await withFetch(
+    () => json({ message: "Not Found" }, 404),
+    async () => {
+      outcome = await grantFolderRepo("token", folderRepo);
+    },
+  );
+  assert.deepEqual(outcome, { result: "failed", status: 404 });
+  assert.deepEqual(calls, ["GET /repos/vedant/folder-x"]);
 });
