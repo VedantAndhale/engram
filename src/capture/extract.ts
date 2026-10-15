@@ -21,6 +21,7 @@ export interface Extracted {
 export async function extractArticle(html: string, url: string): Promise<Extracted | null> {
   const { Readability } = await import("@mozilla/readability");
   const doc = new DOMParser().parseFromString(html, "text/html");
+  revealStreamed(doc);
   // Relative links and images resolve against the page's own address.
   const base = doc.createElement("base");
   base.href = url;
@@ -39,6 +40,46 @@ export async function extractArticle(html: string, url: string): Promise<Extract
     description: metaText(article.excerpt),
     published: isoDate(article.publishedTime),
   };
+}
+
+/**
+ * React streaming (Next.js App Router, Suspense) sends a skeleton first, with the real content later in a
+ * hidden `<div id="S:6">` that a script moves into place. Readability skips hidden nodes, so without this the
+ * article is missing. This does the script's job on the saved HTML: the content replaces its placeholder and
+ * the fallback goes. A `<template id="P:9">` segment replaces that template instead.
+ */
+function revealStreamed(doc: Document) {
+  for (const seg of Array.from(doc.querySelectorAll("div[hidden]"))) {
+    const m = /^S:(\d+)$/.exec(seg.id);
+    if (!m) continue;
+    const boundary = doc.getElementById(`B:${m[1]}`);
+    const slot = boundary ?? doc.getElementById(`P:${m[1]}`);
+    const parent = slot?.parentNode;
+    if (!slot || !parent) {
+      // Nothing to put it in: show it as it is.
+      seg.removeAttribute("hidden");
+      continue;
+    }
+    if (boundary) {
+      // The fallback is everything from the placeholder to the comment that closes its boundary.
+      let depth = 0;
+      for (let n = boundary.nextSibling; n; ) {
+        const next = n.nextSibling;
+        if (n.nodeType === Node.COMMENT_NODE) {
+          const data = (n as Comment).data;
+          if (data === "/$") {
+            if (depth === 0) break;
+            depth--;
+          } else if (data === "$" || data === "$?" || data === "$!") depth++;
+        }
+        n.parentNode?.removeChild(n);
+        n = next;
+      }
+    }
+    while (seg.firstChild) parent.insertBefore(seg.firstChild, slot);
+    parent.removeChild(slot);
+    seg.parentNode?.removeChild(seg);
+  }
 }
 
 /**

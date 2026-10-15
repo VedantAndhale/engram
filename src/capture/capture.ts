@@ -3,8 +3,10 @@ import { cleanTopic } from "../habit/prefs";
 import { HIGHLIGHT_COLORS, type Item, type ItemType } from "../model";
 import { addPdf, createItem, saveAnnotation, updateItem } from "../store/actions";
 import { capText, extractArticle, isoDate, metaText, pdfUrl, shrinks } from "./extract";
-import { watchUrl, youtubeId } from "../video/youtube";
+import { cleanUrl, typeForUrl } from "./url";
 import { externalUrl } from "../lib/util";
+
+export { cleanUrl, typeForUrl };
 
 /*
  * Saving things that aren't PDFs: links, quotes, notes, and pages sent by the bookmarklet or the
@@ -38,23 +40,6 @@ export function findUrl(text: string): string | null {
   return m ? asUrl(m[0].replace(/[).,;!?]+$/, "")) : null;
 }
 
-/** Drop tracking parameters and the fragment, so the same page saved twice is one item. */
-export function cleanUrl(url: string): string {
-  // One YouTube video is one address, however it was copied: a timestamp, a playlist or a short link is the same video.
-  const video = youtubeId(url);
-  if (video) return watchUrl(video);
-  try {
-    const u = new URL(url);
-    u.hash = "";
-    for (const k of [...u.searchParams.keys()]) {
-      if (/^(utm_|fbclid$|gclid$|mc_|igshid$|ref_src$|si$)/i.test(k)) u.searchParams.delete(k);
-    }
-    return u.href;
-  } catch {
-    return url;
-  }
-}
-
 /** Only http(s) links are ever rendered as links, so a saved "javascript:" URL can't run. */
 export const safeHref = externalUrl;
 
@@ -66,7 +51,6 @@ export function hostOf(url: string | undefined): string {
   }
 }
 
-/** Guess an item's type from its address. */
 /** Types whose pages are worth reading in Engram; videos and tweets keep their own sites. */
 export const READABLE: ItemType[] = ["article", "bookmark", "post", "thread"];
 
@@ -75,29 +59,6 @@ export const fetchedLater = (url: string) => READABLE.includes(typeForUrl(url, 0
 
 /** A link to a PDF file itself (not an arXiv paper's page): it is downloaded as a PDF or kept as a link, never read as a page. */
 export const isPdfFile = (url: string) => !!pdfUrl(url) && !/arxiv\.org\/abs\//i.test(url);
-
-export function typeForUrl(url: string, contentLength = 0): ItemType {
-  let u: URL;
-  try {
-    u = new URL(url);
-  } catch {
-    return "bookmark";
-  }
-  const host = u.hostname.replace(/^(www|mobile|m)\./, "");
-  const path = u.pathname;
-  if ((host === "x.com" || host === "twitter.com") && /\/status\/\d+/.test(path)) return "tweet";
-  if (host === "youtube.com" || host === "youtu.be" || host === "vimeo.com" || host === "tiktok.com") return "video";
-  if (/\.pdf$/i.test(path)) return "bookmark";
-  if (
-    host === "reddit.com" ||
-    host === "threads.net" ||
-    host === "bsky.app" ||
-    host === "news.ycombinator.com" ||
-    (host === "linkedin.com" && /^\/(posts|feed)\//.test(path))
-  )
-    return "post";
-  return contentLength > 1500 ? "article" : "bookmark";
-}
 
 /** A readable fallback title for a bare link: "example.com/some/page". */
 export function titleFromUrl(url: string): string {
