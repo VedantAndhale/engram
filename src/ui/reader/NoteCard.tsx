@@ -1,14 +1,17 @@
 import "../../styles/notes.css";
-import { ArrowUp, ChevronsDownUp, CornerDownRight, Square, Trash2 } from "lucide-react";
+import { ArrowUp, Check, ChevronsDownUp, CornerDownRight, NotebookPen, Square, Trash2 } from "lucide-react";
 import { forwardRef, useState, type CSSProperties } from "react";
 import { openAi } from "../../ai/dialog";
 import { download, stopDownload, useAiStatus } from "../../ai/engine";
 import { firstSentence, plainAnswer } from "../../ai/format";
 import { GEMMA } from "../../ai/model";
-import { followUp, openNote, removeNote, retryNote, stopNote, threadKey, type Note, type NoteAction } from "../../ai/notes";
+import { appendKept, keptBlock } from "../../ai/keep";
+import { followUp, markKept, openNote, removeNote, retryNote, stopNote, threadKey, type Note, type NoteAction } from "../../ai/notes";
 import { passageBudget, threadOf, useThreads, type Turn } from "../../ai/thread";
 import { AnswerBody, type Cite } from "../../reader/markdown";
-import { jumpToParagraph } from "../../store/ui";
+import { folderCtx } from "../../folders/registry";
+import { setItemBody } from "../../store/actions";
+import { jumpToParagraph, toast, useUI } from "../../store/ui";
 import { useElapsed } from "../AiDialog";
 import { CopyButton } from "../interior/CopyButton";
 import { ProgressBar } from "../interior/ProgressBar";
@@ -85,6 +88,29 @@ export const NoteCard = forwardRef<
   ]
     .filter(Boolean)
     .join("\n\n");
+
+  /** Write what the model said into the item's own words, as a quote signed by the model. Undo puts the words back. */
+  const route = useUI((s) => s.route);
+  const keep = async () => {
+    if (route.name !== "item") return;
+    const folder = route.folder;
+    const item = await folderCtx(folder).db.items.get(note.item);
+    if (!item) return;
+    const from = note.kept ?? 0;
+    const before = item.body ?? "";
+    await setItemBody(folder, item.id, appendKept(before, keptBlock(note, turns.slice(from), GEMMA.name, item.title)));
+    markKept(note.id, turns.length);
+    toast("Kept in your own words.", {
+      action: {
+        label: "Undo",
+        run: () => {
+          void setItemBody(folder, item.id, before);
+          markKept(note.id, from);
+        },
+      },
+    });
+  };
+  const allKept = (note.kept ?? 0) >= turns.length;
 
   const submit = () => {
     const q = draft.trim();
@@ -261,6 +287,17 @@ export const NoteCard = forwardRef<
         ) : (
           <>
             {turns.length > 0 && <CopyButton iconOnly value={copyText} />}
+            {turns.length > 0 && route.name === "item" && (
+              <button
+                className={`icon-btn note-keep${allKept ? " is-kept" : ""}`}
+                aria-label={allKept ? "Kept in your own words" : "Keep in your own words"}
+                title={allKept ? "Kept in your own words" : "Keep in your own words"}
+                disabled={allKept}
+                onClick={() => void keep()}
+              >
+                {allKept ? <Check size={15} /> : <NotebookPen size={15} />}
+              </button>
+            )}
             <button className="icon-btn note-trash" aria-label="Delete note" title="Delete note" onClick={() => removeNote(note.id)}>
               <Trash2 size={15} />
             </button>

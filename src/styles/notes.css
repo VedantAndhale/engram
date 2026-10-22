@@ -466,3 +466,9 @@
     animation: none;
   }
 }
+
+/* Keep: the same icon box once kept, in the accent, and no longer pressable. */
+.note-foot .note-keep.is-kept {
+  color: var(--accent);
+  opacity: 1;
+}

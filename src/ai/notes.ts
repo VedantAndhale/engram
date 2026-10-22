@@ -25,6 +25,8 @@ export interface Note {
   /** The first question, for an Ask note. */
   question?: string;
   createdAt: number;
+  /** How many of its turns the reader has kept in the item's own words. */
+  kept?: number;
   /** The answer being written. */
   pending: { question: string; text: string } | null;
   /** A request waiting for the model to be downloaded. */
@@ -120,6 +122,11 @@ async function run(id: string, req: TurnRequest): Promise<void> {
   );
   controllers.delete(id);
   patch(id, { pending: null, error: message });
+}
+
+/** Record that the first `turns` turns of a note are kept in the item's own words. */
+export function markKept(id: string, turns: number): void {
+  patch(id, { kept: turns });
 }
 
 /** Ask a note's first request again, after it failed before any answer. */
