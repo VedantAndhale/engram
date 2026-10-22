@@ -483,3 +483,73 @@
   display: inline-flex;
   align-items: center;
 }
+
+/*
+ * The article minimap: a strip to the left of the text, which stays in view as you scroll. It needs room,
+ * so it only draws on a wide window.
+ */
+.article {
+  position: relative;
+}
+.minimap {
+  display: none;
+}
+@media (min-width: 1200px) {
+  .minimap {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: -38px;
+    display: block;
+    width: 14px;
+  }
+  .minimap-rail {
+    position: sticky;
+    top: 120px;
+    width: 14px;
+    cursor: pointer;
+    touch-action: none;
+    user-select: none;
+  }
+}
+.minimap-bar {
+  position: absolute;
+  left: 3px;
+  width: 6px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--muted) 40%, transparent);
+  pointer-events: none;
+}
+.minimap-hl {
+  position: absolute;
+  left: 0;
+  width: 14px;
+  height: 3px;
+  background: #f7d154;
+  pointer-events: none;
+}
+.minimap-note {
+  position: absolute;
+  left: 8px;
+  width: 6px;
+  height: 6px;
+  margin-top: -2px;
+  border-radius: 50%;
+  background: var(--accent);
+  pointer-events: none;
+}
+.minimap-view {
+  position: absolute;
+  left: -2px;
+  width: 18px;
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  pointer-events: none;
+  transition: top 0.08s linear;
+}
+@media (prefers-reduced-motion: reduce) {
+  .minimap-view {
+    transition: none;
+  }
+}
