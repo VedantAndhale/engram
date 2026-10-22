@@ -72,8 +72,9 @@ export function SkeletonSwap({
         className={`swap ${className}`.trim()}
         aria-busy={!ready}
         aria-label={label}
-        // The room for the placeholder is kept from the start, so it appearing later moves nothing.
-        style={{ minHeight: !ready || showSkeleton ? lines * lineHeight : undefined }}
+        // The room for the placeholder is kept from the start, and kept once the words arrive, so neither its
+        // appearing nor its going moves anything. An answer that grows past it just pushes it out.
+        style={{ minHeight: lines * lineHeight }}
       >
         <m.div
           className="swap-content"
