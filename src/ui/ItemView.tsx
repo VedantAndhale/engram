@@ -47,6 +47,7 @@ import { TopicsDialog } from "./habit";
 import { ArticleToc, useRailFits } from "./ArticleToc";
 import { ArticleView, scrollArticleTo, stickyReach, type ReadingPrefs } from "./reader/ArticleView";
 import { AskBar, summarizeHere } from "./reader/AskBar";
+import { Listen } from "./reader/Listen";
 import { Margin, useMarginFits } from "./reader/Margin";
 import { setItemContext, useNotes } from "../ai/notes";
 import { turnContext } from "../ai/turn";
@@ -422,6 +423,7 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
                 <div className="article-tools">
                   <span className="field-label">From the page</span>
                   <div className="spacer" />
+                  <Listen scroller={scroller} />
                   <button
                     className={`icon-btn ${highlighter ? "on" : ""}`}
                     aria-label="Highlighter"

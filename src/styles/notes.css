@@ -472,3 +472,14 @@
   color: var(--accent);
   opacity: 1;
 }
+
+/* Reading aloud: the paragraph being spoken has a bar beside it, and the controls sit with the article's tools. */
+.article-text .para-reading {
+  border-radius: 4px;
+  box-shadow: -10px 0 0 -7px var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.listen-controls {
+  display: inline-flex;
+  align-items: center;
+}
