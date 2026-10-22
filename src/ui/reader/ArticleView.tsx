@@ -278,10 +278,18 @@ export function ArticleView({
   );
 }
 
-/** Scrolls the article so a highlight's text sits just under its top bar, which stays over the article's top. */
+/** How far down the scroller its sticky bars reach: the top bar, and the article's tools under it. Each is measured where it sticks, not where it sits. */
+export function stickyReach(scroller: HTMLElement): number {
+  const stuckBottom = (sel: string) => {
+    const el = scroller.querySelector<HTMLElement>(sel);
+    return el ? parseFloat(getComputedStyle(el).top) + el.offsetHeight : 0;
+  };
+  return Math.max(stuckBottom(".topbar"), stuckBottom(".article-tools"));
+}
+
+/** Scrolls the article so a highlight's text sits just below the sticky bars, which stay over the article's top. */
 export function scrollArticleTo(scroller: HTMLElement, range: Range) {
-  const bar = scroller.querySelector(".topbar")?.getBoundingClientRect().height ?? 0;
-  const top = scroller.scrollTop + range.getBoundingClientRect().top - scroller.getBoundingClientRect().top - bar - JUMP_GAP;
+  const top = scroller.scrollTop + range.getBoundingClientRect().top - scroller.getBoundingClientRect().top - stickyReach(scroller) - JUMP_GAP;
   scroller.scrollTo({ top, behavior: scrollMotion() });
 }
 

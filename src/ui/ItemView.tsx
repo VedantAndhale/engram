@@ -45,7 +45,7 @@ import type { TitleChoice } from "../editor/completions";
 import { PromptDialog, useMenu } from "./common";
 import { TopicsDialog } from "./habit";
 import { ArticleToc, useRailFits } from "./ArticleToc";
-import { ArticleView, scrollArticleTo, type ReadingPrefs } from "./reader/ArticleView";
+import { ArticleView, scrollArticleTo, stickyReach, type ReadingPrefs } from "./reader/ArticleView";
 import { AskBar, summarizeHere } from "./reader/AskBar";
 import { Margin, useMarginFits } from "./reader/Margin";
 import { setItemContext, useNotes } from "../ai/notes";
@@ -145,11 +145,7 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
     // Measured from the paragraph itself, below the sticky bars (the top bar and the article's tools
     // under it), as the highlight jumps do. Each bar's place is where it sticks, not where it sits.
     const root = scroller.current;
-    const stuckBottom = (sel: string) => {
-      const el = root.querySelector<HTMLElement>(sel);
-      return el ? parseFloat(getComputedStyle(el).top) + el.offsetHeight : 0;
-    };
-    const bar = Math.max(stuckBottom(".topbar"), stuckBottom(".article-tools"));
+    const bar = stickyReach(root);
     const top = root.scrollTop + target.getBoundingClientRect().top - root.getBoundingClientRect().top - bar - 24;
     root.scrollTo({ top, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
     target.classList.add("para-flash");
