@@ -47,6 +47,11 @@ what you saved and suggest additions, which you accept or dismiss.
   highlight, `D` pen, `E` eraser, `N` notes, `/` find.
 - On a phone or tablet, pick the highlighter or pen. One finger marks, two fingers scroll.
 - Export a PDF's highlights and notes as a Markdown file.
+- **Read aloud** speaks an article from the paragraph you are on, using your browser's own voices, with the
+  paragraph being read marked. Pause, skip a paragraph, or press `Esc` to stop. It costs nothing and sends
+  nothing anywhere. It needs a browser with a speech engine.
+- On a wide window, a **minimap** beside a long article shows every paragraph, your highlights and your AI
+  notes, and the part on screen. Press or drag on it to go there.
 
 **Understand, on your device**
 
@@ -63,6 +68,9 @@ what you saved and suggest additions, which you accept or dismiss.
   that it works offline. **Delete model** is in every note and in the command palette, and frees the space.
 - It needs a browser with WebGPU (a recent Chrome or Edge on a computer with a graphics card). Without
   it, the rest of Engram works as before.
+- **Keep** writes a note's answers into the item's own words as Markdown: the passage, the question, and the
+  answer as a quote signed by the model, so it is never mistaken for your own writing. It syncs with the
+  item. Undo puts your words back. Nothing is kept unless you press Keep.
 - It is a small model and it can be wrong. Every note shows the passage it was given, and says so when it
   only read part of a long text. Check anything that matters against the article.
 
@@ -70,7 +78,9 @@ what you saved and suggest additions, which you accept or dismiss.
 
 - Notes are Markdown with a live preview. Type `/` for blocks, `[[Title]]` to link an item,
   `[[Title#^ref]]` or `![[Title#^ref]]` to link or embed a highlight, and `$…$` or `$$…$$` for math.
-- Each item shows what links to it.
+- Each item shows what links to it, and a small **graph** of what it touches.
+- The **graph** of a folder (from the library's toolbar, or `Ctrl+K`) draws your items as dots, `[[links]]` as
+  lines, and topics that two or more items share as small squares. Press a dot to open it.
 - Drag a block to move it, and fold headings and lists.
 
 **Review**
