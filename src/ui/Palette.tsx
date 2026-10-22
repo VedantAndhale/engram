@@ -9,6 +9,7 @@ import {
   NotebookPen,
   Plus,
   Search,
+  Sparkles,
   Sun,
   Sunrise,
 } from "lucide-react";
@@ -18,6 +19,7 @@ import { folderCtx, visibleFolders } from "../folders/registry";
 import type { Folder, ItemType } from "../model";
 import { dailyNote, openOrCreate } from "../notes/notes";
 import { escapeTitle, sameTitle } from "../notes/links";
+import { openAi } from "../ai/dialog";
 import { closePalette, lastFolder, navigate, openQuickAdd, openShortcuts, setTheme, useUI } from "../store/ui";
 
 /*
@@ -175,6 +177,12 @@ function PaletteDialog() {
         icon: <GitBranch size={16} />,
         label: "GitHub and sync settings",
         run: () => navigate({ name: "setup" }),
+      },
+      {
+        key: "ai",
+        icon: <Sparkles size={16} />,
+        label: "AI on this device: download or remove the model",
+        run: () => openAi({ mode: "settings" }),
       },
       ...(["light", "sepia", "dark"] as const)
         .filter((t) => t !== theme)

@@ -16,10 +16,14 @@ export default defineConfig({
   plugins: [
     react(),
     viteStaticCopy({
-      targets: ["cmaps", "standard_fonts", "wasm", "iccs"].map((dir) => ({
-        src: `node_modules/pdfjs-dist/${dir}/*`,
-        dest: `pdfjs/${dir}`,
-      })),
+      targets: [
+        ...["cmaps", "standard_fonts", "wasm", "iccs"].map((dir) => ({
+          src: `node_modules/pdfjs-dist/${dir}/*`,
+          dest: `pdfjs/${dir}`,
+        })),
+        // The LiteRT-LM runtime for Gemma (src/ai). Served from the app's own origin, never a CDN.
+        { src: "node_modules/@litert-lm/core/wasm/*", dest: "litert", rename: { stripBase: 4 } },
+      ],
     }),
     VitePWA({
       // A new version waits until you choose to reload (see main.tsx), so an update never drops a
@@ -63,6 +67,8 @@ export default defineConfig({
     }),
   ],
   build: { target: "es2022" },
+  // The LiteRT-LM runtime loads its WASM with importScripts, which only a classic worker has.
+  worker: { format: "iife" },
   // Sign-in lives in the server (npm run mcp); in production it shares the app's domain.
   server: { proxy: { "/api": "http://localhost:8787", "/.well-known": "http://localhost:8787" } },
   preview: { headers: siteHeaders },

@@ -123,7 +123,11 @@ export function useFocusTrap(ref: React.RefObject<HTMLElement | null>) {
   }, [ref]);
 }
 
-export function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
+/**
+ * `top` pins the dialog under the top of the window instead of centring it, for a dialog whose
+ * height changes as it runs: centred, it would slide up and down with every change.
+ */
+export function Modal({ title, onClose, children, wide, top }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean; top?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   useFocusTrap(ref);
   useEffect(() => {
@@ -132,7 +136,7 @@ export function Modal({ title, onClose, children, wide }: { title: string; onClo
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
   return (
-    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className={`modal-backdrop ${top ? "modal-top" : ""}`} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div ref={ref} tabIndex={-1} className={`modal ${wide ? "modal-wide" : ""}`} role="dialog" aria-modal="true" aria-label={title}>
         <header>
           <h2>{title}</h2>

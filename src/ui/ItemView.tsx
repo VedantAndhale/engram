@@ -13,8 +13,10 @@ import {
   Highlighter,
   Inbox,
   Link2,
+  MessageSquareText,
   NotebookPen,
   Pencil,
+  Sparkles,
   Star,
   Tag,
   Trash2,
@@ -31,9 +33,12 @@ import { setHabit, useHabit } from "../habit/prefs";
 import { useArticlePosition } from "../reader/articlePosition";
 import { articleHeadings } from "../reader/markdown";
 import { itemLocation, type Annotation, type Folder, type Location } from "../model";
-import { deleteAnnotation, removeItem, restoreItem, setFavorite, setItemBody, setItemTopics, setLocation, updateAnnotation } from "../store/actions";
+import { deleteAnnotation, indexDocument, removeItem, restoreItem, setFavorite, setItemBody, setItemTopics, setLocation, updateAnnotation } from "../store/actions";
+import { pageBlocks, savedText } from "../ai/source";
 import { MoveDialog } from "./Library";
-import { navigate, toast } from "../store/ui";
+import { openAi } from "../ai/dialog";
+import { clearParagraphJump, navigate, toast, useUI } from "../store/ui";
+import { plainAnswer } from "../ai/format";
 import { useAccount } from "../sync/account";
 import type { TitleChoice } from "../editor/completions";
 import { PromptDialog, useMenu } from "./common";
@@ -122,6 +127,25 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
     return () => void (live = false);
   }, [fillable, folder.id, id]);
 
+  // A citation to an article paragraph: scroll to it and flash it.
+  const paragraphJump = useUI((s) => s.paragraphJump);
+  useEffect(() => {
+    if (!paragraphJump || !item || paragraphJump.item !== item.id || !scroller.current) return;
+    clearParagraphJump();
+    const target = findParagraph(scroller.current, paragraphJump.n, paragraphJump.quote);
+    if (!target) {
+      toast("That paragraph is no longer in this article.");
+      return;
+    }
+    // Measured from the paragraph itself, below the top bar, as the highlight jumps do.
+    const root = scroller.current;
+    const bar = root.querySelector(".topbar")?.getBoundingClientRect().height ?? 0;
+    const top = root.scrollTop + target.getBoundingClientRect().top - root.getBoundingClientRect().top - bar - 24;
+    root.scrollTo({ top, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    target.classList.add("para-flash");
+    window.setTimeout(() => target.classList.remove("para-flash"), 1800);
+  }, [paragraphJump, item]);
+
   useEffect(() => {
     if (item) document.title = `${item.title} · Engram`;
     return () => void (document.title = "Engram");
@@ -205,6 +229,34 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
 
   const asMarkdown = () => itemToMarkdown(item, quotes ?? []);
   const at = itemLocation(item);
+  /**
+   * Summary and Ask read a PDF's stored page text. If this device has the PDF but has not read its
+   * text yet, read it first, which can take a while for a long PDF.
+   */
+  const askAi = async (mode: "summarize" | "ask") => {
+    if (!item) return;
+    let text = "";
+    if (item.type === "pdf") {
+      text = pageBlocks(await db.pageText.where("doc").equals(item.id).toArray());
+      if (!text && (await db.blobs.get(item.id))) {
+        toast("Reading the PDF's text. This can take a minute for a long PDF.");
+        await indexDocument(folder.id, item.id);
+        text = pageBlocks(await db.pageText.where("doc").equals(item.id).toArray());
+      }
+      if (!text) return toast("This PDF's text is not on this device yet. Open the PDF once to read it.");
+    } else {
+      text = savedText(item);
+    }
+    if (!text) return toast("This item has no saved text for AI to read.");
+    // A PDF's citations open its pages; a saved article's open its paragraphs in this view.
+    const askFrom =
+      item.type === "pdf"
+        ? { source: { folder: folder.id, doc: item.id } }
+        : item.content?.trim()
+          ? { article: { markdown: item.contentFormat === "markdown" } }
+          : {};
+    openAi(mode === "ask" ? { mode, title: item.title, text, key: item.id, ...askFrom } : { mode, title: item.title, text });
+  };
   const openMenu = (e: React.MouseEvent) =>
     menu.open(e, [
       ...(at
@@ -219,6 +271,8 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
       { label: item.favorite ? "Remove from Favourites" : "Add to Favourites", icon: <Star size={15} />, run: () => void star(!item.favorite) },
       { label: "Rename", icon: <Pencil size={15} />, run: () => setDialog("rename") },
       { label: "Topics", icon: <Tag size={15} />, run: () => setDialog("topics") },
+      { label: "Summarize with AI", icon: <Sparkles size={15} />, run: () => void askAi("summarize") },
+      { label: "Ask about this item", icon: <MessageSquareText size={15} />, run: () => void askAi("ask") },
       {
         label: "Copy as Markdown",
         icon: <Copy size={15} />,
@@ -536,4 +590,14 @@ function useReadingPrefs(): [ReadingPrefs, (p: ReadingPrefs) => void] {
     set(p);
   };
   return [prefs, save];
+}
+
+/** The paragraph a citation names: the numbered one if its text still starts as the quote did, else the paragraph with that text. */
+function findParagraph(root: HTMLElement, n: number, quote: string): HTMLElement | null {
+  const words = (s: string) => s.replace(/[^\p{L}\p{N}]+/gu, "").toLowerCase();
+  const key = words(plainAnswer(quote)).slice(0, 40);
+  const paragraphs = [...root.querySelectorAll<HTMLElement>(".article-text [data-para]")];
+  const numbered = paragraphs.find((el) => el.dataset.para === String(n)) ?? null;
+  if (!key || (numbered && words(numbered.textContent ?? "").startsWith(key))) return numbered;
+  return paragraphs.find((el) => words(el.textContent ?? "").startsWith(key)) ?? null;
 }

@@ -1,5 +1,7 @@
-import { Copy, NotebookPen, StickyNote, Trash2 } from "lucide-react";
+import { Copy, NotebookPen, Sparkles, StickyNote, Trash2 } from "lucide-react";
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { openAi } from "../../ai/dialog";
+import { savedText, sentenceAround } from "../../ai/source";
 import { setHabit, useHabit } from "../../habit/prefs";
 import { HIGHLIGHT_COLORS, type Annotation, type Item } from "../../model";
 import { citation } from "../../notes/export";
@@ -85,6 +87,17 @@ export function SelectionPopover({
         <span className="popover-sep" />
         <button className="icon-btn" title="Highlight and add a note" onClick={() => onHighlight(lastColor(), true)}>
           <StickyNote size={16} />
+        </button>
+        <button
+          className="icon-btn"
+          title="Explain with AI (on this device)"
+          aria-label="Explain with AI"
+          onClick={() => {
+            openAi({ mode: "explain", title: item?.title ?? "this text", text, context: item ? sentenceAround(savedText(item), text) : "" });
+            onClose();
+          }}
+        >
+          <Sparkles size={16} />
         </button>
         <button
           className="icon-btn"

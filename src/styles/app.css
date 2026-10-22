@@ -652,6 +652,11 @@ main {
 .modal-wide {
   width: min(620px, 100%);
 }
+/* A dialog that changes height as it works: anchored at the top so it grows downward, not up and down. */
+.modal-backdrop.modal-top {
+  place-items: start center;
+  padding-top: min(14vh, 120px);
+}
 .modal > header {
   display: flex;
   align-items: center;

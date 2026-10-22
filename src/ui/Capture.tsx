@@ -17,6 +17,9 @@ import {
   type CaptureKind,
 } from "../capture/capture";
 import { pdfUrl } from "../capture/extract";
+import { openAi } from "../ai/dialog";
+import { generate, useAiStatus } from "../ai/engine";
+import { pickTopics, topicsPrompt } from "../ai/prompts";
 import { visibleFolders } from "../folders/registry";
 import { installApp, isIOS, useInstall } from "../lib/install";
 import { setHabit, useHabit } from "../habit/prefs";
@@ -78,6 +81,25 @@ function QuickAddDialog({ prefill }: { prefill: QuickAddPrefill }) {
   const [topics, setTopics] = useState<string[]>([]);
   const [folderId, setFolderId] = useState(prefill.folder ?? lastFolder() ?? "");
   const [busy, setBusy] = useState(false);
+  const [suggesting, setSuggesting] = useState(false);
+  const aiReady = useAiStatus((s) => s.phase === "ready" || s.phase === "loaded" || s.phase === "loading");
+
+  /** Suggests topics from the reader's own list. Without the model, opens its setup instead. */
+  const suggestTopics = async () => {
+    if (!aiReady) return openAi({ mode: "settings" });
+    setSuggesting(true);
+    let answer = "";
+    try {
+      await generate(topicsPrompt(text, allTopics), (piece) => (answer += piece));
+      const picked = pickTopics(answer, allTopics);
+      if (picked.length) setTopics([...new Set([...topics, ...picked])]);
+      else toast("None of your topics fits this text.");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "The suggestion failed.");
+    } finally {
+      setSuggesting(false);
+    }
+  };
 
   const url = asUrl(text);
   const kind: CaptureKind = chosenKind ?? (url ? "link" : "note");
@@ -201,6 +223,11 @@ function QuickAddDialog({ prefill }: { prefill: QuickAddPrefill }) {
         <div className="field">
           <span className="field-label">Topics</span>
           <TopicPicker options={allTopics} value={topics} onChange={setTopics} />
+          {kind !== "link" && text.trim() && allTopics.length > 0 && (
+            <button type="button" className="link" disabled={suggesting} onClick={() => void suggestTopics()}>
+              {suggesting ? "Suggesting…" : "Suggest topics with AI"}
+            </button>
+          )}
         </div>
 
         {folders && folder && <FolderSelect folders={folders} value={folder.id} onChange={setFolderId} />}

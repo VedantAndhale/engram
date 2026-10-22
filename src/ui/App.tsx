@@ -10,6 +10,7 @@ import { Toasts } from "./common";
 import { ItemView } from "./ItemView";
 import { Highlights } from "./Highlights";
 import { Library } from "./Library";
+import { AiDialog } from "./AiDialog";
 import { Palette } from "./Palette";
 import { Search } from "./Search";
 import { Setup } from "./Setup";
@@ -236,6 +237,7 @@ export function App() {
       <QuickAdd />
       <Palette />
       <Shortcuts />
+      <AiDialog />
       <Toasts />
     </div>
   );

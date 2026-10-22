@@ -85,3 +85,17 @@
     padding-inline: max(24px, calc((100% - 224px - 720px) / 2 + 24px));
   }
 }
+
+/* A paragraph an answer cited: it flashes once when the reader is taken to it. */
+.article-text .para-flash {
+  animation: para-flash 1.8s ease-out;
+}
+
+@keyframes para-flash {
+  from {
+    background-color: color-mix(in srgb, #f7d154 45%, transparent);
+  }
+  to {
+    background-color: transparent;
+  }
+}

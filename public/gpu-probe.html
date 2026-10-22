@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Engram GPU probe</title>
+    <style>
+      body { font-family: system-ui, sans-serif; padding: 16px; line-height: 1.4; }
+      button { font: inherit; padding: 10px 16px; }
+      pre { white-space: pre-wrap; background: #f3f3f3; padding: 12px; border-radius: 8px; font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <h1>GPU probe</h1>
+    <p>
+      This checks how large one WebGPU buffer can be on this device. It allocates GPU memory in steps,
+      up to 2 GB, so close other tabs and apps first. Nothing is sent anywhere.
+    </p>
+    <button id="run" type="button">Run probe</button>
+    <pre id="out">Not run yet.</pre>
+    <script src="./gpu-probe.js"></script>
+  </body>
+</html>

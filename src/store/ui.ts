@@ -36,6 +36,15 @@ interface UIState {
   quickAdd: QuickAddPrefill | null;
   palette: boolean;
   shortcuts: boolean;
+  /** A paragraph an answer cites, waiting for its item's article view to scroll to it. */
+  paragraphJump: ParagraphJump | null;
+}
+
+/** A paragraph to show: its number, and its text when the answer was given, to find it if the article moved. */
+export interface ParagraphJump {
+  item: string;
+  n: number;
+  quote: string;
 }
 
 const ID = "[A-Za-z0-9-]+";
@@ -110,7 +119,16 @@ export const useUI = create<UIState>(() => ({
   quickAdd: null,
   palette: false,
   shortcuts: false,
+  paragraphJump: null,
 }));
+
+/** Ask the open item's article view to show a paragraph. */
+export function jumpToParagraph(item: string, n: number, quote: string): void {
+  useUI.setState({ paragraphJump: { item, n, quote } });
+}
+export function clearParagraphJump(): void {
+  useUI.setState({ paragraphJump: null });
+}
 
 export const openPalette = () => useUI.setState({ palette: true });
 export const closePalette = () => useUI.setState({ palette: false });
