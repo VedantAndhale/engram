@@ -137,9 +137,14 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
       toast("That paragraph is no longer in this article.");
       return;
     }
-    // Measured from the paragraph itself, below the top bar, as the highlight jumps do.
+    // Measured from the paragraph itself, below the sticky bars (the top bar and the article's tools
+    // under it), as the highlight jumps do. Each bar's place is where it sticks, not where it sits.
     const root = scroller.current;
-    const bar = root.querySelector(".topbar")?.getBoundingClientRect().height ?? 0;
+    const stuckBottom = (sel: string) => {
+      const el = root.querySelector<HTMLElement>(sel);
+      return el ? parseFloat(getComputedStyle(el).top) + el.offsetHeight : 0;
+    };
+    const bar = Math.max(stuckBottom(".topbar"), stuckBottom(".article-tools"));
     const top = root.scrollTop + target.getBoundingClientRect().top - root.getBoundingClientRect().top - bar - 24;
     root.scrollTo({ top, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
     target.classList.add("para-flash");
