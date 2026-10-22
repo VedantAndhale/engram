@@ -6,7 +6,8 @@ import { plainAnswer } from "../ai/format";
 import { clearThread, passageBudget, roomTokens, threadOf, useThreads, type Turn } from "../ai/thread";
 import { FULL, answerTurn, turnContext } from "../ai/turn";
 import { AnswerBody, type Cite } from "../reader/markdown";
-import { navigate, toast, jumpToParagraph } from "../store/ui";
+import { navigate, jumpToParagraph } from "../store/ui";
+import { CopyButton } from "./interior/CopyButton";
 
 /** The Ask dialog's conversation: the item's questions and answers, with a box for the next one. */
 export function AskThread({ task }: { task: AskTask }) {
@@ -67,15 +68,6 @@ export function AskThread({ task }: { task: AskTask }) {
     };
   };
 
-  const copy = async (turn: Turn) => {
-    try {
-      await navigator.clipboard.writeText([plainAnswer(turn.answer), turn.note].filter(Boolean).join("\n\n"));
-      toast("Copied.");
-    } catch {
-      toast("Couldn't copy. Select the text and copy it instead.");
-    }
-  };
-
   return (
     <>
       {thread.turns.length === 0 && !pending && (
@@ -100,9 +92,7 @@ export function AskThread({ task }: { task: AskTask }) {
           )}
           {turn.note && <p className="hint">{turn.note}</p>}
           <div className="ai-actions">
-            <button className="btn" onClick={() => void copy(turn)}>
-              Copy
-            </button>
+            <CopyButton value={[plainAnswer(turn.answer), turn.note].filter(Boolean).join("\n\n")} />
           </div>
           {turn.sources.length > 0 && (
             <details className="ai-sources">

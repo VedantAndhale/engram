@@ -7,9 +7,9 @@ import { DEFINE_MAX_WORDS, EXPLAIN_LIMIT, quickPrompt, sourceCut, summarizePromp
 import { plainAnswer } from "../ai/format";
 import "../ai/ai.css";
 import { AnswerBody } from "../reader/markdown";
-import { toast } from "../store/ui";
 import { ConfirmDialog, Modal } from "./common";
 import { AskThread } from "./AskThread";
+import { CopyButton } from "./interior/CopyButton";
 
 /** Mounted once in the app; shows whichever AI dialog is open. */
 export function AiDialog() {
@@ -93,15 +93,6 @@ function AiModal({ task }: { task: Exclude<AiTask, { mode: "remove" }> }) {
     setQuick(action);
     const cut = sourceCut(task.text, EXPLAIN_LIMIT);
     void answer(quickPrompt(action, task.text, task.title, task.context), cut.cut ? { kind: "explain", used: cut.used, total: cut.total } : null);
-  };
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText([plainAnswer(output), note].filter(Boolean).join("\n\n"));
-      toast("Copied.");
-    } catch {
-      toast("Couldn't copy. Select the text and copy it instead.");
-    }
   };
 
   return (
@@ -194,9 +185,7 @@ function AiModal({ task }: { task: Exclude<AiTask, { mode: "remove" }> }) {
                 <>
                   <p className="hint">Written by {GEMMA.name} on this device. Check it against the original before you rely on it.</p>
                   <div className="ai-actions">
-                    <button className="btn" onClick={() => void copy()}>
-                      Copy
-                    </button>
+                    <CopyButton value={[plainAnswer(output), note].filter(Boolean).join("\n\n")} />
                   </div>
                 </>
               )}

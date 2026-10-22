@@ -1,3 +1,4 @@
+import { AnimatePresence } from "motion/react";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { QUICK_ACTIONS, type QuickAction } from "../../ai/dialog";
@@ -234,39 +235,45 @@ export function ArticleView({
       </div>
       {inlineNotes && <InlineNotes item={item.id} slots={slots} />}
 
-      {selection && (
-        <SelectionPopover
-          anchor={selection.anchor}
-          text={selection.range.toString()}
-          item={item}
-          ai={{
-            actions: QUICK_ACTIONS.filter((a) => a !== "define" || wordCount(selection.range.toString()) <= DEFINE_MAX_WORDS),
-            onAction: (action) => askAbout(selection.range, action),
-            onAsk: (question) => askAbout(selection.range, "ask", question),
-          }}
-          onHighlight={(color, withNote) => void highlight(color, selection.range, withNote)}
-          onClose={() => setSelection(null)}
-        />
-      )}
-      {picked && pickedAnnotation && (
-        <AnnotationPopover
-          anchor={picked.anchor}
-          annotation={pickedAnnotation}
-          item={item}
-          startEditing={picked.edit}
-          onChange={(patch) => void updateAnnotation(folder.id, pickedAnnotation.id, patch)}
-          onDelete={async () => {
-            setPicked(null);
-            await deleteAnnotation(folder.id, pickedAnnotation.id);
-            toast("Highlight deleted", { action: { label: "Undo", run: () => void updateAnnotation(folder.id, pickedAnnotation.id, { deleted: false }) } });
-          }}
-          onMakeNote={async () => {
-            const note = await noteFromHighlight(folder.id, item, pickedAnnotation.quote!);
-            navigate({ name: "item", folder: folder.id, item: note.id });
-          }}
-          onClose={() => setPicked(null)}
-        />
-      )}
+      <AnimatePresence>
+        {selection && (
+          <SelectionPopover
+            key="selection"
+            anchor={selection.anchor}
+            text={selection.range.toString()}
+            item={item}
+            ai={{
+              actions: QUICK_ACTIONS.filter((a) => a !== "define" || wordCount(selection.range.toString()) <= DEFINE_MAX_WORDS),
+              onAction: (action) => askAbout(selection.range, action),
+              onAsk: (question) => askAbout(selection.range, "ask", question),
+            }}
+            onHighlight={(color, withNote) => void highlight(color, selection.range, withNote)}
+            onClose={() => setSelection(null)}
+          />
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {picked && pickedAnnotation && (
+          <AnnotationPopover
+            key="picked"
+            anchor={picked.anchor}
+            annotation={pickedAnnotation}
+            item={item}
+            startEditing={picked.edit}
+            onChange={(patch) => void updateAnnotation(folder.id, pickedAnnotation.id, patch)}
+            onDelete={async () => {
+              setPicked(null);
+              await deleteAnnotation(folder.id, pickedAnnotation.id);
+              toast("Highlight deleted", { action: { label: "Undo", run: () => void updateAnnotation(folder.id, pickedAnnotation.id, { deleted: false }) } });
+            }}
+            onMakeNote={async () => {
+              const note = await noteFromHighlight(folder.id, item, pickedAnnotation.quote!);
+              navigate({ name: "item", folder: folder.id, item: note.id });
+            }}
+            onClose={() => setPicked(null)}
+          />
+        )}
+      </AnimatePresence>
     </>
   );
 }

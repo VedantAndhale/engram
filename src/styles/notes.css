@@ -183,14 +183,6 @@
   background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
-/* Waiting for the model: the download offer, progress, and a pen that is still writing. */
-.note .note-wait {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 0;
-  color: var(--muted);
-}
 .note-writing {
   display: inline-block;
   flex: none;
@@ -219,11 +211,6 @@
 .note .note-setup p,
 .note .note-error p {
   margin: 0;
-}
-.note .note-setup progress {
-  width: 100%;
-  height: 8px;
-  accent-color: var(--accent);
 }
 .note .note-error {
   display: grid;
@@ -443,10 +430,7 @@
   transition: border-color 0.15s ease;
 }
 
-/* Copied: the same icon box, in the accent. Deleting: red only when pointed at, so it is never the loudest thing. */
-.note-foot .icon-btn.is-done {
-  color: var(--accent);
-}
+/* Deleting: red only when pointed at, so it is never the loudest thing. */
 .note-foot .note-trash:hover:not(:disabled),
 .note-foot .note-model-delete:hover {
   color: var(--danger);

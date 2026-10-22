@@ -1,0 +1,138 @@
+/*
+ * Styles for the components in ui/interior/, which are adapted from interior.dev's. Their own markup used
+ * Tailwind utilities; these are the same shapes in this app's variables, so all three themes follow.
+ */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  border: 0;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Copy button: the copy, check and cross marks share one cell, and so do the labels. */
+.copy-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  user-select: none;
+  touch-action: manipulation;
+}
+.copy-cell {
+  display: grid;
+  flex: none;
+  width: 15px;
+  height: 15px;
+}
+.copy-cell > svg {
+  grid-area: 1 / 1;
+  width: 15px;
+  height: 15px;
+}
+.copy-labels {
+  display: grid;
+}
+.copy-labels > span {
+  grid-area: 1 / 1;
+  white-space: nowrap;
+}
+.copy-btn.is-copied {
+  color: var(--accent);
+}
+.copy-btn.is-error {
+  color: var(--danger);
+}
+
+/* Progress bar: a determinate fill that springs, or a sweep while the total is not known. */
+.pbar {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+}
+.pbar-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.pbar-label {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pbar-read {
+  display: grid;
+  flex: none;
+  justify-items: end;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 20px;
+}
+.pbar-read > span {
+  grid-area: 1 / 1;
+  white-space: nowrap;
+}
+.pbar-percent {
+  font-variant-numeric: tabular-nums;
+}
+.pbar-track {
+  padding: 2px;
+  border-radius: 5px;
+  background: var(--surface-2);
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.18);
+}
+.pbar-lane {
+  position: relative;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 3px;
+}
+.pbar-fill {
+  position: absolute;
+  inset: 0;
+  display: block;
+  border-radius: 3px;
+  background: var(--accent);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.3),
+    inset 0 -1px 0 rgb(0 0 0 / 0.18);
+  transform-origin: left;
+}
+.pbar-sweep {
+  right: auto;
+  width: 40%;
+}
+
+/* Skeleton swap: the placeholder and the content stack in one cell. */
+.swap {
+  position: relative;
+  display: grid;
+}
+.swap > * {
+  grid-area: 1 / 1;
+  min-width: 0;
+}
+.swap-skeleton {
+  align-self: start;
+  width: 100%;
+  pointer-events: none;
+}
+.swap-line {
+  display: flex;
+  align-items: center;
+}
+.swap-bar {
+  border-radius: 5px;
+  background: var(--surface-2);
+}

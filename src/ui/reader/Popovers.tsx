@@ -1,28 +1,44 @@
 import "../../styles/notes.css";
 import { ArrowUp, Copy, NotebookPen, Sparkles, StickyNote, Trash2 } from "lucide-react";
+import { m, useIsPresent, useReducedMotion } from "motion/react";
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { openAi, QUICK_LABEL, type QuickAction } from "../../ai/dialog";
 import { savedText, sentenceAround } from "../../ai/source";
 import { setHabit, useHabit } from "../../habit/prefs";
 import { HIGHLIGHT_COLORS, type Annotation, type Item } from "../../model";
 import { citation } from "../../notes/export";
+import { Lazy } from "../interior/Lazy";
 
 // The Markdown editor, loaded when a note is first written (as ItemView does), so CodeMirror stays out of the reader's first load.
 const Editor = lazy(() => import("../../editor/Editor"));
 
-/** A small floating panel pinned under (or above, if there's no room) an on-screen rectangle. */
+/** The springs and the 130 ms exit of interior.dev's Popover. */
+const POPOVER_SPRING = { type: "spring", stiffness: 260, damping: 34, mass: 0.8 } as const;
+const POPOVER_EASE = [0.23, 1, 0.32, 1] as const;
+
+/**
+ * A small floating panel pinned under (or above, if there's no room) an on-screen rectangle. It grows from
+ * the side facing that rectangle, at the middle of it, so it reads as coming from what you selected, and
+ * it fades out when its parent lets it (inside AnimatePresence). With reduced motion it only fades.
+ */
 function Floating({ anchor, onClose, children, label }: { anchor: DOMRect; onClose: () => void; children: ReactNode; label: string }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  const [pos, setPos] = useState<{ left: number; top: number; originX: number; originY: number } | null>(null);
+  const reduced = useReducedMotion();
+  // Leaving: still drawn for a moment, but no longer something to click.
+  const present = useIsPresent();
 
   useLayoutEffect(() => {
     const el = ref.current!;
-    const { width, height } = el.getBoundingClientRect();
+    // The layout size, which the entry's scale does not change.
+    const { offsetWidth: width, offsetHeight: height } = el;
     const margin = 8;
     let top = anchor.bottom + margin;
     if (top + height > window.innerHeight - margin) top = Math.max(margin, anchor.top - height - margin);
     const left = Math.min(Math.max(margin, anchor.left + anchor.width / 2 - width / 2), window.innerWidth - width - margin);
-    setPos({ left, top });
+    // Where it grows from, as fractions of its own size: the middle of the anchor, on the side that faces it.
+    const originX = width > 0 ? Math.min(Math.max(0, (anchor.left + anchor.width / 2 - left) / width), 1) : 0.5;
+    setPos({ left, top, originX, originY: top >= anchor.bottom ? 0 : 1 });
   }, [anchor]);
 
   useEffect(() => {
@@ -41,9 +57,21 @@ function Floating({ anchor, onClose, children, label }: { anchor: DOMRect; onClo
   }, [onClose]);
 
   return (
-    <div ref={ref} className="popover" role="dialog" aria-label={label} style={pos ?? { left: -9999, top: -9999 }}>
-      {children}
-    </div>
+    <Lazy>
+      <m.div
+        ref={ref}
+        className="popover"
+        role="dialog"
+        aria-label={label}
+        style={{ left: pos?.left ?? -9999, top: pos?.top ?? -9999, originX: pos?.originX ?? 0.5, originY: pos?.originY ?? 0, pointerEvents: present ? undefined : "none" }}
+        initial={reduced ? { opacity: 0 } : { opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={reduced ? { opacity: 0, transition: { duration: 0.1 } } : { opacity: 0, scale: 0.97, transition: { duration: 0.13, ease: POPOVER_EASE } }}
+        transition={reduced ? { duration: 0 } : { ...POPOVER_SPRING, opacity: { duration: 0.14, ease: POPOVER_EASE } }}
+      >
+        {children}
+      </m.div>
+    </Lazy>
   );
 }
 
@@ -78,7 +106,10 @@ export interface SelectionAi {
 function AskBox({ onAsk }: { onAsk: (question: string) => void }) {
   const input = useRef<HTMLInputElement>(null);
   const [q, setQ] = useState("");
+  // While the popover fades out it must not keep catching keys.
+  const present = useIsPresent();
   useEffect(() => {
+    if (!present) return;
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
       if (e.key.length !== 1 || e.metaKey || e.ctrlKey || e.altKey || el?.closest("input, textarea, select, [contenteditable]")) return;
@@ -90,7 +121,7 @@ function AskBox({ onAsk }: { onAsk: (question: string) => void }) {
     // Captured, so the item's one-letter shortcuts (archive, favourite) don't fire on the way.
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, []);
+  }, [present]);
   return (
     <form
       className="popover-ask"

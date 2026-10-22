@@ -31,6 +31,7 @@
     "katex": "^0.16.47",
     "lucide-react": "^1.54.0",
     "minisearch": "^7.2.0",
+    "motion": "^14.6.0",
     "pdfjs-dist": "^6.4.299",
     "perfect-freehand": "^1.2.3",
     "react": "^19.3.0",

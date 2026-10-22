@@ -1,5 +1,5 @@
 import "../../styles/notes.css";
-import { ArrowUp, Check, ChevronsDownUp, Copy, CornerDownRight, Square, Trash2 } from "lucide-react";
+import { ArrowUp, ChevronsDownUp, CornerDownRight, Square, Trash2 } from "lucide-react";
 import { forwardRef, useState, type CSSProperties } from "react";
 import { openAi } from "../../ai/dialog";
 import { download, stopDownload, useAiStatus } from "../../ai/engine";
@@ -8,8 +8,11 @@ import { GEMMA } from "../../ai/model";
 import { followUp, openNote, removeNote, retryNote, stopNote, threadKey, type Note, type NoteAction } from "../../ai/notes";
 import { passageBudget, threadOf, useThreads, type Turn } from "../../ai/thread";
 import { AnswerBody, type Cite } from "../../reader/markdown";
-import { jumpToParagraph, toast } from "../../store/ui";
+import { jumpToParagraph } from "../../store/ui";
 import { useElapsed } from "../AiDialog";
+import { CopyButton } from "../interior/CopyButton";
+import { ProgressBar } from "../interior/ProgressBar";
+import { SkeletonSwap } from "../interior/SkeletonSwap";
 
 export const LABEL: Record<NoteAction, string> = {
   ask: "Question",
@@ -46,7 +49,6 @@ export const NoteCard = forwardRef<
   const thread = useThreads((s) => s.threads[threadKey(note)]) ?? threadOf(threadKey(note));
   const status = useAiStatus();
   const [draft, setDraft] = useState("");
-  const [copied, setCopied] = useState(false);
   const [peek, setPeek] = useState<Peek | null>(null);
   const loadingSeconds = useElapsed(status.phase === "loading");
 
@@ -76,21 +78,13 @@ export const NoteCard = forwardRef<
           peek: (n, el) => setPeek(el && turn.quotes[n] ? { n, text: turn.quotes[n], rect: el.getBoundingClientRect() } : null),
         };
 
-  const copy = async () => {
-    const text = [
-      note.anchor.quote ? `“${note.anchor.quote}”` : null,
-      ...turns.map((t, i) => [i > 0 || note.action === "ask" ? `Q: ${t.question}` : null, plainAnswer(t.answer), t.note].filter(Boolean).join("\n\n")),
-    ]
-      .filter(Boolean)
-      .join("\n\n");
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1400);
-    } catch {
-      toast("Couldn't copy. Select the text and copy it instead.");
-    }
-  };
+  /** What Copy puts on the clipboard: the passage, then each question and answer with the coverage line. */
+  const copyText = [
+    note.anchor.quote ? `“${note.anchor.quote}”` : null,
+    ...turns.map((t, i) => [i > 0 || note.action === "ask" ? `Q: ${t.question}` : null, plainAnswer(t.answer), t.note].filter(Boolean).join("\n\n")),
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
   const submit = () => {
     const q = draft.trim();
@@ -194,15 +188,15 @@ export const NoteCard = forwardRef<
                 <CornerDownRight size={14} aria-hidden /> {note.pending.question}
               </p>
             )}
-            {note.pending.text ? (
-              <div className="note-answer" aria-live="polite">
-                <AnswerBody text={note.pending.text} />
-              </div>
-            ) : (
-              <p className="note-wait" role="status">
-                <span className="note-writing" aria-hidden />
-                {status.phase === "loading" ? `Loading the model… ${loadingSeconds} s. The first load after a restart can take a few minutes. Keep reading.` : "Writing…"}
-              </p>
+            <SkeletonSwap ready={!!note.pending.text} label="Answer">
+              {note.pending.text ? (
+                <div className="note-answer" aria-live="polite">
+                  <AnswerBody text={note.pending.text} />
+                </div>
+              ) : null}
+            </SkeletonSwap>
+            {!note.pending.text && status.phase === "loading" && (
+              <p className="hint note-loading">Loading the model… {loadingSeconds} s. The first load after a restart can take a few minutes. Keep reading.</p>
             )}
           </div>
         )}
@@ -211,11 +205,13 @@ export const NoteCard = forwardRef<
           <div className="note-setup">
             {status.phase === "downloading" ? (
               <>
-                <p>
-                  Downloading {GEMMA.name}… {status.progress ? Math.round((status.progress.received / status.progress.total) * 100) : 0}%. Keep reading. Your {asked} is saved and will be answered
-                  when it is ready.
-                </p>
-                <progress max={100} value={status.progress ? Math.round((status.progress.received / status.progress.total) * 100) : 0} aria-label="Download progress" />
+                <ProgressBar
+                  label={`Downloading ${GEMMA.name}`}
+                  value={status.progress && status.progress.received > 0 ? (status.progress.received / status.progress.total) * 100 : null}
+                  pendingLabel="Starting"
+                  completeLabel="Downloaded"
+                />
+                <p className="hint">Keep reading. Your {asked} is saved and will be answered when it is ready.</p>
                 <div className="note-actions">
                   <button className="btn" onClick={stopDownload}>
                     Stop download
@@ -264,11 +260,7 @@ export const NoteCard = forwardRef<
           </button>
         ) : (
           <>
-            {turns.length > 0 && (
-              <button className={`icon-btn${copied ? " is-done" : ""}`} aria-label={copied ? "Copied" : "Copy"} title={copied ? "Copied" : "Copy"} onClick={() => void copy()}>
-                {copied ? <Check size={15} /> : <Copy size={15} />}
-              </button>
-            )}
+            {turns.length > 0 && <CopyButton iconOnly value={copyText} />}
             <button className="icon-btn note-trash" aria-label="Delete note" title="Delete note" onClick={() => removeNote(note.id)}>
               <Trash2 size={15} />
             </button>
