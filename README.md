@@ -13,6 +13,10 @@ your own notes. Everything you keep is a Markdown file, with your highlights and
 it. Each folder syncs to a private GitHub repository in your account, so your library is on every
 device, and it stays readable as plain Markdown without Engram.
 
+Engram reads with you. Select a passage in a saved article and a small language model, running in your
+browser on your own device, answers in a note beside it: explain it, define it, put it more simply, or
+argue the other side. Nothing you read is sent to an AI service, and Engram's server makes no AI calls.
+
 Engram is also a memory for AI agents. Connect one through MCP and it can search your library, read
 what you saved and suggest additions, which you accept or dismiss.
 
@@ -43,6 +47,24 @@ what you saved and suggest additions, which you accept or dismiss.
   highlight, `D` pen, `E` eraser, `N` notes, `/` find.
 - On a phone or tablet, pick the highlighter or pen. One finger marks, two fingers scroll.
 - Export a PDF's highlights and notes as a Markdown file.
+
+**Understand, on your device**
+
+- Select text in a saved article to **Explain**, **Define** (for a word or short phrase), **Simplify** or
+  hear the **Counterpoint**, or just start typing a question about the passage. The answer appears as a
+  note beside it, with the words it is about marked in the text. On a narrow window the note sits under
+  the paragraph instead.
+- A bar at the foot of the article asks about the whole thing, and **Summarize** gives the gist. Each
+  note keeps its own thread, so you can ask follow-ups inside it.
+- Answers cite the paragraphs they used as `¶7`. Point at one to preview that paragraph; click to go to
+  it. A PDF's answers cite its pages.
+- The model is Gemma 4 E2B, run in your browser with WebGPU. The first question offers to download it,
+  once: about 2 GB, from Hugging Face. Your question waits and is answered when the download ends. After
+  that it works offline. **Delete model** is in every note and in the command palette, and frees the space.
+- It needs a browser with WebGPU (a recent Chrome or Edge on a computer with a graphics card). Without
+  it, the rest of Engram works as before.
+- It is a small model and it can be wrong. Every note shows the passage it was given, and says so when it
+  only read part of a long text. Check anything that matters against the article.
 
 **Write**
 
@@ -87,7 +109,13 @@ what you saved and suggest additions, which you accept or dismiss.
 | --- | --- |
 | Your browser (IndexedDB) | Items, PDFs, highlights and notes, reading positions, uploads waiting to sync, agent suggestions, the search text |
 | Your GitHub account, one private repository per folder | Items as Markdown, PDFs, highlights, reading positions, the folder's search index, and agent suggestions waiting in `inbox/` |
+| Your browser's cache storage | The AI model (about 2 GB), only if you chose to download it. It is not synced and not in your repositories |
 | Engram's server | Nothing of yours is kept. It exchanges GitHub's sign-in code for a token, answers MCP requests using your own GitHub access, fetches pages for links you save, writes agent suggestions into your repository's `inbox/`, and, on sign-in, records your primary GitHub email, login and name in the Airtable table its owner configures |
+
+**The AI model.** The model file comes straight from Hugging Face to your browser, and is checked
+against its exact size before it is kept. Your questions, the text you read and the answers stay on your
+device: AI notes live in memory and are gone when you reload the page. Deleting the model removes the file
+and clears the notes it wrote. To use an agent of your own instead, connect it through MCP.
 
 **Page views.** The hosted site counts page views with [GoatCounter](https://www.goatcounter.com/). It
 counts the screen you open (today, library, item, search), never folder or item IDs, page or item
@@ -104,7 +132,8 @@ Content-Security-Policy: scripts only from Engram itself and YouTube's player.
 
 **Limits to plan around.** GitHub repositories should stay under about 5 GB, with a 100 MB limit per
 file and a rate limit on API requests, so large PDF or video libraries need care. The iPhone has no
-share sheet for Engram yet.
+share sheet for Engram yet. The on-device model needs about 2 GB of free space, can take minutes to load the
+first time after a restart, and runs one answer at a time.
 
 ## Run it yourself
 
@@ -142,7 +171,8 @@ If you host Engram yourself, your host keeps its own request logs.
 ## Tech
 
 React 19, TypeScript, Vite, pdf.js, Dexie (IndexedDB), MiniSearch, Zustand, CodeMirror 6, KaTeX,
-Mozilla Readability, perfect-freehand and the MCP TypeScript SDK.
+Mozilla Readability, perfect-freehand, the MCP TypeScript SDK, and, for on-device AI, LiteRT-LM running
+Gemma 4 E2B on WebGPU, with Motion for small movements.
 
 ## Status and roadmap
 
