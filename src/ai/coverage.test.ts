@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { pickPassages, type Picked } from "./chunks";
-import { coverageLine, labelsIn, pagesIn, paragraphsIn } from "./coverage";
+import { coverageLine, labelsIn, numberList, pagesIn, paragraphsIn } from "./coverage";
 import { askPrompt, explainPrompt, EXPLAIN_LIMIT, sourceCut, summarizePrompt, SOURCE_LIMIT } from "./prompts";
 
 const picked = (patch: Partial<Picked>): Picked => ({ texts: [], indexes: [], sent: 2, passages: 4, usedChars: 900, totalChars: 3000, fallback: false, ...patch });
@@ -62,6 +62,18 @@ test("an Ask that used everything has no coverage line", () => {
 test("askPrompt adds the partial note only when some passages were left out", () => {
   assert.match(askPrompt("q", ["p"], "T", true), /Only some passages/);
   assert.doesNotMatch(askPrompt("q", ["p"], "T", false), /Only some passages/);
+});
+
+test("an article's Ask line says paragraphs, and shortens a run of them to a range", () => {
+  const line = coverageLine({ kind: "ask", picked: picked({ sent: 3, passages: 8, usedChars: 3600, totalChars: 9000 }), pages: [1, 2, 3, 4, 5, 9, 12], cite: "para" });
+  assert.equal(line, "Based on 3 of 8 passages (paragraphs 1–5, 9, 12), about 3,600 of 9,000 characters. The rest of this item was not used.");
+});
+
+test("numberList keeps runs of two as they are and shortens runs of three or more", () => {
+  assert.equal(numberList([3, 4, 9]), "3, 4, 9");
+  assert.equal(numberList([1, 2, 3]), "1–3");
+  assert.equal(numberList([2, 5, 6, 7, 8, 11]), "2, 5–8, 11");
+  assert.equal(numberList([]), "");
 });
 
 test("pagesIn reads the page labels, in order, without repeats", () => {

@@ -1,6 +1,6 @@
 import { GFM, parser } from "@lezer/markdown";
 import type { SyntaxNode } from "@lezer/common";
-import { cloneElement, isValidElement, type ReactNode } from "react";
+import { Fragment, cloneElement, isValidElement, type ReactNode } from "react";
 import { externalUrl } from "../lib/util";
 import { MARKS, topBlocks, type CiteKind } from "./paragraphs";
 
@@ -30,6 +30,8 @@ export interface Cite {
   numbers: Set<number>;
   /** Opens the page or paragraph a citation names. */
   onOpen: (n: number) => void;
+  /** Told when a citation is pointed at (its button) or left (null), so a preview of what it names can show. */
+  peek?: (n: number, button: HTMLElement | null) => void;
 }
 const ARTICLE: Opts = { ai: false };
 
@@ -74,7 +76,8 @@ export function articleHeadings(text: string): ArticleHeading[] {
     .filter((h) => h.text !== "");
 }
 
-export function ArticleBody({ text, markdown }: { text: string; markdown: boolean }) {
+/** `after` draws something under paragraph `n`, such as the AI notes about it. Its elements must carry data-note. */
+export function ArticleBody({ text, markdown, after }: { text: string; markdown: boolean; after?: (n: number) => ReactNode }) {
   if (!markdown) {
     return (
       <>
@@ -83,9 +86,10 @@ export function ArticleBody({ text, markdown }: { text: string; markdown: boolea
           .map((l) => l.trim())
           .filter(Boolean)
           .map((l, i) => (
-            <p key={i} data-para={i + 1}>
-              {l}
-            </p>
+            <Fragment key={i}>
+              <p data-para={i + 1}>{l}</p>
+              {after?.(i + 1)}
+            </Fragment>
           ))}
       </>
     );
@@ -95,7 +99,12 @@ export function ArticleBody({ text, markdown }: { text: string; markdown: boolea
   // Each top-level block carries its paragraph number, the one the model cites as [¶n] (see reader/paragraphs.ts).
   return (
     <>
-      {topBlocks(tree.topNode).map((c, i) => numbered(block(c, text, i, ids, ARTICLE), i + 1))}
+      {topBlocks(tree.topNode).map((c, i) => (
+        <Fragment key={i}>
+          {numbered(block(c, text, i, ids, ARTICLE), i + 1)}
+          {after?.(i + 1)}
+        </Fragment>
+      ))}
     </>
   );
 }
@@ -138,7 +147,16 @@ const escapeLabels = (text: string) => text.replace(LABEL, (m) => m.replace("[",
 function citeChip(kind: CiteKind, n: number, key: number, cite: Cite): ReactNode {
   const label = kind === "para" ? `¶${n}` : `Page ${n}`;
   return cite.kind === kind && cite.numbers.has(n) ? (
-    <button key={key} type="button" className="cite" onClick={() => cite.onOpen(n)}>
+    <button
+      key={key}
+      type="button"
+      className="cite"
+      onClick={() => cite.onOpen(n)}
+      onMouseEnter={(e) => cite.peek?.(n, e.currentTarget)}
+      onMouseLeave={() => cite.peek?.(n, null)}
+      onFocus={(e) => cite.peek?.(n, e.currentTarget)}
+      onBlur={() => cite.peek?.(n, null)}
+    >
       {label}
     </button>
   ) : (

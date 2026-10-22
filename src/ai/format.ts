@@ -3,6 +3,25 @@
  * so what a reader copies should read as plain words too, not as raw Markdown marks.
  */
 
+/**
+ * The one line that stands for an answer in a closed note: its first sentence, without Markdown marks or
+ * citations, cut at a word if it runs long. Empty for an empty answer.
+ */
+export function firstSentence(md: string, max = 150): string {
+  // The first paragraph, and in a list only its first item: the sentence must not run on into the next one.
+  const plain = (plainAnswer(md).split(/\n\s*\n/)[0] ?? "")
+    .split(/\n(?=•|\d+\. )/)[0]
+    .replace(/\[(?:Pages?|¶)\s?[\d][\d ,]*\]/g, "")
+    .replace(/^•\s*/, "")
+    .replace(/\s+/g, " ")
+    .replace(/\s+([.,;:!?])/g, "$1")
+    .trim();
+  const sentence = /^(.+?[.!?])(?=\s|$)/.exec(plain)?.[1] ?? plain;
+  if (sentence.length <= max) return sentence;
+  const cut = sentence.slice(0, max);
+  return `${cut.slice(0, Math.max(cut.lastIndexOf(" "), max * 0.6))}…`;
+}
+
 /** The answer with its Markdown marks removed: emphasis, code, headings, list markers and link addresses. */
 export function plainAnswer(md: string): string {
   return md

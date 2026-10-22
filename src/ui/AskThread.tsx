@@ -1,28 +1,12 @@
 import { useMemo, useRef, useState } from "react";
-import { articlePassages, chunkText, pickPassages } from "../ai/chunks";
-import { coverageLine, labelsIn, type Coverage } from "../ai/coverage";
-import { closeAi, type AskTask } from "../ai/dialog";
+import { closeAi, STARTER_QUESTIONS, type AskTask } from "../ai/dialog";
 import { dropThread, generate } from "../ai/engine";
 import { GEMMA } from "../ai/model";
 import { plainAnswer } from "../ai/format";
-import { askPrompt, followUpPrompt } from "../ai/prompts";
-import { addTurn, clearThread, markRebuild, passageBudget, roomTokens, skippable, syncText, threadOf, useThreads, type Turn } from "../ai/thread";
-import { paragraphsOf, type CiteKind } from "../reader/paragraphs";
+import { clearThread, passageBudget, roomTokens, threadOf, useThreads, type Turn } from "../ai/thread";
+import { FULL, answerTurn, turnContext } from "../ai/turn";
 import { AnswerBody, type Cite } from "../reader/markdown";
 import { navigate, toast, jumpToParagraph } from "../store/ui";
-
-/** Starting points for an empty thread, so an empty box is not a blank page. Each one asks at once. */
-const QUESTIONS = ["What is the main point?", "What examples does it give?", "Which people, places or dates come up?"];
-
-/** A short fingerprint of the item's text, so a change since an answer can be told. */
-function fingerprint(s: string): string {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return `${s.length}:${(h >>> 0).toString(16)}`;
-}
 
 /** The Ask dialog's conversation: the item's questions and answers, with a box for the next one. */
 export function AskThread({ task }: { task: AskTask }) {
@@ -34,72 +18,30 @@ export function AskThread({ task }: { task: AskTask }) {
   const answering = useRef<AbortController | null>(null);
 
   const src = task.source;
+  const ctx = useMemo(
+    () => turnContext({ key: task.key, title: task.title, text: task.text, page: !!src, article: task.article }),
+    [task.key, task.title, task.text, src, task.article],
+  );
   /** What a citation names: a PDF's page, or an article's paragraph. Null when the item has neither. */
-  const cite: CiteKind | null = src ? "page" : task.article ? "para" : null;
-  const textKey = useMemo(() => fingerprint(task.text), [task.text]);
-  const paragraphs = useMemo(() => (task.article ? paragraphsOf(task.text, task.article.markdown) : []), [task.text, task.article]);
-  const chunks = useMemo(() => (task.article ? articlePassages(paragraphs) : chunkText(task.text)), [task.text, task.article, paragraphs]);
-  const paragraphText = useMemo(() => new Map(paragraphs.map((p) => [p.n, p.text])), [paragraphs]);
+  const cite = ctx.cite;
+  const textKey = ctx.textKey;
   const full = thread.turns.length > 0 && passageBudget(thread) === 0;
 
   const send = async (q: string) => {
     const asked = q.trim();
     if (!asked || busy) return;
-    // The item may have been saved again since the thread began: its passages then need sending again.
-    syncText(task.key, textKey);
-    const cur = threadOf(task.key);
-    const limit = passageBudget(cur);
-    if (limit === 0) {
-      setError("This thread has used its room. Start a new thread to keep asking.");
-      return;
-    }
-    const picked = pickPassages(asked, chunks, limit, task.text.trim().length, skippable(cur));
-    const partial = picked.sent < picked.passages;
-    const prompt =
-      cur.turns.length === 0
-        ? askPrompt(asked, picked.texts, task.title, partial, cite)
-        : followUpPrompt(asked, picked.texts, task.title, partial, cite);
-    const labels = labelsIn(picked.texts, cite ?? "page");
-    const coverage: Coverage = { kind: "ask", picked, pages: labels };
-    const rebuilt = cur.needsRebuild;
+    if (passageBudget(threadOf(task.key)) === 0) return setError(FULL);
     setBusy(true);
     setError(null);
     setQuestion("");
     setPending({ question: asked, text: "" });
     const ctl = new AbortController();
     answering.current = ctl;
-    try {
-      const out = await generate(
-        prompt,
-        (piece) => setPending((p) => (p ? { ...p, text: p.text + piece } : p)),
-        ctl.signal,
-        { key: task.key, turns: cur.turns.map((t) => ({ question: t.question, answer: t.answer })), rebuild: cur.needsRebuild },
-      );
-      if (out.cancelled && out.text.trim() === "") {
-        // Stopped before any words came: nothing to keep, but the conversation is gone and must be rebuilt.
-        markRebuild(task.key);
-        setError("Stopped before the answer started. Ask again to continue.");
-      } else {
-        const turn: Turn = {
-          question: asked,
-          answer: out.text,
-          note: coverageLine(coverage),
-          sources: picked.texts,
-          pages: labels,
-          stopped: out.cancelled,
-          textKey,
-          quotes: Object.fromEntries(cite === "para" ? labels.map((n) => [n, paragraphText.get(n) ?? ""]) : []),
-        };
-        addTurn(task.key, turn, out.tokens, picked.indexes, out.threadEnded, rebuilt);
-      }
-    } catch (err) {
-      markRebuild(task.key);
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setPending(null);
-      setBusy(false);
-      answering.current = null;
-    }
+    const message = await answerTurn(ctx, { kind: "ask", question: asked }, generate, (piece) => setPending((p) => (p ? { ...p, text: p.text + piece } : p)), ctl.signal);
+    if (message) setError(message);
+    setPending(null);
+    setBusy(false);
+    answering.current = null;
   };
 
   const startNew = () => {
@@ -138,7 +80,7 @@ export function AskThread({ task }: { task: AskTask }) {
     <>
       {thread.turns.length === 0 && !pending && (
         <div className="ai-chips">
-          {QUESTIONS.map((q) => (
+          {STARTER_QUESTIONS.map((q) => (
             <button key={q} className="link" disabled={busy} onClick={() => void send(q)}>
               {q}
             </button>

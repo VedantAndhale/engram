@@ -9,6 +9,9 @@ export type QuickAction = "explain" | "define" | "simplify" | "counterpoint";
 export const QUICK_ACTIONS: QuickAction[] = ["explain", "define", "simplify", "counterpoint"];
 export const QUICK_LABEL: Record<QuickAction, string> = { explain: "Explain", define: "Define", simplify: "Simplify", counterpoint: "Counterpoint" };
 
+/** Starting points for an empty question box, so it is not a blank page. Three at most. */
+export const STARTER_QUESTIONS = ["What is the main point?", "What examples does it give?", "Which people, places or dates come up?"];
+
 export type AiTask =
   | { mode: "settings" }
   | { mode: "summarize"; title: string; text: string }

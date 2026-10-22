@@ -208,7 +208,7 @@ function AiModal({ task }: { task: AiTask }) {
 }
 
 /** Seconds since `active` became true, so a long load shows that something is still happening. */
-function useElapsed(active: boolean): number {
+export function useElapsed(active: boolean): number {
   const [seconds, setSeconds] = useState(0);
   useEffect(() => {
     if (!active) {

@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { hostOf, itemHref, safeHref, TYPE_LABELS } from "../capture/capture";
+import { scrollMotion } from "../lib/util";
 import { fillFromWeb } from "../capture/fetchpage";
 import { folderCtx } from "../folders/registry";
 import { downloadMarkdown, itemToMarkdown, markdownFilename } from "../notes/export";
@@ -45,6 +46,10 @@ import { PromptDialog, useMenu } from "./common";
 import { TopicsDialog } from "./habit";
 import { ArticleToc, useRailFits } from "./ArticleToc";
 import { ArticleView, scrollArticleTo, type ReadingPrefs } from "./reader/ArticleView";
+import { AskBar, summarizeHere } from "./reader/AskBar";
+import { Margin, useMarginFits } from "./reader/Margin";
+import { setItemContext, useNotes } from "../ai/notes";
+import { turnContext } from "../ai/turn";
 import { NotesPanel, type PanelTab } from "./reader/NotesPanel";
 import { PlaylistView } from "./PlaylistView";
 import { VideoView } from "./VideoView";
@@ -151,6 +156,12 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
     window.setTimeout(() => target.classList.remove("para-flash"), 1800);
   }, [paragraphJump, item]);
 
+  // The article's passages, cut once, for every AI note over it.
+  useEffect(() => {
+    if (!item || item.type === "pdf" || item.type === "note" || !item.content?.trim()) return;
+    setItemContext(item.id, turnContext({ key: item.id, title: item.title, text: savedText(item), article: { markdown: item.contentFormat === "markdown" } }));
+  }, [item?.id, item?.title, item?.content, item?.contentFormat]);
+
   useEffect(() => {
     if (item) document.title = `${item.title} · Engram`;
     return () => void (document.title = "Engram");
@@ -200,7 +211,12 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
   const rail = useRailFits();
   const tocOn = articleShown && headings.length >= 2;
   const notesOn = articleShown && panel;
-  const railOn = rail && !notesOn;
+  // AI notes get a column beside the text when the window has room and the highlights panel is shut.
+  // The contents then fold up above the text, as they do on a narrow window. Without room, notes sit under their paragraphs.
+  const marginFits = useMarginFits();
+  const noteCount = useNotes((s) => s.notes.reduce((n, x) => n + (x.item === id ? 1 : 0), 0));
+  const marginOn = articleShown && marginFits && !notesOn && noteCount > 0;
+  const railOn = rail && !notesOn && !marginOn;
 
   if (item === undefined) return <div className="item-stage"><main className="item-view" /></div>;
   if (!item || item.deleted) {
@@ -240,6 +256,13 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
    */
   const askAi = async (mode: "summarize" | "ask") => {
     if (!item) return;
+    // A saved article answers in notes beside its text. The ask bar is where a question is typed.
+    if (articleShown) {
+      if (mode === "summarize") return summarizeHere(item.id, scroller.current);
+      const box = document.querySelector<HTMLInputElement>(".askbar input");
+      box?.scrollIntoView({ block: "center", behavior: scrollMotion() });
+      return box?.focus({ preventScroll: true });
+    }
     let text = "";
     if (item.type === "pdf") {
       text = pageBlocks(await db.pageText.where("doc").equals(item.id).toArray());
@@ -332,7 +355,7 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
 
   return (
     <div className="item-stage">
-      <main className={`item-view${tocOn && railOn ? " has-toc" : ""}`} ref={scroller}>
+      <main className={`item-view${tocOn && railOn ? " has-toc" : ""}${marginOn ? " has-margin" : ""}`} ref={scroller}>
         <header className="topbar">
           <button className="icon-btn" aria-label={`Back to ${folder.name}`} onClick={() => navigate({ name: "library", folder: folder.id })}>
             <ArrowLeft size={20} />
@@ -429,10 +452,12 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
                   prefs={prefs}
                   ranges={ranges}
                   onPlaced={setPlaced}
+                  inlineNotes={!marginOn}
                 />
                 {item.contentFormat !== "markdown" && !fetching && (
                   <p className="hint">Saved as plain text. Save the page again with Save to Engram to keep its formatting.</p>
                 )}
+                <AskBar item={item.id} scroller={scroller} />
               </section>
             )}
 
@@ -509,6 +534,7 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
           </article>
 
           {tocOn && railOn && <ArticleToc headings={headings} scroller={scroller} rail />}
+          {marginOn && <Margin item={item.id} scroller={scroller} />}
         </div>
 
         {menu.node}

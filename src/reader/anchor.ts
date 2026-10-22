@@ -20,11 +20,17 @@ export interface TextIndex {
   map: number[];
 }
 
+/** Marks something drawn inside the article that is not the article's text, such as an AI note under a paragraph. */
+export const NOT_TEXT = "[data-note]";
+
 export function indexText(root: Element): TextIndex {
   const nodes: Text[] = [];
   const starts: number[] = [];
   let full = "";
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  // Notes sit among the paragraphs but are not the article's words: no highlight or quote may count them.
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode: (n) => (n.parentElement?.closest(NOT_TEXT) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+  });
   for (let n = walker.nextNode(); n; n = walker.nextNode()) {
     nodes.push(n as Text);
     starts.push(full.length);
@@ -81,12 +87,23 @@ export function findQuote(ix: TextIndex, a: { quote?: string; prefix?: string; s
   return range;
 }
 
-/** Offset into `full` of a DOM position inside the article. */
+/**
+ * Offset into `full` of a DOM position inside the article. A position in an indexed text node is read
+ * from the index. Any other position (between elements, or inside a note) is the start of the first
+ * indexed text after it, so a note under a paragraph never shifts the offsets that follow it.
+ */
 function offsetOf(ix: TextIndex, node: Node, offset: number): number {
-  const r = document.createRange();
-  r.setStart(ix.root, 0);
-  r.setEnd(node, offset);
-  return r.toString().length;
+  const i = ix.nodes.indexOf(node as Text);
+  if (i >= 0) return ix.starts[i] + Math.min(offset, ix.nodes[i].data.length);
+  const at = document.createRange();
+  at.setStart(node, offset);
+  at.collapse(true);
+  const text = document.createRange();
+  for (let j = 0; j < ix.nodes.length; j++) {
+    text.selectNodeContents(ix.nodes[j]);
+    if (at.compareBoundaryPoints(Range.START_TO_START, text) <= 0) return ix.starts[j];
+  }
+  return ix.full.length;
 }
 
 /** The elements that start a new line of text: a quote that runs over two of them gets a line break there. */

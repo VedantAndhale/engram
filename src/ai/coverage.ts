@@ -9,7 +9,7 @@ import type { Picked } from "./chunks";
 export type Coverage =
   | { kind: "summary"; used: number; total: number }
   | { kind: "explain"; used: number; total: number }
-  | { kind: "ask"; picked: Picked; pages: number[] };
+  | { kind: "ask"; picked: Picked; pages: number[]; cite?: CiteKind };
 
 /** The PDF pages named by the [Page n] labels in the passages sent, in order, without repeats. */
 export function pagesIn(passages: string[]): number[] {
@@ -20,6 +20,18 @@ export function pagesIn(passages: string[]): number[] {
 
 const n = (x: number) => x.toLocaleString("en-GB");
 
+/** Numbers as a short list: a run of three or more becomes a range, so 1, 2, 3, 4 reads as 1–4. */
+export function numberList(ns: number[]): string {
+  const parts: string[] = [];
+  for (let i = 0; i < ns.length; ) {
+    let j = i;
+    while (j + 1 < ns.length && ns[j + 1] === ns[j] + 1) j++;
+    parts.push(j - i >= 2 ? `${ns[i]}–${ns[j]}` : ns.slice(i, j + 1).join(", "));
+    i = j + 1;
+  }
+  return parts.join(", ");
+}
+
 /** The plain line shown under an answer, or null when the answer used the whole text. */
 export function coverageLine(c: Coverage): string | null {
   if (c.kind === "summary" || c.kind === "explain") {
@@ -28,12 +40,12 @@ export function coverageLine(c: Coverage): string | null {
       ? `Covers the first ${n(c.used)} of ${n(c.total)} characters of this item. The rest was not used.`
       : `Only the first ${n(c.used)} of ${n(c.total)} characters of your selection were used.`;
   }
-  const { picked, pages } = c;
+  const { picked, pages, cite } = c;
   if (picked.sent === 0) return "No new passage of this item matched, so the passages earlier in this thread still stand.";
   if (picked.fallback) return "No passage matched your question, so these are the opening passages.";
   // Every passage was sent: nothing was left out, whatever the joined character count says.
   if (picked.sent >= picked.passages) return null;
-  const where = pages.length ? ` (pages ${pages.join(", ")})` : "";
+  const where = pages.length ? ` (${cite === "para" ? "paragraphs" : "pages"} ${numberList(pages)})` : "";
   return `Based on ${picked.sent} of ${picked.passages} passages${where}, about ${n(picked.usedChars)} of ${n(picked.totalChars)} characters. The rest of this item was not used.`;
 }
 

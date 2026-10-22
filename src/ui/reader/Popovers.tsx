@@ -1,6 +1,7 @@
-import { Copy, NotebookPen, Sparkles, StickyNote, Trash2 } from "lucide-react";
+import "../../styles/notes.css";
+import { ArrowUp, Copy, NotebookPen, Sparkles, StickyNote, Trash2 } from "lucide-react";
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { openAi } from "../../ai/dialog";
+import { openAi, QUICK_LABEL, type QuickAction } from "../../ai/dialog";
 import { savedText, sentenceAround } from "../../ai/source";
 import { setHabit, useHabit } from "../../habit/prefs";
 import { HIGHLIGHT_COLORS, type Annotation, type Item } from "../../model";
@@ -63,12 +64,56 @@ function Swatches({ value, onPick }: { value?: string; onPick: (color: string) =
   );
 }
 
-/** Shown after selecting text: pick a colour to highlight it, or copy it. */
+/** What the AI offers on a selection beside an article: one-click actions, and a question of your own. */
+export interface SelectionAi {
+  actions: QuickAction[];
+  onAction: (action: QuickAction) => void;
+  onAsk: (question: string) => void;
+}
+
+/**
+ * The question box under a selection. Typing anywhere while the popover is open goes into it, so asking
+ * about a passage is: select, then type. The first key is kept, and the item's own shortcuts stay out of it.
+ */
+function AskBox({ onAsk }: { onAsk: (question: string) => void }) {
+  const input = useRef<HTMLInputElement>(null);
+  const [q, setQ] = useState("");
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (e.key.length !== 1 || e.metaKey || e.ctrlKey || e.altKey || el?.closest("input, textarea, select, [contenteditable]")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setQ((v) => v + e.key);
+      input.current?.focus();
+    };
+    // Captured, so the item's one-letter shortcuts (archive, favourite) don't fire on the way.
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
+  return (
+    <form
+      className="popover-ask"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (q.trim()) onAsk(q);
+      }}
+    >
+      <input ref={input} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ask about this passage" aria-label="Ask about this passage" />
+      <button className="icon-btn" type="submit" aria-label="Ask" title="Ask" disabled={!q.trim()}>
+        <ArrowUp size={16} />
+      </button>
+    </form>
+  );
+}
+
+/** Shown after selecting text: pick a colour to highlight it, or copy it. With `ai`, it also explains or answers beside the passage. */
 export function SelectionPopover({
   anchor,
   text,
   item,
   page,
+  ai,
   onHighlight,
   onClose,
 }: {
@@ -77,6 +122,7 @@ export function SelectionPopover({
   /** With the item, Copy gives a citation; without it, the bare text. */
   item?: Item;
   page?: number;
+  ai?: SelectionAi;
   onHighlight: (color: string, withNote: boolean) => void;
   onClose: () => void;
 }) {
@@ -88,17 +134,19 @@ export function SelectionPopover({
         <button className="icon-btn" title="Highlight and add a note" onClick={() => onHighlight(lastColor(), true)}>
           <StickyNote size={16} />
         </button>
-        <button
-          className="icon-btn"
-          title="Explain with AI (on this device)"
-          aria-label="Explain with AI"
-          onClick={() => {
-            openAi({ mode: "explain", title: item?.title ?? "this text", text, context: item ? sentenceAround(savedText(item), text) : "" });
-            onClose();
-          }}
-        >
-          <Sparkles size={16} />
-        </button>
+        {!ai && (
+          <button
+            className="icon-btn"
+            title="Explain with AI (on this device)"
+            aria-label="Explain with AI"
+            onClick={() => {
+              openAi({ mode: "explain", title: item?.title ?? "this text", text, context: item ? sentenceAround(savedText(item), text) : "" });
+              onClose();
+            }}
+          >
+            <Sparkles size={16} />
+          </button>
+        )}
         <button
           className="icon-btn"
           title="Copy with citation"
@@ -112,6 +160,18 @@ export function SelectionPopover({
           <Copy size={16} />
         </button>
       </div>
+      {ai && (
+        <div className="popover-ai">
+          <div className="popover-actions">
+            {ai.actions.map((a) => (
+              <button key={a} className="btn" onClick={() => ai.onAction(a)}>
+                {QUICK_LABEL[a]}
+              </button>
+            ))}
+          </div>
+          <AskBox onAsk={ai.onAsk} />
+        </div>
+      )}
     </Floating>
   );
 }
