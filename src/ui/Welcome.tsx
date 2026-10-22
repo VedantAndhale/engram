@@ -1,7 +1,7 @@
 import { ArrowRight, Link as LinkIcon, LoaderCircle, Pause, Play, Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { findUrl, saveLink } from "../capture/capture";
-import { visibleFolders } from "../folders/registry";
+import { createFolder, visibleFolders } from "../folders/registry";
 import { setHabit, SUGGESTED_TOPICS, useHabit } from "../habit/prefs";
 import { addPdf, setItemTopics } from "../store/actions";
 import { lastFolder, navigate, toast } from "../store/ui";
@@ -36,9 +36,10 @@ export function Welcome() {
     navigate(to.pdf ? { name: "reader", folder: to.folder, doc: to.doc } : { name: "item", folder: to.folder, item: to.doc });
   };
 
+  // The reader is saving something here, so if there is no folder left, make one for it.
   const intoFolder = async () => {
     const folders = await visibleFolders();
-    return folders.find((f) => f.id === lastFolder()) ?? folders[0];
+    return folders.find((f) => f.id === lastFolder()) ?? folders[0] ?? (await createFolder("My library"));
   };
 
   const addFirst = async (file: File) => {

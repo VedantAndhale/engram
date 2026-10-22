@@ -225,6 +225,14 @@ export function App() {
         <Setup onOpenSidebar={openDrawer} />
       ) : folder ? (
         <Library key={folder.id} folder={folder} onOpenSidebar={openDrawer} />
+      ) : folders.length === 0 ? (
+        <main className="empty">
+          <h2>No folders on this device</h2>
+          <p>Make one from the sidebar. A folder you removed can be added back in Setup.</p>
+          <button className="btn btn-primary" onClick={() => navigate({ name: "setup" })}>
+            Open Setup
+          </button>
+        </main>
       ) : (
         <main className="empty">
           <h2>That folder isn't on this device</h2>

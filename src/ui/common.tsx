@@ -117,7 +117,8 @@ export function useFocusTrap(ref: React.RefObject<HTMLElement | null>) {
       // After the dialog is gone, unless whatever closed it moved focus somewhere on purpose.
       setTimeout(() => {
         const now = document.activeElement;
-        if (before?.isConnected && (!now || now === document.body || !now.isConnected)) before.focus();
+        // preventScroll: returning focus must not scroll the page, or it cancels a jump the closing dialog started.
+        if (before?.isConnected && (!now || now === document.body || !now.isConnected)) before.focus({ preventScroll: true });
       }, 0);
     };
   }, [ref]);

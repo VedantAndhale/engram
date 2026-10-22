@@ -109,8 +109,16 @@ export class GitHub {
     const retryAfter = res.headers.get("retry-after");
     const remaining = res.headers.get("x-ratelimit-remaining");
     const reset = res.headers.get("x-ratelimit-reset");
-    if ((res.status === 403 || res.status === 429) && (retryAfter || remaining === "0")) {
-      const retryAt = retryAfter ? Date.now() + Number(retryAfter) * 1000 : Number(reset) * 1000;
+    // Primary limits send retry-after or remaining 0. Secondary limits send a 429, or a 403 that says it is a
+    // rate limit, and may send neither header: GitHub then asks for at least a minute before retrying.
+    const limited = res.status === 429 || (res.status === 403 && (retryAfter !== null || remaining === "0" || /rate limit/i.test(message)));
+    if (limited) {
+      const retryAt =
+        retryAfter !== null
+          ? Date.now() + Number(retryAfter) * 1000
+          : remaining === "0" && reset
+            ? Number(reset) * 1000
+            : Date.now() + 60_000;
       throw new GitHubError(res.status, "GitHub rate limit reached", retryAt);
     }
     throw new GitHubError(res.status, message);
@@ -189,9 +197,14 @@ export class GitHub {
   }
 
   async getTree(commitSha: string): Promise<{ path: string; sha: string; size?: number }[]> {
-    const body = await this.json<{ tree: { path: string; sha: string; type: string; size?: number }[] }>(
+    const body = await this.json<{ tree: { path: string; sha: string; type: string; size?: number }[]; truncated?: boolean }>(
       `${this.repoPath}/git/trees/${commitSha}?recursive=1`,
     );
+    // Past GitHub's size limit the listing is cut short. Taking it as the whole folder would make the files it
+    // leaves out look deleted, so refuse instead; nothing is removed locally.
+    if (body.truncated) {
+      throw new Error("This folder is too large for GitHub to list in one request, so Engram has paused syncing it. Nothing has been deleted.");
+    }
     return body.tree.filter((t) => t.type === "blob");
   }
 

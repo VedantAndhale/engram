@@ -49,8 +49,11 @@ const FILE_BACKOFF_MAX_MS = 60 * 60_000;
 /** A file that can't go up as it is (too big) is looked at again this rarely, in case it changed. */
 const BLOCKED_RECHECK_MS = 6 * 60 * 60_000;
 
-/** How often to confirm the repository is still private; more often while paused for being public. */
-const PRIVACY_CHECK_MS = 15 * 60_000;
+/**
+ * How long a "private" answer is trusted before the next push. Short on purpose: a repository made public
+ * should stop receiving notes within seconds, not a quarter hour. Costs one request per window while pushing.
+ */
+const PRIVACY_CHECK_MS = 10_000;
 const PUBLIC_RECHECK_MS = 60_000;
 const PUBLIC_MESSAGE =
   "This folder's repository on GitHub is public, so Engram has paused syncing it to keep your notes private. Make the repository private on GitHub and syncing resumes by itself; your changes are safe on this device.";
@@ -411,8 +414,10 @@ export class SyncEngine {
   private async checkPrivate(): Promise<boolean> {
     const now = Date.now();
     if (now - this.privacyCheckedAt >= (this.isPublic ? PUBLIC_RECHECK_MS : PRIVACY_CHECK_MS)) {
-      this.privacyCheckedAt = now;
+      // The check time is recorded only once GitHub has answered. If the request fails, the old verdict is not
+      // trusted: the error stops this tick, and the next tick checks again before anything is pushed.
       const repo = await this.gh!.getRepo();
+      this.privacyCheckedAt = Date.now();
       recordReads(1);
       const wasPublic = this.isPublic;
       this.isPublic = !repo.private;

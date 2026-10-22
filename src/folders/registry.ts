@@ -47,10 +47,18 @@ const refOf = (r: RepoSummary): RepoRef => ({ id: r.id, owner: r.owner.login, re
 
 let started = false;
 
+/** Set once this device has made its first folder, so removing folders later never brings a default back. */
+const BOOTED_KEY = "engram.folders.booted";
+
 export async function startFolders() {
   if (started) return;
   started = true;
-  if ((await visibleFolders()).length === 0) await createFolder("My library");
+  // The first run on this device starts with one folder. After that, whether there are folders is up to the
+  // reader: removing the last one leaves none (see removeFolder).
+  if (!localStorage.getItem(BOOTED_KEY)) {
+    localStorage.setItem(BOOTED_KEY, "1");
+    if ((await appDb.folders.count()) === 0) await createFolder("My library");
+  }
   for (const f of await visibleFolders()) await folderCtx(f.id).sync.attach(f.repo);
 
   window.setInterval(() => {
@@ -127,7 +135,6 @@ export async function removeFolder(id: string) {
   await Dexie.delete(folderDbName(id));
   if (folder.repo) await appDb.folders.update(id, { hidden: true });
   else await appDb.folders.delete(id);
-  if ((await visibleFolders()).length === 0) await createFolder("My library");
 }
 
 /** Folders removed from this device whose repositories are still on GitHub. */
@@ -182,8 +189,13 @@ async function createRepoFor(folder: Folder): Promise<void> {
     }
   }
   if (!created) throw new Error("Couldn't find a free repository name for this folder.");
-  if (!created.private) throw new Error("GitHub created the repository as public. Make it private before adding files.");
-  await appDb.folders.update(folder.id, { repo: refOf(created), isPrivate: true });
+  // Linked even when GitHub made it public. Left unlinked, ensureRepos would create another public repository every
+  // minute. Linked, the folder's sync stays paused until the repository is private.
+  await appDb.folders.update(folder.id, { repo: refOf(created), isPrivate: created.private });
+  if (!created.private) {
+    await folderCtx(folder.id).sync.attach(refOf(created));
+    throw new RepoPermissionError("GitHub made this repository public, so Engram has paused syncing it. Make it private on GitHub and syncing resumes by itself.");
+  }
   // In app mode the new repo must be added to the App's installation, or Engram can't reach it.
   if (getAccount()?.refresh) {
     const result = await reachRepo(gh, created.id);
