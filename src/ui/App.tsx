@@ -11,6 +11,7 @@ import { ItemView } from "./ItemView";
 import { Highlights } from "./Highlights";
 import { Library } from "./Library";
 import { AiDialog } from "./AiDialog";
+import { Graph } from "./Graph";
 import { Palette } from "./Palette";
 import { Search } from "./Search";
 import { Setup } from "./Setup";
@@ -194,7 +195,7 @@ export function App() {
   }
 
   // Which folder is on screen: the one in the address, else the last one used, else the first.
-  const wanted = route.name === "library" || route.name === "reader" || route.name === "item" ? route.folder : undefined;
+  const wanted = route.name === "library" || route.name === "reader" || route.name === "item" || route.name === "graph" ? route.folder : undefined;
   const folder =
     folders.find((f) => f.id === wanted) ??
     (wanted ? undefined : (folders.find((f) => f.id === lastFolder()) ?? folders[0]));
@@ -221,6 +222,8 @@ export function App() {
         </Suspense>
       ) : route.name === "item" && folder ? (
         <ItemView key={`${folder.id}:${route.item}`} folder={folder} id={route.item} />
+      ) : route.name === "graph" && folder ? (
+        <Graph key={folder.id} folder={folder} onOpenSidebar={openDrawer} />
       ) : route.name === "setup" ? (
         <Setup onOpenSidebar={openDrawer} />
       ) : folder ? (

@@ -6,6 +6,7 @@ export type Route =
   | { name: "library"; folder?: string }
   | { name: "reader"; folder: string; doc: string; page?: number; find?: string; panel?: "notes" }
   | { name: "item"; folder: string; item: string }
+  | { name: "graph"; folder: string }
   | { name: "save" }
   | { name: "search"; q?: string }
   | { name: "highlights" }
@@ -64,6 +65,8 @@ function parseHash(): Route {
     };
   m = new RegExp(`^/f/(${ID})/item/(${ID})$`).exec(path);
   if (m) return { name: "item", folder: m[1], item: m[2] };
+  m = new RegExp(`^/f/(${ID})/graph$`).exec(path);
+  if (m) return { name: "graph", folder: m[1] };
   m = new RegExp(`^/f/(${ID})$`).exec(path);
   if (m) return { name: "library", folder: m[1] };
   if (path === "/search") return { name: "search", q: q.get("q") ?? undefined };
@@ -87,6 +90,8 @@ export function routeHash(route: Route): string {
       return `#/f/${route.folder}/doc/${route.doc}${q.size ? `?${q}` : ""}`;
     case "item":
       return `#/f/${route.folder}/item/${route.item}`;
+    case "graph":
+      return `#/f/${route.folder}/graph`;
     case "save":
       return "#/save";
     case "search":

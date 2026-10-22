@@ -5,6 +5,7 @@ import {
   FolderOpen,
   GitBranch,
   Keyboard,
+  Network,
   Moon,
   NotebookPen,
   Plus,
@@ -172,6 +173,9 @@ function PaletteDialog() {
         label: `Go to ${f.name}`,
         run: () => navigate({ name: "library" as const, folder: f.id }),
       })),
+      ...(into
+        ? [{ key: "graph", icon: <Network size={16} />, label: many ? `Open the graph of ${into.name}` : "Open the graph", run: () => navigate({ name: "graph" as const, folder: into.id }) }]
+        : []),
       {
         key: "shortcuts",
         icon: <Keyboard size={16} />,

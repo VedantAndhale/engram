@@ -11,6 +11,7 @@ import {
   ListVideo,
   LoaderCircle,
   Menu as MenuIcon,
+  Network,
   NotebookPen,
   Pencil,
   Plus,
@@ -397,6 +398,9 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
         </button>
         <button className="btn" aria-label="Add PDF" onClick={() => fileInput.current?.click()}>
           <Upload size={16} /> <span className="hide-narrow">Add PDF</span>
+        </button>
+        <button className="btn" aria-label="Graph" title="See how your items link and share topics" onClick={() => navigate({ name: "graph", folder: folder.id })}>
+          <Network size={16} /> <span className="hide-narrow">Graph</span>
         </button>
         <button className="btn" aria-label="Import highlights" title="Import highlights from a Kindle or Readwise export" onClick={() => setImporting(true)}>
           <BookUp size={16} /> <span className="hide-narrow">Import</span>

@@ -47,6 +47,7 @@ import { TopicsDialog } from "./habit";
 import { ArticleToc, useRailFits } from "./ArticleToc";
 import { ArticleView, scrollArticleTo, stickyReach, type ReadingPrefs } from "./reader/ArticleView";
 import { AskBar, summarizeHere } from "./reader/AskBar";
+import { LocalGraph } from "./Graph";
 import { Listen } from "./reader/Listen";
 import { Minimap } from "./reader/Minimap";
 import { Margin, useMarginFits } from "./reader/Margin";
@@ -510,6 +511,8 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
                 />
               </Suspense>
             </div>
+
+            <LocalGraph folder={folder.id} id={item.id} />
 
             {!!linkedFrom?.length && (
               <section className="backlinks" aria-label="Linked from">
