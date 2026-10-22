@@ -227,3 +227,17 @@ export function layout(graph: Graph, width: number, height: number, steps = 220)
   graph.nodes.forEach((node, i) => out.set(node.id, { x: width / 2 + (x[i] - cx) * scale, y: height / 2 + (y[i] - cy) * scale }));
   return out;
 }
+
+/**
+ * Where a dot's name goes, given the dot's `x`, its `radius`, the name's `width` and the `left` and `right`
+ * edges of what is on screen (in the picture's own units). The name sits to the right of the dot, or to its
+ * left when the right side has no room. When neither side fits, the side with more room is used and the name
+ * is pulled in from the edge.
+ */
+export function labelAt(x: number, radius: number, width: number, left: number, right: number): { x: number; align: "left" | "right" } {
+  const gap = radius + 5;
+  if (x + gap + width <= right) return { x: x + gap, align: "left" };
+  if (x - gap - width >= left) return { x: x - gap, align: "right" };
+  if (right - x >= x - left) return { x: Math.max(left, Math.min(x + gap, right - width)), align: "left" };
+  return { x: Math.min(right, Math.max(x - gap, left + width)), align: "right" };
+}

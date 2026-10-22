@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { layout, type GNode, type Graph, type Point } from "../graph/graph";
+import { labelAt, layout, type GNode, type Graph, type Point } from "../graph/graph";
 import "../styles/graph.css";
 
 interface View {
@@ -107,6 +107,9 @@ export function GraphCanvas({
     ctx.font = "12px ui-sans-serif, system-ui, sans-serif";
     ctx.textBaseline = "middle";
     const labelled = graph.nodes.length <= 30;
+    // What is on screen, in the picture's own units, so a name near the right edge can go to the left of its dot.
+    const screenLeft = -v.tx / v.k;
+    const screenRight = (width - v.tx) / v.k;
     for (const n of graph.nodes) {
       const p = positions.get(n.id);
       if (!p) continue;
@@ -128,12 +131,14 @@ export function GraphCanvas({
       const show = n.id === hover.current || isFocus || n.kind === "topic" || labelled || n.degree >= 3;
       if (show && (v.k >= 0.7 || n.id === hover.current)) {
         const t = n.label.length > 34 ? `${n.label.slice(0, 33)}…` : n.label;
+        const spot = labelAt(p.x, r, ctx.measureText(t).width, screenLeft, screenRight);
+        ctx.textAlign = spot.align;
         ctx.fillStyle = n.kind === "topic" ? muted : text;
         ctx.strokeStyle = bg;
         ctx.lineWidth = 3;
         ctx.lineJoin = "round";
-        ctx.strokeText(t, p.x + r + 5, p.y);
-        ctx.fillText(t, p.x + r + 5, p.y);
+        ctx.strokeText(t, spot.x, p.y);
+        ctx.fillText(t, spot.x, p.y);
       }
     }
     ctx.globalAlpha = 1;

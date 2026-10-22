@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildGraph, layout, linkedTitles, neighbourhood, type GItem } from "./graph";
+import { buildGraph, labelAt, layout, linkedTitles, neighbourhood, type GItem } from "./graph";
 
 const item = (id: string, title: string, body = "", topics: string[] = []): GItem => ({ id, title, type: "note", body, topics });
 
@@ -63,6 +63,22 @@ test("linked items end up closer than items with no link", () => {
   const dist = (p: string, q: string) => Math.hypot(pos.get(p)!.x - pos.get(q)!.x, pos.get(p)!.y - pos.get(q)!.y);
   assert.ok(dist("a", "b") < dist("a", "e"));
   assert.ok(dist("c", "d") < dist("c", "f"));
+});
+
+test("a name sits right of its dot, and goes left when the right side has no room", () => {
+  assert.deepEqual(labelAt(100, 4, 80, 0, 300), { x: 109, align: "left" });
+  assert.deepEqual(labelAt(280, 4, 80, 0, 300), { x: 271, align: "right" });
+});
+
+test("a name too wide for either side is pulled in from the edge on the side with more room", () => {
+  // Right side has 30px, left side 180px, a 200px name fits neither: it goes left and stays on screen.
+  const left = labelAt(170, 4, 200, 0, 200);
+  assert.equal(left.align, "right");
+  assert.ok(left.x - 200 >= 0 && left.x <= 200, JSON.stringify(left));
+  // Left side has 30px, right side 180px: the name goes right, and its end stays on screen.
+  const right = labelAt(30, 4, 200, 0, 210);
+  assert.equal(right.align, "left");
+  assert.ok(right.x >= 0 && right.x + 200 <= 210, JSON.stringify(right));
 });
 
 test("an empty folder and a single item lay out without trouble", () => {
