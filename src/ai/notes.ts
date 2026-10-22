@@ -133,10 +133,22 @@ export function runWaiting(): void {
   for (const n of useNotes.getState().notes) if (n.waiting) void run(n.id, n.waiting);
 }
 
-// The download finished, whoever started it: the notes that waited for it answer now.
+/** Forget every note and its thread: the model that wrote them is gone from this device. */
+export function clearNotes(): void {
+  for (const n of useNotes.getState().notes) {
+    stopNote(n.id);
+    dropThread(threadKey(n));
+    clearThread(threadKey(n));
+  }
+  useNotes.setState({ notes: [], active: null });
+}
+
 let last = useAiStatus.getState().phase;
 useAiStatus.subscribe((s) => {
+  // The download finished, whoever started it: the notes that waited for it answer now.
   if (last === "downloading" && s.phase === "ready") runWaiting();
+  // The model was deleted: the answers it wrote go with it, as the dialog's threads do.
+  if ((last === "ready" || last === "loaded" || last === "loading") && s.phase === "absent") clearNotes();
   last = s.phase;
 });
 

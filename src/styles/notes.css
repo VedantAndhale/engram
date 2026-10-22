@@ -95,7 +95,7 @@
   height: 26px;
   margin-left: auto;
 }
-.note blockquote.note-quote {
+.note blockquote.note-passage {
   display: -webkit-box;
   margin: 0 0 10px;
   padding: 0 0 0 10px;
@@ -106,6 +106,9 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
   line-clamp: 3;
+}
+.note .note-content > * + * {
+  margin-top: 8px;
 }
 .note .note-q {
   margin: 0 0 6px;
@@ -378,9 +381,102 @@
   outline: none;
 }
 
+/*
+ * Small movements, each following three rules: a state change never resizes what changed (the copy
+ * button swaps one icon for another of the same size), a press reverses from wherever it has got to
+ * (these are transitions, not keyframes), and under reduced motion every message still arrives.
+ */
+.note {
+  animation: note-in 0.18s ease-out;
+}
+@keyframes note-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+.note-peek,
+.askbar-chips {
+  animation: note-fade 0.12s ease-out;
+}
+@keyframes note-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+.note .btn,
+.note .icon-btn,
+.popover-actions .btn,
+.popover-ask .icon-btn,
+.askbar-form .icon-btn,
+.askbar-chips .chip {
+  transition:
+    transform 0.1s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    opacity 0.15s ease;
+}
+.note .btn:active:not(:disabled),
+.note .icon-btn:active:not(:disabled),
+.popover-actions .btn:active:not(:disabled),
+.popover-ask .icon-btn:active:not(:disabled),
+.askbar-form .icon-btn:active:not(:disabled),
+.askbar-chips .chip:active {
+  transform: scale(0.96);
+}
+
+/* Send turns to the accent once there is something to send. */
+.note-ask .icon-btn:not(:disabled),
+.popover-ask .icon-btn:not(:disabled),
+.askbar-form .icon-btn:not(:disabled) {
+  color: var(--accent);
+}
+.note-ask .icon-btn:disabled,
+.popover-ask .icon-btn:disabled,
+.askbar-form .icon-btn:disabled {
+  opacity: 0.4;
+}
+.askbar-form,
+.note-ask input:not([type]) {
+  transition: border-color 0.15s ease;
+}
+
+/* Copied: the same icon box, in the accent. Deleting: red only when pointed at, so it is never the loudest thing. */
+.note-foot .icon-btn.is-done {
+  color: var(--accent);
+}
+.note-foot .note-trash:hover:not(:disabled),
+.note-foot .note-model-delete:hover {
+  color: var(--danger);
+}
+.note-foot .note-model-delete {
+  color: var(--muted);
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .note-margin {
+  .note,
+  .note-peek,
+  .askbar-chips {
+    animation: none;
+  }
+  .note-margin,
+  .note .btn,
+  .note .icon-btn,
+  .popover-actions .btn,
+  .popover-ask .icon-btn,
+  .askbar-form .icon-btn,
+  .askbar-chips .chip {
     transition: none;
+  }
+  .note .btn:active:not(:disabled),
+  .note .icon-btn:active:not(:disabled),
+  .popover-actions .btn:active:not(:disabled),
+  .popover-ask .icon-btn:active:not(:disabled),
+  .askbar-form .icon-btn:active:not(:disabled),
+  .askbar-chips .chip:active {
+    transform: none;
   }
   .note-writing {
     animation: none;

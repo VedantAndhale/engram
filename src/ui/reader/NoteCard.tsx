@@ -52,6 +52,8 @@ export const NoteCard = forwardRef<
 
   const turns = thread.turns;
   const busy = !!note.pending;
+  /** The model is on this device, so it can be deleted from here. */
+  const onDevice = status.phase === "ready" || status.phase === "loaded" || status.phase === "loading";
   const label = LABEL[note.action];
   /** A note about the whole article sits beside the paragraph in view, but is not about that paragraph. */
   const whole = !note.anchor.quote;
@@ -166,10 +168,10 @@ export const NoteCard = forwardRef<
         </button>
       </header>
 
-      {note.anchor.quote && note.action !== "ask" && <blockquote className="note-quote">{note.anchor.quote}</blockquote>}
+      {note.anchor.quote && note.action !== "ask" && <blockquote className="note-passage">{note.anchor.quote}</blockquote>}
       {heading && <p className="note-q">{heading}</p>}
 
-      <div className="note-body">
+      <div className="note-content">
         {turns.map((t, i) => (
           <div key={i} className="note-turn">
             {i > 0 && (
@@ -263,16 +265,22 @@ export const NoteCard = forwardRef<
         ) : (
           <>
             {turns.length > 0 && (
-              <button className="icon-btn" aria-label={copied ? "Copied" : "Copy"} title={copied ? "Copied" : "Copy"} onClick={() => void copy()}>
+              <button className={`icon-btn${copied ? " is-done" : ""}`} aria-label={copied ? "Copied" : "Copy"} title={copied ? "Copied" : "Copy"} onClick={() => void copy()}>
                 {copied ? <Check size={15} /> : <Copy size={15} />}
               </button>
             )}
-            <button className="icon-btn" aria-label="Delete note" title="Delete note" onClick={() => removeNote(note.id)}>
+            <button className="icon-btn note-trash" aria-label="Delete note" title="Delete note" onClick={() => removeNote(note.id)}>
               <Trash2 size={15} />
             </button>
-            <button className="link note-manage" onClick={() => openAi({ mode: "settings" })}>
-              AI on this device
-            </button>
+            {onDevice ? (
+              <button className="link note-manage note-model-delete" onClick={() => openAi({ mode: "remove" })}>
+                Delete model
+              </button>
+            ) : (
+              <button className="link note-manage" onClick={() => openAi({ mode: "settings" })}>
+                AI on this device
+              </button>
+            )}
           </>
         )}
       </footer>

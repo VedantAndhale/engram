@@ -142,6 +142,46 @@ test("a note over an article whose text was never given says so instead of doing
   assert.match(useNotes.getState().notes[0].error ?? "", /text is not ready/);
 });
 
+test("deleting the model clears the notes it wrote, and their threads", async () => {
+  setup("ready");
+  const a = addNote({ item: "i1", action: "ask", para: 1, question: "Nile" });
+  const b = addNote({ item: "i1", action: "explain", para: 2, quote: "runs north", sentence: "s" });
+  await settle();
+  assert.equal(threadOf(threadKey({ item: "i1", id: a })).turns.length, 1);
+  // What removeModel ends with: the engine goes from holding the model to having none.
+  useAiStatus.setState({ phase: "absent" });
+  assert.equal(useNotes.getState().notes.length, 0);
+  assert.equal(useNotes.getState().active, null);
+  assert.equal(threadOf(threadKey({ item: "i1", id: a })).turns.length, 0);
+  assert.equal(threadOf(threadKey({ item: "i1", id: b })).turns.length, 0);
+});
+
+test("deleting the model while an answer is being written stops it", async () => {
+  setup("ready");
+  let aborted = false;
+  env.generate = async (_prompt, onToken, signal) => {
+    onToken("The Nile ");
+    await new Promise((r) => signal?.addEventListener("abort", r));
+    aborted = true;
+    return { text: "The Nile ", tokens: 0, cancelled: true, threadEnded: true };
+  };
+  addNote({ item: "i1", action: "ask", para: 1, question: "Nile" });
+  await settle();
+  useAiStatus.setState({ phase: "absent" });
+  await settle();
+  assert.equal(aborted, true);
+  assert.equal(useNotes.getState().notes.length, 0);
+});
+
+test("a question waiting for the download is not cleared when a download is stopped", async () => {
+  setup("absent");
+  addNote({ item: "i1", action: "ask", para: 1, question: "Nile" });
+  await settle();
+  useAiStatus.setState({ phase: "downloading" });
+  useAiStatus.setState({ phase: "absent" });
+  assert.equal(useNotes.getState().notes.length, 1);
+});
+
 test("deleting a note forgets its thread", async () => {
   setup("ready");
   const id = addNote({ item: "i1", action: "ask", para: 1, question: "Nile" });

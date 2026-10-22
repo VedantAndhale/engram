@@ -12,6 +12,7 @@ import {
   Sparkles,
   Sun,
   Sunrise,
+  Trash2,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { itemHref, TYPE_LABELS } from "../capture/capture";
@@ -20,6 +21,7 @@ import type { Folder, ItemType } from "../model";
 import { dailyNote, openOrCreate } from "../notes/notes";
 import { escapeTitle, sameTitle } from "../notes/links";
 import { openAi } from "../ai/dialog";
+import { refresh, useAiStatus } from "../ai/engine";
 import { closePalette, lastFolder, navigate, openQuickAdd, openShortcuts, setTheme, useUI } from "../store/ui";
 
 /*
@@ -91,6 +93,11 @@ function PaletteDialog() {
   const list = useRef<HTMLDivElement>(null);
   const theme = useUI((s) => s.theme);
   const themeChosen = useUI((s) => s.themeChosen);
+  // Whether the model is on this device, so deleting it is offered only when there is something to delete.
+  const aiPhase = useAiStatus((s) => s.phase);
+  useEffect(() => {
+    void refresh();
+  }, []);
 
   // Closing without going anywhere puts you back where you were typing.
   const [before] = useState(() => document.activeElement as HTMLElement | null);
@@ -181,9 +188,12 @@ function PaletteDialog() {
       {
         key: "ai",
         icon: <Sparkles size={16} />,
-        label: "AI on this device: download or remove the model",
+        label: "AI on this device: download or delete the model",
         run: () => openAi({ mode: "settings" }),
       },
+      ...(aiPhase === "ready" || aiPhase === "loaded" || aiPhase === "loading"
+        ? [{ key: "ai-delete", icon: <Trash2 size={16} />, label: "Delete the AI model from this device", run: () => openAi({ mode: "remove" }) }]
+        : []),
       ...(["light", "sepia", "dark"] as const)
         .filter((t) => t !== theme)
         .map((t) => ({
@@ -246,7 +256,7 @@ function PaletteDialog() {
       run: () => navigate({ name: "search", q }),
     });
     return out;
-  }, [query, items, folders, theme, themeChosen]);
+  }, [query, items, folders, theme, themeChosen, aiPhase]);
 
   useEffect(() => setActive(0), [query]);
   useEffect(() => {

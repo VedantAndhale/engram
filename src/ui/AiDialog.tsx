@@ -15,10 +15,26 @@ import { AskThread } from "./AskThread";
 export function AiDialog() {
   const task = useAiDialog((s) => s.task);
   if (!task) return null;
+  if (task.mode === "remove") return <RemoveModelDialog onClose={closeAi} />;
   return <AiModal key={task.mode + ("title" in task ? task.title : "")} task={task} />;
 }
 
-function AiModal({ task }: { task: AiTask }) {
+/**
+ * Delete the model from this device. It says what that costs before it does it: the size comes back
+ * only by downloading again, and the answers the model wrote, on this page, go with it.
+ */
+function RemoveModelDialog({ onClose }: { onClose: () => void }) {
+  return (
+    <ConfirmDialog title="Delete the model?" action="Delete model" danger onConfirm={() => removeModel()} onClose={onClose}>
+      <p>
+        This frees about {(GEMMA.bytes / 1e9).toFixed(1)} GB on this device. Your saved items, highlights and notes are not affected. The AI answers on this page are cleared. To use AI
+        again, you will need to download the model again, which takes roughly 9 minutes on a typical connection.
+      </p>
+    </ConfirmDialog>
+  );
+}
+
+function AiModal({ task }: { task: Exclude<AiTask, { mode: "remove" }> }) {
   const status = useAiStatus();
   const [output, setOutput] = useState("");
   /** What the current summary or explanation was based on. Null when it used the whole text. */
@@ -124,7 +140,7 @@ function AiModal({ task }: { task: AiTask }) {
                 </button>
               )}
               <button className="btn" onClick={() => setConfirming(true)}>
-                Remove from this device
+                Delete model from this device
               </button>
             </div>
           )}
@@ -189,20 +205,7 @@ function AiModal({ task }: { task: AiTask }) {
           <p className="hint">Runs on this device. The text does not leave it.</p>
         </div>
       </Modal>
-      {confirming && (
-        <ConfirmDialog
-          title="Remove the model?"
-          action="Remove"
-          danger
-          onConfirm={() => removeModel()}
-          onClose={() => setConfirming(false)}
-        >
-          <p>
-            Your items and notes are not affected. To use these features again, you will need to download about 2 GB, which takes roughly
-            9 minutes on a typical connection.
-          </p>
-        </ConfirmDialog>
-      )}
+      {confirming && <RemoveModelDialog onClose={() => setConfirming(false)} />}
     </>
   );
 }

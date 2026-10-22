@@ -14,6 +14,8 @@ export const STARTER_QUESTIONS = ["What is the main point?", "What examples does
 
 export type AiTask =
   | { mode: "settings" }
+  /** Ask to delete the model from this device, straight away, without the settings dialog under it. */
+  | { mode: "remove" }
   | { mode: "summarize"; title: string; text: string }
   /** `key` names the item's follow-up thread. `source` is set for a PDF, so its page citations can open the reader. */
   | {
