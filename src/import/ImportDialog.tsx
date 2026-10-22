@@ -74,37 +74,32 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
 
   return (
     <Modal title="Import highlights" onClose={onClose}>
-      <p>
+      <div className="form">
         <label>
-          Kindle My Clippings.txt or Readwise CSV{" "}
-          <input
-            type="file"
-            accept=".txt,.csv"
-            disabled={running}
-            onChange={(e) => void pickFile(e)}
-          />
+          <span>Kindle My Clippings.txt or Readwise CSV</span>
+          <input type="file" accept=".txt,.csv" disabled={running} onChange={(e) => void pickFile(e)} />
         </label>
-      </p>
 
-      {error && <p role="alert">{error}</p>}
-
-      {books && (
-        <div>
-          <p>
-            Found {plural(books.length, "book")}, {plural(highlightCount, "highlight")} and{" "}
-            {plural(noteCount, "note")}.
+        {error && (
+          <p role="alert" className="error">
+            {error}
           </p>
-          {warnings.length > 0 && (
-            <ul className="muted" aria-label="Warnings">
-              {warnings.map((w, i) => (
-                <li key={i}>{w}</li>
-              ))}
-            </ul>
-          )}
-          <p className="muted">Nothing is written until you press Import.</p>
-          <p>
+        )}
+
+        {books && (
+          <>
+            <p>
+              Found {plural(books.length, "book")}, {plural(highlightCount, "highlight")} and {plural(noteCount, "note")}.
+            </p>
+            {warnings.length > 0 && (
+              <ul className="hint import-warnings" aria-label="Warnings">
+                {warnings.map((w, i) => (
+                  <li key={i}>{w}</li>
+                ))}
+              </ul>
+            )}
             <label>
-              Import into{" "}
+              <span>Import into</span>
               <select value={chosenFolder} disabled={running} onChange={(e) => setFolderId(e.target.value)}>
                 {folders.map((f) => (
                   <option key={f.id} value={f.id}>
@@ -113,38 +108,33 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
                 ))}
               </select>
             </label>
-          </p>
+            <p className="hint">Nothing is written until you press Import.</p>
+          </>
+        )}
+
+        <div role="status">
+          {running && (
+            <p>
+              Importing… {progress.done}/{progress.total}
+              <span className="hint"> You can close this. The import keeps going.</span>
+            </p>
+          )}
+          {result && (
+            <p>
+              Imported {plural(result.books - result.failed, "book")} and {plural(result.highlights, "highlight")}. {result.alreadyThere} were already there.
+              {result.failed > 0 && ` ${plural(result.failed, "book")} could not be imported.`}
+            </p>
+          )}
         </div>
-      )}
 
-      <p>
-        <button
-          type="button"
-          className="btn"
-          disabled={!books || !chosenFolder || running || result !== null}
-          onClick={() => void run()}
-        >
-          Import
-        </button>{" "}
-        <button type="button" className="btn" onClick={onClose}>
-          Close
-        </button>
-      </p>
-
-      <div role="status">
-        {running && (
-          <p>
-            Importing… {progress.done}/{progress.total}
-            <span className="muted"> You can close this. The import keeps going.</span>
-          </p>
-        )}
-        {result && (
-          <p>
-            Imported {plural(result.books - result.failed, "book")} and{" "}
-            {plural(result.highlights, "highlight")}. {result.alreadyThere} were already there.
-            {result.failed > 0 && ` ${plural(result.failed, "book")} could not be imported.`}
-          </p>
-        )}
+        <footer>
+          <button type="button" className="btn" onClick={onClose}>
+            Close
+          </button>
+          <button type="button" className="btn btn-primary" disabled={!books || !chosenFolder || running || result !== null} onClick={() => void run()}>
+            Import
+          </button>
+        </footer>
       </div>
     </Modal>
   );

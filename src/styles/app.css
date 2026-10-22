@@ -754,6 +754,37 @@ main {
   gap: 8px;
   margin-top: 4px;
 }
+/* A file picker in a dialog: the browser's own button is drawn to match ours. */
+.form input[type="file"] {
+  max-width: 100%;
+  color: var(--muted);
+  font: inherit;
+  font-size: 14px;
+}
+.form input[type="file"]::file-selector-button {
+  height: 32px;
+  margin-right: 10px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+.form input[type="file"]:hover:not(:disabled)::file-selector-button {
+  border-color: var(--accent);
+}
+.form input[type="file"]:disabled::file-selector-button {
+  opacity: 0.5;
+  cursor: default;
+}
+.import-warnings {
+  margin: 0;
+  padding-left: 18px;
+}
 .hint {
   color: var(--muted);
   font-size: 13px;
