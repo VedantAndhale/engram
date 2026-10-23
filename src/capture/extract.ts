@@ -5,7 +5,7 @@
  * HTML is kept, so nothing from the page can run in the app.
  */
 
-import { externalUrl } from "../lib/util";
+import { externalUrl } from "../lib/util.js";
 
 export interface Extracted {
   title?: string;
