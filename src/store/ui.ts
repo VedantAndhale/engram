@@ -26,6 +26,8 @@ export interface QuickAddPrefill {
   text?: string;
   title?: string;
   folder?: string;
+  /** A passage from the page a link came from: kept with the link as a quote. */
+  quote?: string;
 }
 
 interface UIState {

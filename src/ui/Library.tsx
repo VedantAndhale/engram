@@ -402,7 +402,7 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
         <button className="btn" aria-label="Graph" title="See how your items link and share topics" onClick={() => navigate({ name: "graph", folder: folder.id })}>
           <Network size={16} /> <span className="hide-narrow">Graph</span>
         </button>
-        <button className="btn" aria-label="Import highlights" title="Import highlights from a Kindle or Readwise export" onClick={() => setImporting(true)}>
+        <button className="btn" aria-label="Import" title="Import highlights from a Kindle or Readwise export, or links from a CSV" onClick={() => setImporting(true)}>
           <BookUp size={16} /> <span className="hide-narrow">Import</span>
         </button>
         <button className="btn btn-primary" aria-label="Save" title="Save a link, a quote or a note (N)" onClick={() => openQuickAdd({ folder: folder.id })}>
@@ -607,7 +607,7 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
 
       {menu.node}
 
-      {importing && <ImportDialog onClose={() => setImporting(false)} />}
+      {importing && <ImportDialog folder={folder.id} onClose={() => setImporting(false)} />}
       {dialog?.kind === "rename" && (
         <PromptDialog
           title="Rename"
@@ -898,14 +898,26 @@ export function MoveDialog({
                   disabled={busy}
                   onClick={async () => {
                     setBusy(true);
-                    let moved = 0;
-                    for (const d of items) if (await moveItem(from.id, f.id, d.id).catch(() => false)) moved++;
+                    const movedIds: string[] = [];
+                    for (const d of items) if (await moveItem(from.id, f.id, d.id).catch(() => false)) movedIds.push(d.id);
+                    const moved = movedIds.length;
                     const failed = items.length - moved;
+                    // Undo moves the ones that moved back. The source copy was removed, so this is the only way back.
                     toast(
                       failed
                         ? `Moved ${moved} of ${items.length} to ${f.name}. A PDF that isn't on this device needs GitHub to be reachable.`
                         : `Moved ${items.length === 1 ? "it" : `${items.length} items`} to ${f.name}.`,
-                      { action: { label: "Open", run: () => navigate({ name: "library", folder: f.id }) } },
+                      moved
+                        ? {
+                            action: {
+                              label: "Undo",
+                              run: () =>
+                                void Promise.all(movedIds.map((id) => moveItem(f.id, from.id, id).catch(() => false))).then(() =>
+                                  toast(`Moved back to ${from.name}.`),
+                                ),
+                            },
+                          }
+                        : undefined,
                     );
                     onClose();
                     onDone(f);

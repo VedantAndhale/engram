@@ -74,6 +74,8 @@ function QuickAddDialog({ prefill }: { prefill: QuickAddPrefill }) {
   const folders = useLiveQuery(visibleFolders, []);
   const allTopics = useHabit((h) => h.topics);
   const [text, setText] = useState(prefill.text ?? "");
+  // The passage a link came with, kept as a quote on it unless the reader leaves it out.
+  const [quote, setQuote] = useState(prefill.quote ?? "");
   const [chosenKind, setKind] = useState<CaptureKind | null>(null);
   const [title, setTitle] = useState(prefill.title ?? "");
   const [source, setSource] = useState("");
@@ -112,7 +114,7 @@ function QuickAddDialog({ prefill }: { prefill: QuickAddPrefill }) {
     try {
       let item;
       let existed = false;
-      if (kind === "link") ({ item, existed } = await saveLink(folder.id, { url: url!, title: title.trim() || undefined, words, topics }));
+      if (kind === "link") ({ item, existed } = await saveLink(folder.id, { url: url!, title: title.trim() || undefined, words, topics, selection: quote || undefined }));
       else if (kind === "quote") item = await saveQuote(folder.id, { quote: text, source, words, topics });
       else item = await saveNote(folder.id, { text, topics });
       rememberTopics(topics);
@@ -186,6 +188,16 @@ function QuickAddDialog({ prefill }: { prefill: QuickAddPrefill }) {
           )}
         </label>
         {kind === "link" && text.trim() && !url && <p className="hint">Paste a whole link, starting with https://</p>}
+
+        {kind === "link" && url && quote && (
+          <div className="form-note">
+            <p className="hint">Kept with the link as a quote from the page:</p>
+            <blockquote>{quote}</blockquote>
+            <button type="button" className="btn btn-small" onClick={() => setQuote("")}>
+              Leave it out
+            </button>
+          </div>
+        )}
 
         {kind === "link" && url && (
           <label>
@@ -270,8 +282,13 @@ export function SavePage() {
   const [folderId, setFolderId] = useState(lastFolder() ?? "");
   const [state, setState] = useState<"idle" | "saving" | "saved">("idle");
 
+  // The title is put back when this page goes, so a save link that opens it in the app does not leave it behind.
   useEffect(() => {
     document.title = "Save to Engram";
+    return () => void (document.title = "Engram");
+  }, []);
+
+  useEffect(() => {
     const opener = window.opener as Window | null;
     if (!opener) return;
     const onMessage = (e: MessageEvent) => {

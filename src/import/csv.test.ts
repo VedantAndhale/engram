@@ -17,6 +17,12 @@ test("ignores a final empty line and works with plain LF", () => {
   assert.deepEqual(parseCsv("a,b\n1,2\n\n").rows, [["a", "b"], ["1", "2"]]);
 });
 
+test("a blank line in the middle of the file is not a row, so it is not reported as ragged", () => {
+  const { rows, warnings } = parseCsv("a,b\n1,2\n\n3,4\n");
+  assert.deepEqual(rows, [["a", "b"], ["1", "2"], ["3", "4"]]);
+  assert.deepEqual(warnings, []);
+});
+
 test("keeps ragged rows, reports them, and caps warnings at 50", () => {
   const { rows, warnings } = parseCsv("a,b,c\n1,2\n1,2,3,4\n1,2,3\n");
   assert.equal(rows.length, 4);

@@ -1,0 +1,62 @@
+import { cleanText, cleanTopics, MAX_TITLE, typeForUrl, cleanUrl, titleFromUrl } from "../capture/capture";
+import { folderCtx } from "../folders/registry";
+import { createItem } from "../store/actions";
+import type { LinkRow } from "./links";
+
+export interface LinkImportResult {
+  links: number;
+  created: number;
+  alreadyThere: number;
+  failed: number;
+}
+
+// Runs go one after another. Closing the dialog does not stop a run, so a second import started meanwhile waits
+// for the first and then sees what it saved; otherwise both would create the same links.
+let queue: Promise<unknown> = Promise.resolve();
+
+/**
+ * Save each link as a link item in `folder`. The pages are not fetched: that would be one request per
+ * link, and each item says it holds only the link until its text is saved from the page. A link already
+ * in the folder is left as it is, trashed items included, so a file imported twice adds nothing, and a
+ * link you trashed does not come back.
+ */
+export function importLinks(folder: string, links: LinkRow[], onProgress?: (done: number, total: number) => void): Promise<LinkImportResult> {
+  const run = queue.then(() => saveAll(folder, links, onProgress));
+  queue = run.catch(() => undefined);
+  return run;
+}
+
+async function saveAll(folder: string, links: LinkRow[], onProgress?: (done: number, total: number) => void): Promise<LinkImportResult> {
+  const result: LinkImportResult = { links: links.length, created: 0, alreadyThere: 0, failed: 0 };
+  const { db } = folderCtx(folder);
+  // One read of the folder, not one search per link: the sourceUrl field is not indexed.
+  const known = new Set((await db.items.toArray()).filter((i) => i.type !== "quote" && i.sourceUrl).map((i) => i.sourceUrl!));
+
+  let done = 0;
+  // One link at a time: a bad row is counted and skipped, never allowed to stop the rest.
+  for (const link of links) {
+    try {
+      const url = cleanUrl(link.url);
+      if (known.has(url)) {
+        result.alreadyThere++;
+      } else {
+        const topics = cleanTopics(link.topics);
+        await createItem(folder, {
+          type: typeForUrl(url, 0),
+          title: cleanText(link.title, MAX_TITLE)?.replace(/\n/g, " ") || titleFromUrl(url),
+          sourceUrl: url,
+          author: cleanText(link.author, MAX_TITLE),
+          siteName: cleanText(link.publication, MAX_TITLE),
+          description: cleanText(link.description, 1000),
+          topics: topics.length ? topics : undefined,
+        });
+        known.add(url);
+        result.created++;
+      }
+    } catch {
+      result.failed++;
+    }
+    onProgress?.(++done, links.length);
+  }
+  return result;
+}

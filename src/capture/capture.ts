@@ -18,7 +18,7 @@ export { cleanUrl, typeForUrl };
 const MAX_CONTENT = 1_000_000;
 const MAX_PDF = 200 * 1024 * 1024;
 const MAX_QUOTE = 20_000;
-const MAX_TITLE = 300;
+export const MAX_TITLE = 300;
 
 /** Kind of thing the quick-add box holds. */
 export type CaptureKind = "link" | "quote" | "note";
@@ -78,7 +78,7 @@ export function titleFromText(text: string): string {
 }
 
 /** Plain text from a page: tidy whitespace, cap the size, and defuse anything that looks like file markup. */
-function cleanText(text: string | undefined, max: number): string | undefined {
+export function cleanText(text: string | undefined, max: number): string | undefined {
   return cleanPlain(text)?.slice(0, max).trim() || undefined;
 }
 
@@ -113,7 +113,7 @@ export function cleanMarkdown(text: string | undefined, max = MAX_CONTENT): stri
   return t ? capText(t, max, true) : undefined;
 }
 
-const cleanTopics = (topics: string[]) => [...new Set(topics.map(cleanTopic).filter(Boolean))];
+export const cleanTopics = (topics: string[]) => [...new Set(topics.map(cleanTopic).filter(Boolean))];
 
 const highlightColor = () => localStorage.getItem("reader.hl") ?? HIGHLIGHT_COLORS[0].value;
 

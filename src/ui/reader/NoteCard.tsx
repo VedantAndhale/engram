@@ -53,6 +53,8 @@ export const NoteCard = forwardRef<
   const status = useAiStatus();
   const [draft, setDraft] = useState("");
   const [peek, setPeek] = useState<Peek | null>(null);
+  // Not now hides the download offer. The question stays in the note until it is answered.
+  const [offerOpen, setOfferOpen] = useState(true);
   const loadingSeconds = useElapsed(status.phase === "loading");
 
   const turns = thread.turns;
@@ -227,7 +229,20 @@ export const NoteCard = forwardRef<
           </div>
         )}
 
-        {note.waiting && (
+        {note.waiting && !offerOpen && (
+          <div className="note-setup">
+            <p className="hint">
+              Your {asked} is waiting here. It is answered when you choose to download the model.
+            </p>
+            <div className="note-actions">
+              <button className="btn" onClick={() => setOfferOpen(true)}>
+                Show the download
+              </button>
+            </div>
+          </div>
+        )}
+
+        {note.waiting && offerOpen && (
           <div className="note-setup">
             {status.phase === "downloading" ? (
               <>
@@ -256,7 +271,7 @@ export const NoteCard = forwardRef<
                   <button className="btn btn-primary" onClick={() => void download()}>
                     Download and answer
                   </button>
-                  <button className="btn" onClick={() => removeNote(note.id)}>
+                  <button className="btn" onClick={() => setOfferOpen(false)}>
                     Not now
                   </button>
                 </div>

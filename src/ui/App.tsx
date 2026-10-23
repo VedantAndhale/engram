@@ -153,9 +153,11 @@ export function App() {
   useEffect(() => {
     const link = parseSaveLink(location.hash);
     if (!link) return;
-    openQuickAdd({ text: link.url ?? link.text, title: link.title });
+    // With a page address, the text is the passage the reader selected: it goes with the link, not in its place.
+    openQuickAdd(link.url ? { text: link.url, title: link.title, quote: link.text } : { text: link.text, title: link.title });
     navigate({ name: "library" }, { replace: true });
-  }, []);
+    // Runs on every route change, not only on load: a save link opened in a running app changes the route.
+  }, [route]);
 
   useEffect(() => setDrawer(false), [route]);
 

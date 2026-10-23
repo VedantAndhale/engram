@@ -17,6 +17,11 @@ export function parseCsv(text: string): { rows: string[][]; warnings: string[] }
   let atStart = true;
 
   const endRow = (): void => {
+    // A blank line is not a row, wherever it is in the file.
+    if (row.length === 0 && field === "") {
+      atStart = true;
+      return;
+    }
     row.push(field);
     rows.push(row);
     row = [];
