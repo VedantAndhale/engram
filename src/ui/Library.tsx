@@ -36,6 +36,7 @@ import { partlyRead } from "../reader/articlePosition";
 import { addPdf, copyItem, isFinished, moveItem, purgeItem, removeItem, restoreItem, setFavorite, setItemTopics, setLocation, setRead } from "../store/actions";
 import { renameWithLinks } from "../notes/notes";
 import { setHabit, useHabit } from "../habit/prefs";
+import { isAgedOutOfInbox } from "../store/aging";
 import { TopicsDialog } from "./habit";
 import { navigate, openQuickAdd, rememberFolder, toast } from "../store/ui";
 import { useAccount } from "../sync/account";
@@ -205,7 +206,19 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
   // Once the items are known: a folder without articles or links shows All in place of the location views.
   const hasLinks = rows === undefined || live.some((d) => LINK_TYPES.includes(d.type));
   const view: View = !hasLinks && LOCATION_VIEWS.includes(viewPick) ? "all" : viewPick;
-  const where = (d: Row) => itemLocation(d, isFinished(d, positions?.get(d.id)));
+  // A link leaves Inbox after its week (see store/aging.ts). It then shows under Unread while it is unread, and in Archive once read.
+  const agingSince = useHabit((h) => h.agingSince);
+  const now = Date.now();
+  const where = (d: Row): Location | null => {
+    const at = itemLocation(d, isFinished(d, positions?.get(d.id)));
+    const aged = isAgedOutOfInbox(
+      { id: d.id, type: d.type, location: d.location, addedAt: d.addedAt, enteredInbox: d.edited?.location ?? d.addedAt, deleted: d.deleted },
+      now,
+      agingSince ?? Infinity,
+    );
+    if (at !== "inbox" || !aged) return at;
+    return isUnread(d, positions?.get(d.id)) ? null : "archive";
+  };
   const inView = (d: Row) =>
     view === "trash"
       ? !!d.deleted

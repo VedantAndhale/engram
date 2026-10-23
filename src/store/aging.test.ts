@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { type AgingItem, agedFromInbox, INBOX_DAYS } from "./aging";
+import { type AgingItem, INBOX_DAYS, isAgedOutOfInbox } from "./aging";
 
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = Date.UTC(2026, 9, 25);
@@ -12,37 +12,40 @@ const item = (id: string, daysAgo: number, over: Partial<AgingItem> = {}): Aging
   return { id, type: "article", location: "inbox", addedAt, enteredInbox: addedAt, ...over };
 };
 
-test("a link waits in Inbox for seven days, then is due", () => {
+test("a link leaves Inbox after seven days, not before", () => {
   assert.equal(INBOX_DAYS, 7);
-  assert.deepEqual(agedFromInbox([item("a", 6.9)], NOW, SINCE), []);
-  assert.deepEqual(agedFromInbox([item("b", 7)], NOW, SINCE), ["b"]);
-  assert.deepEqual(agedFromInbox([item("c", 20)], NOW, SINCE), ["c"]);
+  assert.equal(isAgedOutOfInbox(item("a", 6.9), NOW, SINCE), false);
+  assert.equal(isAgedOutOfInbox(item("b", 7), NOW, SINCE), true);
+  assert.equal(isAgedOutOfInbox(item("c", 20), NOW, SINCE), true);
 });
 
 test("moving a link back to Inbox restarts its week", () => {
   // Added 10 days ago, but moved back to Inbox yesterday: it waits a fresh week.
-  assert.deepEqual(agedFromInbox([item("back", 10, { enteredInbox: NOW - DAY })], NOW, SINCE), []);
+  assert.equal(isAgedOutOfInbox(item("back", 10, { enteredInbox: NOW - DAY }), NOW, SINCE), false);
 });
 
 test("every kind of link is aged, and nothing else is", () => {
-  const links: AgingItem[] = (["article", "post", "tweet", "thread", "bookmark"] as const).map((type, i) => item(`l${i}`, 10, { type }));
-  assert.equal(agedFromInbox(links, NOW, SINCE).length, 5);
-  const others: AgingItem[] = (["note", "quote", "pdf", "book", "video", "playlist"] as const).map((type, i) => item(`o${i}`, 10, { type }));
-  assert.deepEqual(agedFromInbox(others, NOW, SINCE), []);
+  for (const type of ["article", "post", "tweet", "thread", "bookmark"] as const) {
+    assert.equal(isAgedOutOfInbox(item(type, 10, { type }), NOW, SINCE), true, type);
+  }
+  for (const type of ["note", "quote", "pdf", "book", "video", "playlist"] as const) {
+    assert.equal(isAgedOutOfInbox(item(type, 10, { type }), NOW, SINCE), false, type);
+  }
 });
 
-test("only items still in Inbox are moved", () => {
-  assert.deepEqual(agedFromInbox([item("later", 10, { location: "later" }), item("archive", 10, { location: "archive" })], NOW, SINCE), []);
+test("only items in Inbox are aged", () => {
+  assert.equal(isAgedOutOfInbox(item("later", 10, { location: "later" }), NOW, SINCE), false);
+  assert.equal(isAgedOutOfInbox(item("archive", 10, { location: "archive" }), NOW, SINCE), false);
 });
 
 test("deleted items are left alone", () => {
-  assert.deepEqual(agedFromInbox([item("gone", 10, { deleted: true })], NOW, SINCE), []);
+  assert.equal(isAgedOutOfInbox(item("gone", 10, { deleted: true }), NOW, SINCE), false);
 });
 
-test("links added before the rule started are left where they are", () => {
-  assert.deepEqual(agedFromInbox([item("old", 40)], NOW, SINCE), []);
+test("links added before the rule started keep their place in Inbox", () => {
+  assert.equal(isAgedOutOfInbox(item("old", 40), NOW, SINCE), false);
 });
 
-test("an item with no location is not moved by this rule", () => {
-  assert.deepEqual(agedFromInbox([item("legacy", 10, { location: undefined })], NOW, SINCE), []);
+test("an item with no location is not aged by this rule", () => {
+  assert.equal(isAgedOutOfInbox(item("legacy", 10, { location: undefined }), NOW, SINCE), false);
 });

@@ -1,7 +1,9 @@
-// The inbox rule for links: a link waits in Inbox for a week, then moves to Later. Pure, so the tests can run it in Node.
+// The inbox rule for links: a link stays in Inbox for a week after it came in. After that it leaves Inbox, and the
+// library shows it under Unread if it is still unread, or in Archive if it has been read. The item itself is not
+// changed, so the rule writes nothing and syncs nothing. Pure, so the tests can run it in Node.
 import type { ItemType, Location } from "../model";
 
-/** How long a link waits in Inbox before it moves to Later. */
+/** How long a link stays in Inbox before it leaves it. */
 export const INBOX_DAYS = 7;
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -20,11 +22,9 @@ export interface AgingItem {
 }
 
 /**
- * The ids to move from Inbox to Later at `now`: link items in Inbox for INBOX_DAYS since they came in, that were
- * added after `since` (the day the rule started on this device). Older links keep where they are.
+ * Whether a link has been in Inbox for INBOX_DAYS, and was added after `since` (the day the rule started on this
+ * device). Such a link is no longer shown in Inbox. Older links keep where they are.
  */
-export function agedFromInbox(items: AgingItem[], now: number, since: number): string[] {
-  return items
-    .filter((i) => !i.deleted && i.location === "inbox" && LINK_TYPES.includes(i.type) && i.addedAt >= since && now - i.enteredInbox >= INBOX_DAYS * DAY)
-    .map((i) => i.id);
+export function isAgedOutOfInbox(item: AgingItem, now: number, since: number): boolean {
+  return !item.deleted && item.location === "inbox" && LINK_TYPES.includes(item.type) && item.addedAt >= since && now - item.enteredInbox >= INBOX_DAYS * DAY;
 }

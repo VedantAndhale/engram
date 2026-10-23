@@ -8,7 +8,7 @@ import { completeSignIn, startFolders, visibleFolders } from "./folders/registry
 import "./lib/install"; // listen for the install prompt before it fires
 import { startAnalytics } from "./analytics";
 import { restoreAiNotes } from "./ai/notestore";
-import { evictCache, keepStorage, sweepInbox } from "./store/actions";
+import { evictCache, keepStorage } from "./store/actions";
 import { toast } from "./store/ui";
 import "./styles/app.css";
 import { Home, isFirstVisit } from "./landing/Home";
@@ -42,19 +42,8 @@ startFolders()
     // The AI notes kept on this device come back, so they survive a reload.
     void restoreAiNotes();
     await evictCache((await visibleFolders()).map((f) => f.id));
-    // Links that have waited a week in Inbox move to Later. Checked now, then hourly while the app is open.
-    const sweep = async () => {
-      const since = agingStart();
-      for (const f of await visibleFolders()) {
-        try {
-          await sweepInbox(f.id, since);
-        } catch (e) {
-          console.error("The inbox check failed for a folder", e);
-        }
-      }
-    };
-    void sweep();
-    setInterval(() => void sweep(), 60 * 60_000);
+    // Records when the inbox rule began on this device. Links added before then keep their place in Inbox.
+    agingStart();
   })
   .catch((e) => {
     console.error(e);
