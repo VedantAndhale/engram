@@ -107,6 +107,12 @@ interface CatchUp {
 class FileTooLargeError extends Error {}
 
 /**
+ * When GitHub asks us to slow down, that holds for the whole account, so every folder's engine waits until this
+ * time. Only the time GitHub gave clears it: a tab coming back or the network returning does not.
+ */
+let accountWaitUntil = 0;
+
+/**
  * GitHub allows ~80 content-creating requests a minute and 500 an hour, per user across all
  * repositories, so every folder's engine draws from this one shared budget.
  */
@@ -222,7 +228,10 @@ export class SyncEngine {
     await this.refreshPending();
   }
 
-  /** Called when the tab comes back or the network returns. */
+  /**
+   * Called when the tab comes back or the network returns. It clears this folder's own back-off, but not the wait
+   * GitHub asked for (accountWaitUntil), which holds until the time it gave.
+   */
   wake() {
     this.forcePull = true;
     this.backoffUntil = 0;
@@ -320,7 +329,7 @@ export class SyncEngine {
       return;
     }
     const now = Date.now();
-    if (now < this.backoffUntil) return;
+    if (now < this.backoffUntil || now < accountWaitUntil) return;
     if (this.isPublic && now - this.privacyCheckedAt < PUBLIC_RECHECK_MS) return;
     const visible = document.visibilityState === "visible";
     const pullDue = this.forcePull || (visible && now - this.lastPull > POLL_MS[this.attention]);
@@ -442,7 +451,7 @@ export class SyncEngine {
         return;
       }
       if (e.isRateLimit) {
-        this.backoffUntil = e.retryAt!;
+        accountWaitUntil = Math.max(accountWaitUntil, e.retryAt!);
         set({ state: "pending", message: "GitHub asked us to slow down. Changes are safe on this device." });
         return;
       }
