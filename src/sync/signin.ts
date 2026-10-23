@@ -1,3 +1,4 @@
+import { APP_BASE } from "../lib/base";
 /*
  * Sign in with GitHub. The app leaves for /api/oauth/login and GitHub sends it back with the
  * token in the address fragment (#engram-auth&token=…&nonce=…), which browsers never send to a
@@ -34,7 +35,7 @@ function take(): SignInReturn | null {
   // No address bar outside a browser (unit tests), so there is nothing to read.
   if (typeof location === "undefined" || !location.hash.startsWith(MARK)) return null;
   const p = new URLSearchParams(location.hash.slice(MARK.length));
-  history.replaceState(null, "", `${location.pathname}${location.search}#/setup`);
+  history.replaceState(null, "", `${APP_BASE}/setup`);
   let expected: { nonce: string; at: number } | null = null;
   try {
     expected = JSON.parse(localStorage.getItem(NONCE_KEY) ?? "null");
@@ -78,6 +79,6 @@ export function startSignIn() {
   localStorage.setItem(NONCE_KEY, JSON.stringify({ nonce, at: Date.now() }));
   const url = new URL("/api/oauth/login", location.origin);
   url.searchParams.set("nonce", nonce);
-  url.searchParams.set("return", location.origin + location.pathname);
+  url.searchParams.set("return", location.origin + APP_BASE + "/");
   location.assign(url);
 }

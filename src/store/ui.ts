@@ -1,18 +1,10 @@
 import { create } from "zustand";
+import { isAppPath, legacyHashPath, parseRoute, routeHref, type Route } from "./route";
+import { APP_BASE } from "../lib/base";
 
 export type Theme = "light" | "sepia" | "dark";
 
-export type Route =
-  | { name: "library"; folder?: string }
-  | { name: "reader"; folder: string; doc: string; page?: number; find?: string; panel?: "notes" }
-  | { name: "item"; folder: string; item: string }
-  | { name: "graph"; folder: string }
-  | { name: "save" }
-  | { name: "search"; q?: string }
-  | { name: "highlights" }
-  | { name: "setup" }
-  | { name: "today" }
-  | { name: "welcome" };
+export type { Route } from "./route";
 
 export interface Toast {
   id: number;
@@ -50,66 +42,6 @@ export interface ParagraphJump {
   quote: string;
 }
 
-const ID = "[A-Za-z0-9-]+";
-
-function parseHash(): Route {
-  const [path, query = ""] = location.hash.replace(/^#/, "").split("?", 2);
-  const q = new URLSearchParams(query);
-  let m = new RegExp(`^/f/(${ID})/doc/([0-9a-f]{64})$`).exec(path);
-  if (m)
-    return {
-      name: "reader",
-      folder: m[1],
-      doc: m[2],
-      page: Number(q.get("page")) || undefined,
-      find: q.get("find") ?? undefined,
-      panel: q.get("panel") === "notes" ? "notes" : undefined,
-    };
-  m = new RegExp(`^/f/(${ID})/item/(${ID})$`).exec(path);
-  if (m) return { name: "item", folder: m[1], item: m[2] };
-  m = new RegExp(`^/f/(${ID})/graph$`).exec(path);
-  if (m) return { name: "graph", folder: m[1] };
-  m = new RegExp(`^/f/(${ID})$`).exec(path);
-  if (m) return { name: "library", folder: m[1] };
-  if (path === "/search") return { name: "search", q: q.get("q") ?? undefined };
-  if (path === "/setup") return { name: "setup" };
-  if (path === "/highlights") return { name: "highlights" };
-  if (path === "/library") return { name: "library" };
-  if (path === "/welcome") return { name: "welcome" };
-  if (path === "/save") return { name: "save" };
-  return { name: "today" };
-}
-
-export function routeHash(route: Route): string {
-  const q = new URLSearchParams();
-  switch (route.name) {
-    case "library":
-      return route.folder ? `#/f/${route.folder}` : "#/library";
-    case "reader":
-      if (route.page) q.set("page", String(route.page));
-      if (route.find) q.set("find", route.find);
-      if (route.panel) q.set("panel", route.panel);
-      return `#/f/${route.folder}/doc/${route.doc}${q.size ? `?${q}` : ""}`;
-    case "item":
-      return `#/f/${route.folder}/item/${route.item}`;
-    case "graph":
-      return `#/f/${route.folder}/graph`;
-    case "save":
-      return "#/save";
-    case "search":
-      if (route.q) q.set("q", route.q);
-      return `#/search${q.size ? `?${q}` : ""}`;
-    case "setup":
-      return "#/setup";
-    case "highlights":
-      return "#/highlights";
-    case "today":
-      return "#/today";
-    case "welcome":
-      return "#/welcome";
-  }
-}
-
 const THEMES: Theme[] = ["light", "sepia", "dark"];
 const chosenTheme = () => {
   const t = localStorage.getItem("reader.theme") as Theme | null;
@@ -118,8 +50,22 @@ const chosenTheme = () => {
 const darkMode = window.matchMedia?.("(prefers-color-scheme: dark)");
 const deviceTheme = (): Theme => (darkMode?.matches ? "dark" : "light");
 
+/** The screen the address shows. The app lives under APP_BASE, so that part is not a route. */
+function currentRoute(): Route {
+  const path = location.pathname.startsWith(APP_BASE) ? location.pathname.slice(APP_BASE.length) : location.pathname;
+  return parseRoute(path || "/", location.search);
+}
+
+/** A hash address from before clean paths (#/save?url=...) moves to its path, so old links still open. */
+function adoptLegacyHash() {
+  const path = legacyHashPath(location.hash);
+  if (path !== null) history.replaceState(null, "", APP_BASE + path);
+}
+
+adoptLegacyHash();
+
 export const useUI = create<UIState>(() => ({
-  route: parseHash(),
+  route: currentRoute(),
   theme: chosenTheme() ?? deviceTheme(),
   themeChosen: chosenTheme() !== null,
   toasts: [],
@@ -149,15 +95,39 @@ export function closeQuickAdd() {
   useUI.setState({ quickAdd: null });
 }
 
-window.addEventListener("hashchange", () => useUI.setState({ route: parseHash() }));
+/** Back and forward, and a hash address typed or pasted in, change the screen. */
+function syncRoute() {
+  adoptLegacyHash();
+  useUI.setState({ route: currentRoute() });
+}
+window.addEventListener("popstate", syncRoute);
+window.addEventListener("hashchange", syncRoute);
+
+// Following a link to one of the app's screens changes the screen without a reload.
+document.addEventListener("click", (e) => {
+  if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  const a = (e.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null | undefined;
+  if (!a || a.target || a.hasAttribute("download") || a.origin !== location.origin || a.hash) return;
+  const path = a.pathname.startsWith(APP_BASE) ? a.pathname.slice(APP_BASE.length) : a.pathname;
+  if (!isAppPath(path)) return;
+  e.preventDefault();
+  go(a.pathname + a.search);
+});
 
 /** `replace` updates the address without adding a history entry (used for live search text). */
 export function navigate(route: Route, opts: { replace?: boolean } = {}) {
-  const hash = routeHash(route);
-  if (opts.replace) {
-    history.replaceState(null, "", hash);
-    useUI.setState({ route: parseHash() });
-  } else location.hash = hash;
+  const href = routeHref(route, APP_BASE);
+  if (!opts.replace) return go(href);
+  history.replaceState(null, "", href);
+  useUI.setState({ route: currentRoute() });
+}
+
+/** Open an address the app built (an item, a folder): the same as following a link to it. */
+export function go(href: string) {
+  const url = new URL(href, location.origin);
+  const next = url.pathname + url.search;
+  if (next !== location.pathname + location.search) history.pushState(null, "", next);
+  useUI.setState({ route: currentRoute() });
 }
 
 /** The folder last opened, so the app returns to it. */

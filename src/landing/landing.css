@@ -1,0 +1,274 @@
+/* The first-visit page at the root. It uses the app's colours and fonts (app.css defines them), so the
+   two look like one product. Plain CSS, no web fonts: the Content-Security-Policy allows only the app's own. */
+
+.landing {
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  line-height: 1.6;
+}
+.landing a {
+  color: var(--accent);
+}
+.landing :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.landing-nav {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 0.9rem clamp(1rem, 4vw, 3rem);
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+}
+.landing-brand {
+  font-family: var(--serif);
+  font-size: 1.35rem;
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: none;
+}
+.landing-nav nav {
+  display: flex;
+  gap: 1.1rem;
+  margin-left: auto;
+}
+.landing-nav nav a,
+.landing-footer nav a {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.95rem;
+}
+.landing-nav nav a:hover,
+.landing-footer nav a:hover {
+  color: var(--text);
+}
+
+main {
+  display: block;
+}
+.landing-hero,
+.landing-section,
+.landing-final {
+  padding: clamp(2.5rem, 7vw, 5rem) clamp(1rem, 5vw, 3rem);
+  max-width: 1080px;
+  margin: 0 auto;
+}
+.landing-eyebrow {
+  margin: 0 0 1rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+  letter-spacing: 0.02em;
+}
+.landing h1,
+.landing h2 {
+  font-family: var(--serif);
+  font-weight: 600;
+  line-height: 1.15;
+  margin: 0;
+}
+.landing h1 {
+  font-size: clamp(2.2rem, 5.5vw, 3.8rem);
+  max-width: 17ch;
+}
+.landing h2 {
+  font-size: clamp(1.7rem, 3.5vw, 2.4rem);
+  margin-bottom: 1.25rem;
+}
+.landing h3 {
+  font-size: 1.15rem;
+  margin: 0 0 0.4rem;
+}
+.landing-lede {
+  font-size: clamp(1.05rem, 2vw, 1.25rem);
+  color: var(--muted);
+  max-width: 60ch;
+  margin: 1.25rem 0 0;
+}
+.landing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem 1.5rem;
+  margin-top: 1.75rem;
+}
+.landing .landing-button {
+  display: inline-block;
+  background: var(--accent);
+  color: var(--accent-text);
+  padding: 0.85rem 1.4rem;
+  border-radius: 999px;
+  font-weight: 600;
+  text-decoration: none;
+  box-shadow: var(--shadow);
+}
+.landing-button:hover {
+  filter: brightness(1.06);
+}
+.landing-button.small {
+  padding: 0.5rem 0.95rem;
+  font-size: 0.95rem;
+}
+.landing-link {
+  font-weight: 600;
+}
+.landing-fine {
+  margin: 0.9rem 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.landing-demo {
+  display: block;
+  width: 100%;
+  max-width: 880px;
+  margin: 3rem auto 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  background: var(--surface);
+}
+
+.landing-steps {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  counter-reset: step;
+}
+.landing-steps li {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.4rem;
+  counter-increment: step;
+}
+.landing-steps li::before {
+  content: counter(step);
+  display: inline-grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  margin-bottom: 0.9rem;
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--accent);
+  font-weight: 700;
+}
+.landing-steps p,
+.landing-split p,
+.landing-narrow {
+  margin: 0 0 0.9rem;
+  color: var(--muted);
+}
+
+.landing-split {
+  display: grid;
+  gap: 2.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+.landing-split > div {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.75rem;
+}
+.landing-split h2 {
+  font-size: 1.6rem;
+}
+
+.landing-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  font-size: 0.97rem;
+}
+.landing-table th,
+.landing-table td {
+  text-align: left;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.landing-table th {
+  background: var(--surface-2);
+  font-weight: 600;
+}
+.landing-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.landing-narrow {
+  max-width: 62ch;
+  font-size: 1.05rem;
+}
+
+.landing-faq {
+  display: grid;
+  gap: 0.6rem;
+  max-width: 760px;
+}
+.landing-faq details {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.9rem 1.15rem;
+}
+.landing-faq summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.landing-faq p {
+  margin: 0.6rem 0 0.2rem;
+  color: var(--muted);
+}
+
+.landing-final {
+  text-align: center;
+  padding-bottom: clamp(3rem, 8vw, 6rem);
+}
+.landing-final .landing-actions {
+  justify-content: center;
+}
+
+.landing-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 2rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.5rem clamp(1rem, 5vw, 3rem);
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+.landing-footer nav {
+  display: flex;
+  gap: 1.25rem;
+}
+
+@media (max-width: 720px) {
+  .landing-nav nav {
+    display: none;
+  }
+  .landing-nav {
+    justify-content: space-between;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .landing-button {
+    transition: none;
+  }
+}

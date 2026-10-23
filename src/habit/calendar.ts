@@ -1,9 +1,10 @@
+import { APP_BASE } from "../lib/base";
 /*
  * The daily reminder is a repeating calendar event the person adds to their own calendar.
  * No server and no push: their calendar app does the reminding.
  */
 
-const TITLE = "Engram: a few minutes for your second brain";
+const TITLE = "Engram: a few minutes with your highlights";
 const DETAILS = "Review three highlights, or save one thing worth keeping and say why in your own words.";
 /**
  * Every download is the same event, so a calendar that already has it updates it in place.
@@ -11,7 +12,7 @@ const DETAILS = "Review three highlights, or save one thing worth keeping and sa
  */
 export const REMINDER_UID = "engram-daily-reminder@engram";
 
-export const appUrl = () => `${location.origin}${location.pathname}#/today`;
+export const appUrl = () => `${location.origin}${APP_BASE}/today`;
 
 const pad = (n: number) => String(n).padStart(2, "0");
 

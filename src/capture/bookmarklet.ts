@@ -1,3 +1,4 @@
+import { APP_BASE } from "../lib/base";
 /*
  * "Save to Engram": a bookmark whose address is a small script. Clicking it on any page opens
  * Engram's save window and hands it the page through postMessage, so nothing travels in a URL
@@ -30,7 +31,7 @@ export const READY = "engram-ready";
  */
 function capture(app: string) {
   const origin = new URL(app).origin;
-  const w = window.open(`${app}#/save`, "engram-save", "width=520,height=720");
+  const w = window.open(`${app}save`, "engram-save", "width=520,height=720");
   if (!w) {
     alert("Allow pop-ups on this site to save it to Engram.");
     return;
@@ -67,7 +68,7 @@ function capture(app: string) {
 }
 
 /** The bookmark's address for this copy of Engram. */
-export function bookmarkletHref(app = location.origin + location.pathname): string {
+export function bookmarkletHref(app = location.origin + APP_BASE + "/"): string {
   return `javascript:${encodeURIComponent(`(${capture.toString()})(${JSON.stringify(app)});void 0`)}`;
 }
 

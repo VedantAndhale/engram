@@ -23,7 +23,7 @@ import { dailyNote, openOrCreate } from "../notes/notes";
 import { escapeTitle, sameTitle } from "../notes/links";
 import { openAi } from "../ai/dialog";
 import { refresh, useAiStatus } from "../ai/engine";
-import { closePalette, lastFolder, navigate, openQuickAdd, openShortcuts, setTheme, useUI } from "../store/ui";
+import { closePalette, go, lastFolder, navigate, openQuickAdd, openShortcuts, setTheme, useUI } from "../store/ui";
 
 /*
  * Ctrl+K (or Cmd+K) from anywhere: type to jump to any item in any folder by its title, or to run
@@ -217,7 +217,7 @@ function PaletteDialog() {
       label: r.title,
       hint: many ? `${TYPE_LABELS[r.type]} · ${r.folderName}` : TYPE_LABELS[r.type],
       run: () => {
-        location.hash = itemHref(r.folder, r);
+        go(itemHref(r.folder, r));
       },
     });
 

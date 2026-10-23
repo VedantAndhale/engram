@@ -138,7 +138,9 @@ export function App() {
   }, []);
 
   // Shared from another app (Android share sheet): the installed app opens with ?title&text&url.
+  // A save link has the same query, and the save link effect below reads it, so this one leaves it alone.
   useEffect(() => {
+    if (route.name === "save") return;
     const q = new URLSearchParams(location.search);
     if (!q.has("text") && !q.has("url") && !q.has("title")) return;
     const text = q.get("text") ?? "";
@@ -148,10 +150,11 @@ export function App() {
     openQuickAdd(url ? { text: url, title: q.get("title") || rest || undefined } : { text: [q.get("title"), rest].filter(Boolean).join("\n\n") });
   }, []);
 
-  // A save link (#/save?url=…&text=…) only opens the save box, filled in. It never saves by itself,
+  // A save link (/save?url=…&text=…) only opens the save box, filled in. It never saves by itself,
   // because any page can link to it. The replace drops the link from the address.
   useEffect(() => {
-    const link = parseSaveLink(location.hash);
+    if (route.name !== "save") return;
+    const link = parseSaveLink(location.search);
     if (!link) return;
     // With a page address, the text is the passage the reader selected: it goes with the link, not in its place.
     openQuickAdd(link.url ? { text: link.url, title: link.title, quote: link.text } : { text: link.text, title: link.title });

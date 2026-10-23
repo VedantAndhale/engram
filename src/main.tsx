@@ -11,7 +11,7 @@ import { restoreAiNotes } from "./ai/notestore";
 import { evictCache, keepStorage } from "./store/actions";
 import { toast } from "./store/ui";
 import "./styles/app.css";
-import { App } from "./ui/App";
+import { Home, isFirstVisit } from "./landing/Home";
 
 // A new version of the app is ready: it is used once you choose to reload, never in the middle of
 // something (a share arriving, a note being typed).
@@ -29,9 +29,11 @@ setInterval(() => void refreshIfDue(), 20 * 60_000);
 
 startFolders()
   .then(async () => {
+    // A first visit sees the landing page at the root before the app's welcome flow.
+    const firstVisit = await isFirstVisit();
     createRoot(document.getElementById("root")!).render(
       <StrictMode>
-        <App />
+        <Home firstVisit={firstVisit} />
       </StrictMode>,
     );
     const signIn = takeSignIn();

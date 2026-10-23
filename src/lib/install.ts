@@ -17,7 +17,8 @@ interface InstallState {
   installed: boolean;
 }
 
-const standalone = () =>
+/** Running as an installed app (not in a browser tab). iOS reports it on navigator instead. */
+export const standalone = () =>
   matchMedia("(display-mode: standalone)").matches || (navigator as { standalone?: boolean }).standalone === true;
 
 export const useInstall = create<InstallState>(() => ({ prompt: null, installed: standalone() }));

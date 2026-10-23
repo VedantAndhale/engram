@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { REMINDER_UID, reminderIcs } from "./calendar";
 
-const url = "https://engram.example/#/today";
+const url = "https://engram.example/today";
 const field = (ics: string, name: string) => ics.split("\r\n").find((l) => l.startsWith(`${name}:`))?.slice(name.length + 1);
 
 test("every reminder file is the same event, so a new time replaces the old one", () => {

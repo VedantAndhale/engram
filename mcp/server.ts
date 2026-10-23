@@ -11,7 +11,7 @@ import { dueAt, highlightRef, Library, shortId, untrusted } from "./library.js";
  * so no state is shared between people.
  */
 
-const INSTRUCTIONS = `Engram is the user's second brain: things they saved, their highlights and their own notes, kept in their GitHub repositories.
+const INSTRUCTIONS = `Engram is the user's reading library: things they saved, their highlights and their own notes, kept in their GitHub repositories.
 - search first, then read_item for the full notes or the saved text. Search matches words, not meaning: pass related words and synonyms in "also".
 - Cite with the item title and highlight ref, e.g. [[Deep Work#^a1b2c3]], and give the "open" link so the user can jump to it in Engram.
 - To save or remember something for the user, use save_item or append_note: they go to an inbox the user approves.

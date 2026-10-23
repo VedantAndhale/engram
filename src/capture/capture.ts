@@ -5,6 +5,7 @@ import { addPdf, createItem, saveAnnotation, updateItem } from "../store/actions
 import { capText, extractArticle, imageUrl, isoDate, metaText, pdfUrl, shrinks } from "./extract";
 import { cleanUrl, typeForUrl } from "./url";
 import { externalUrl } from "../lib/util";
+import { APP_BASE } from "../lib/base";
 
 export { cleanUrl, typeForUrl };
 
@@ -314,8 +315,8 @@ export async function saveNote(folder: string, n: { text: string; topics?: strin
 
 /** Where an item opens: PDFs in the reader, everything else on its own page. */
 export function itemHref(folder: string, item: Pick<Item, "id" | "type">, page?: number): string {
-  if (item.type === "pdf") return `#/f/${folder}/doc/${item.id}${page ? `?page=${page}` : ""}`;
-  return `#/f/${folder}/item/${item.id}`;
+  if (item.type === "pdf") return `${APP_BASE}/f/${folder}/doc/${item.id}${page ? `?page=${page}` : ""}`;
+  return `${APP_BASE}/f/${folder}/item/${item.id}`;
 }
 
 export const TYPE_LABELS: Record<ItemType, string> = {

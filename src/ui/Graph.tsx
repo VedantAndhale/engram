@@ -5,9 +5,10 @@ import { itemHref } from "../capture/capture";
 import { folderCtx } from "../folders/registry";
 import { buildGraph, neighbourhood, type GItem, type Graph as GraphData } from "../graph/graph";
 import type { Folder } from "../model";
-import { navigate } from "../store/ui";
+import { go, navigate } from "../store/ui";
 import { GraphCanvas } from "./GraphCanvas";
 import "../styles/graph.css";
+import { APP_BASE } from "../lib/base";
 
 /** The items of a folder as the graph reads them. Items in the trash are left out. */
 function useFolderItems(folder: string): GItem[] | undefined {
@@ -23,11 +24,11 @@ function useFolderItems(folder: string): GItem[] | undefined {
 
 const hrefIn = (folder: string, items: GItem[]) => (id: string) => {
   const it = items.find((i) => i.id === id);
-  return it ? itemHref(folder, { id: it.id, type: it.type as never }) : "#/library";
+  return it ? itemHref(folder, { id: it.id, type: it.type as never }) : `${APP_BASE}/library`;
 };
 
 const open = (folder: string, items: GItem[]) => (id: string) => {
-  location.hash = hrefIn(folder, items)(id);
+  go(hrefIn(folder, items)(id));
 };
 
 /** The whole folder as a graph: what links to what, and what shares a topic. */

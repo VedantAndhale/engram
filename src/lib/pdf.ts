@@ -1,5 +1,6 @@
 import * as pdfjsLib from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import { APP_BASE } from "./base";
 
 // pdf_viewer.mjs reads the core library from this global, so it must be set before the viewer loads.
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
@@ -7,7 +8,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
 export { pdfjsLib };
 
-const asset = (dir: string) => new URL(`pdfjs/${dir}/`, document.baseURI).href;
+const asset = (dir: string) => new URL(`${APP_BASE}/pdfjs/${dir}/`, location.origin).href;
 
 export function openPdf(data: ArrayBuffer) {
   return pdfjsLib.getDocument({

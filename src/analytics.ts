@@ -1,3 +1,4 @@
+import { useUI } from "./store/ui";
 /*
  * Page views for Engram's hosted site, counted by GoatCounter. Off unless VITE_GOATCOUNTER is set
  * to your GoatCounter code, so self-hosted copies count nothing by default.
@@ -8,20 +9,22 @@
  * image with no referrer, sends nothing but what is set here.
  */
 
-const SCREEN = /^[a-z][a-z-]{0,23}$/;
+
 
 export function startAnalytics() {
   const code = import.meta.env.VITE_GOATCOUNTER;
   if (!code || !/^[a-z0-9-]+$/i.test(code)) return;
   const count = () => countScreen(code);
   count();
-  window.addEventListener("hashchange", count);
+  // Each screen change is a page view. Only the screen's name is counted, never a folder or item ID.
+  useUI.subscribe((s, prev) => {
+    if (s.route.name !== prev.route.name) count();
+  });
 }
 
 function countScreen(code: string) {
-  // The first part of the hash route only; folder and item IDs after it stay on the device.
-  const first = location.hash.replace(/^#\/?/, "").split(/[/?]/)[0] || "today";
-  const screen = SCREEN.test(first) ? first : "other";
+  // The screen's name only (today, library, item...): folder and item IDs stay on the device.
+  const screen = useUI.getState().route.name;
   const url = new URL(`https://${code}.goatcounter.com/count`);
   url.searchParams.set("p", `/${screen}`);
   url.searchParams.set("t", screen);

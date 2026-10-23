@@ -2,7 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { viteStaticCopy } from "vite-plugin-static-copy";
 import { VitePWA } from "vite-plugin-pwa";
-import { readFileSync } from "node:fs";
+import { copyFileSync, readFileSync } from "node:fs";
 
 // The hosted site's security headers (vercel.json), also sent by `vite preview` so the build can be checked under them.
 // Not by the dev server: its hot reload runs inline scripts the policy forbids.
@@ -10,11 +10,25 @@ const siteHeaders: Record<string, string> = Object.fromEntries(
   (JSON.parse(readFileSync(new URL("./vercel.json", import.meta.url), "utf8")) as { headers: { headers: { key: string; value: string }[] }[] }).headers[0].headers.map((h) => [h.key, h.value]),
 );
 
-// Relative base so the build works on GitHub Pages under /<repo>/ as well as at a domain root.
+// The app's address on its host. "/" serves the hosted site from a domain root, so clean paths (/today) work.
+// For a subfolder such as GitHub Pages (/<repo>/), build with BASE_PATH=/<repo>/.
+const base = process.env.BASE_PATH || "/";
+
+// GitHub Pages answers unknown paths with 404.html. A copy of the app shell there lets a clean path such as
+// /<repo>/today load the app on a host without rewrites. The app reads the path itself, so nothing else changes.
+const spaFallback = {
+  name: "spa-fallback",
+  apply: "build" as const,
+  closeBundle() {
+    copyFileSync(new URL("./dist/index.html", import.meta.url), new URL("./dist/404.html", import.meta.url));
+  },
+};
+
 export default defineConfig({
-  base: "./",
+  base,
   plugins: [
     react(),
+    spaFallback,
     viteStaticCopy({
       targets: [
         ...["cmaps", "standard_fonts", "wasm", "iccs"].map((dir) => ({
@@ -45,7 +59,7 @@ export default defineConfig({
       manifest: {
         name: "Engram",
         short_name: "Engram",
-        description: "Your second brain: read, highlight and keep notes, synced through GitHub.",
+        description: "A reader that keeps your library in your own GitHub account, and reads with you on your device.",
         theme_color: "#f6f1e7",
         background_color: "#f6f1e7",
         display: "standalone",
@@ -59,7 +73,7 @@ export default defineConfig({
         // "Share → Engram" on Android. The installed app opens from its own cache, and the
         // shared text is read and dropped from the address at once (see App.tsx).
         share_target: {
-          action: "./",
+          action: base,
           method: "GET",
           params: { title: "title", text: "text", url: "url" },
         },

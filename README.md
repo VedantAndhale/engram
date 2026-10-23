@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/VedantAndhale/engram/actions/workflows/ci.yml/badge.svg)](https://github.com/VedantAndhale/engram/actions/workflows/ci.yml)
 
-A second brain that lives in your own GitHub account.
+A reader that keeps what you read in your own GitHub account, and reads with you on your device.
 
 **Try it:** [engram.vedant.me](https://engram.vedant.me/)
 
@@ -27,7 +27,8 @@ what you saved and suggest additions, which you accept or dismiss.
 - Press `N`, or paste anywhere, to save a link, a quote or a note.
 - **Import** brings highlights from a Kindle `My Clippings.txt` or a Readwise CSV export. Each book is one
   item, and importing the same file again adds only what is new. Nothing is written until you press Import.
-- A link like `#/save?url=…&text=…` opens the save box filled in. It never saves by itself.
+- A link like `/save?url=…&text=…` opens the save box filled in. It never saves by itself. Links from
+  before the clean addresses, `#/save?…`, still open.
 - **Feeds** (in Setup): add RSS or Atom feeds, and new entries arrive in your Inbox. A scheduled GitHub
   Action in your own folder repository fetches them every six hours. You copy its workflow file into the
   repository once; it uses your own free Actions minutes.
@@ -50,8 +51,6 @@ what you saved and suggest additions, which you accept or dismiss.
 - **Read aloud** speaks an article from the paragraph you are on, using your browser's own voices, with the
   paragraph being read marked. Pause, skip a paragraph, or press `Esc` to stop. It costs nothing and sends
   nothing anywhere. It needs a browser with a speech engine.
-- On a wide window, a **minimap** beside a long article shows every paragraph, your highlights and your AI
-  notes, and the part on screen. Press or drag on it to go there.
 
 **Understand, on your device**
 
@@ -154,15 +153,19 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173. Reading, saving and search work without an account. To sync, or to connect
-an agent, you also need the server and a GitHub OAuth App. See [mcp/README.md](mcp/README.md).
+Open http://localhost:5173. A first visit shows the landing page, and **Open Engram** starts the app.
+Reading, saving and search work without an account. To sync, or to connect an agent, you also need the
+server and a GitHub OAuth App. See [mcp/README.md](mcp/README.md).
 
 ```bash
 npm run build
 ```
 
-The build in `dist/` is a static site with relative paths and hash routing. Sign-in and MCP need the
-function in `api/`, so deploy on Vercel at a domain root.
+The build in `dist/` is a static site with clean paths (`/today`, `/f/<folder>/item/<id>`), served from the
+root of its domain. Sign-in and MCP need the function in `api/`, so deploy on Vercel at a domain root. For
+a subfolder host such as GitHub Pages, build with `BASE_PATH=/<repo>/`. The build also writes `dist/404.html`,
+a copy of the app shell, so a host without rewrites still loads a clean path. Sign-in and MCP still need the
+function in `api/`, which only Vercel runs.
 
 ### Deploy on Vercel
 

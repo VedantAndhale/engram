@@ -50,14 +50,10 @@ function pack(url?: string, text?: string, title?: string): SaveLink | null {
   return link;
 }
 
-// hash is location.hash, e.g. "#/save?url=...&text=...&title=...".
-export function parseSaveLink(hash: string): SaveLink | null {
-  const h = hash.startsWith("#") ? hash.slice(1) : hash;
-  const q = h.indexOf("?");
-  const path = q < 0 ? h : h.slice(0, q);
-  if (path !== "/save") return null;
+// search is location.search on the save screen, e.g. "?url=...&text=...&title=...".
+export function parseSaveLink(search: string): SaveLink | null {
   // URLSearchParams decodes both + and %xx, and never throws on bad escapes.
-  const params = new URLSearchParams(q < 0 ? "" : h.slice(q + 1));
+  const params = new URLSearchParams(search);
   return pack(
     cleanUrl(params.get("url")),
     clean(params.get("text"), MAX_TEXT),
@@ -65,7 +61,7 @@ export function parseSaveLink(hash: string): SaveLink | null {
   );
 }
 
-// base is the app origin with no trailing slash, e.g. "https://engram.example".
+// base is the app's address with no trailing slash, e.g. "https://engram.example".
 export function buildSaveLink(base: string, link: SaveLink): string {
   const params = new URLSearchParams();
   const url = cleanUrl(link.url);
@@ -75,6 +71,6 @@ export function buildSaveLink(base: string, link: SaveLink): string {
   if (url) params.set("url", url);
   if (title) params.set("title", title);
   if (text) params.set("text", text);
-  // Tolerate a stray trailing slash on the base so we never emit "//#/save".
-  return `${base.replace(/\/+$/, "")}/#/save?${params.toString()}`;
+  // Tolerate a stray trailing slash on the base so we never emit "//save".
+  return `${base.replace(/\/+$/, "")}/save?${params.toString()}`;
 }

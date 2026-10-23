@@ -6,6 +6,7 @@ import { create } from "zustand";
 import { Awaiting } from "./awaiting";
 import { GEMMA, deleteModel, downloadModel, modelCached, readModel, webGpuAvailable, type DownloadProgress } from "./model";
 import { clearAllThreads, markAllRebuild } from "./thread";
+import { APP_BASE } from "../lib/base";
 
 /** checking: looking at the device. unsupported: no WebGPU. absent: not downloaded. ready: downloaded, not in memory. */
 export type Phase = "checking" | "unsupported" | "absent" | "downloading" | "ready" | "loading" | "loaded";
@@ -115,7 +116,7 @@ export function load(): Promise<void> {
     try {
       const model = await readModel();
       const w = startWorker();
-      const wasmDir = new URL("litert/", document.baseURI).href;
+      const wasmDir = new URL(`${APP_BASE}/litert/`, location.origin).href;
       await new Promise<void>((resolve, reject) => {
         const done = () => {
           listeners.delete(listen);

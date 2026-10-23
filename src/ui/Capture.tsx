@@ -27,7 +27,7 @@ import { playlistIdOf } from "../video/playlist";
 import { installApp, isIOS, useInstall } from "../lib/install";
 import { setHabit, useHabit } from "../habit/prefs";
 import type { Folder, ItemType } from "../model";
-import { closeQuickAdd, lastFolder, toast, useUI, type QuickAddPrefill } from "../store/ui";
+import { closeQuickAdd, go, lastFolder, toast, useUI, type QuickAddPrefill } from "../store/ui";
 import { Modal } from "./common";
 import { TopicPicker } from "./habit";
 
@@ -117,7 +117,7 @@ function QuickAddDialog({ prefill }: { prefill: QuickAddPrefill }) {
     try {
       const id = await addPdf(folder!.id, file);
       closeQuickAdd();
-      toast(`Saved to ${folder!.name}.`, { action: { label: "Open", run: () => (location.hash = itemHref(folder!.id, { id, type: "pdf" })) } });
+      toast(`Saved to ${folder!.name}.`, { action: { label: "Open", run: () => go(itemHref(folder!.id, { id, type: "pdf" })) } });
     } catch (e) {
       console.error(e);
       toast("Couldn't save that PDF. Try again.");
@@ -137,7 +137,7 @@ function QuickAddDialog({ prefill }: { prefill: QuickAddPrefill }) {
         rememberTopics(topics);
         closeQuickAdd();
         toast(added === 1 ? "Saved the playlist with 1 video." : `Saved the playlist with ${added} videos.`, {
-          action: { label: "Open", run: () => (location.hash = itemHref(folder.id, playlist)) },
+          action: { label: "Open", run: () => go(itemHref(folder.id, playlist)) },
         });
         return;
       }
@@ -149,7 +149,7 @@ function QuickAddDialog({ prefill }: { prefill: QuickAddPrefill }) {
       // A PDF its site wouldn't hand over is kept as a link; say so, rather than leave it to look unfinished.
       const pdfLink = kind === "link" && !existed && item.type !== "pdf" && isPdfFile(url!);
       toast(pdfLink ? "Saved the link. Its site doesn't allow Engram to download the PDF: save the file and use the PDF button here." : existed ? "You'd saved that already. Added to it." : `Saved to ${folder.name}.`, {
-        action: { label: "Open", run: () => (location.hash = itemHref(folder.id, item)) },
+        action: { label: "Open", run: () => go(itemHref(folder.id, item)) },
       });
     } catch (e) {
       console.error(e);

@@ -73,8 +73,8 @@ export class Library {
   link({ folder, item }: Hit, page?: number): string | undefined {
     const fid = folder.index?.folder.id;
     if (!fid) return undefined;
-    if (item.type === "pdf") return `${this.appUrl}/#/f/${fid}/doc/${item.id}${page ? `?page=${page}` : ""}`;
-    return `${this.appUrl}/#/f/${fid}/item/${item.id}`;
+    if (item.type === "pdf") return `${this.appUrl}/f/${fid}/doc/${item.id}${page ? `?page=${page}` : ""}`;
+    return `${this.appUrl}/f/${fid}/item/${item.id}`;
   }
 
   /** One line naming an item, with everything needed to read, cite or open it. */
