@@ -124,6 +124,8 @@ async function addQuote(folder: string, doc: string, quote: string) {
 
 export interface PageCapture {
   url: string;
+  /** Set when the save is not one the reader made here, such as an entry accepted from the feed inbox. */
+  noFeedOffer?: boolean;
   title?: string;
   /** Readable text of the page, from older bookmarklets. */
   text?: string;
@@ -235,6 +237,8 @@ export async function saveLink(folder: string, c: PageCapture): Promise<SaveResu
   if (selection) await addQuote(folder, item.id, selection);
   if (!contentFormat && !pdfFile) fillLater(folder, item.id);
   titleLater(folder, item.id);
+  // Offers the site's feed, once per site, in the background. Nothing is followed without the reader's press.
+  if (!c.noFeedOffer) void import("../feeds/follow").then((m) => m.offerFeedFor(url, c.html)).catch(() => {});
   return { item, existed: false };
 }
 

@@ -22,6 +22,8 @@ interface HabitPrefs {
   agingSince?: number;
   /** The folder articles and feed entries go to, by id. Unset means the folder named "My library". */
   libraryId?: string;
+  /** Sites the reader has decided about for feeds: followed, declined, or checked with no feed. */
+  feedAsked?: string[];
 }
 
 const KEY = "engram.habit";
@@ -51,9 +53,18 @@ function storedHabit(): Partial<HabitPrefs> {
  * library choice made in one tab survives a change made in a tab that was opened before it.
  */
 function save(s: HabitPrefs) {
-  const merged: Record<string, unknown> = { ...storedHabit() };
+  const stored = storedHabit();
+  const merged: Record<string, unknown> = { ...stored };
   for (const [k, v] of Object.entries(s)) if (v !== undefined) merged[k] = v;
+  // Sites decided about in another tab stay decided, so the two lists are joined rather than one replacing the other.
+  if (stored.feedAsked && s.feedAsked) merged.feedAsked = [...new Set([...stored.feedAsked, ...s.feedAsked])];
   localStorage.setItem(KEY, JSON.stringify(merged));
+}
+
+/** Replaces the list of sites decided about for feeds, here and in the saved settings. */
+export function setFeedAsked(sites: string[]) {
+  localStorage.setItem(KEY, JSON.stringify({ ...storedHabit(), feedAsked: sites }));
+  useHabit.setState({ feedAsked: sites });
 }
 
 // Save on every change, including the first load, so firstUse is fixed from the very first visit.

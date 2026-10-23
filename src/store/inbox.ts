@@ -33,7 +33,7 @@ export async function acceptInbox(folder: string, row: InboxRow): Promise<{ item
     const words = [e.text?.trim(), sign].filter(Boolean).join("\n\n");
     // Entries sent before the agent tool stopped using the address as a title still carry it; that's no title.
     const title = e.title === e.sourceUrl ? undefined : e.title;
-    if (externalUrl(e.sourceUrl)) item = (await saveLink(folder, { url: e.sourceUrl!, title, text: e.content, words })).item.id;
+    if (externalUrl(e.sourceUrl)) item = (await saveLink(folder, { url: e.sourceUrl!, title, text: e.content, words, noFeedOffer: true })).item.id;
     else if (e.content?.trim()) item = (await saveQuote(folder, { quote: e.content, words })).id;
     else item = (await saveNote(folder, { text: words })).id;
   }

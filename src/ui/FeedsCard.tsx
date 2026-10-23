@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import type { Folder } from "../model";
 import { getAccount } from "../sync/account";
 import { GitHub } from "../sync/github";
-import { addFeed, parseFeedsJson, removeFeed, type FeedsFile } from "../feeds/config";
+import { addFeed, checkFeedsText, parseFeedsJson, removeFeed, type FeedsFile } from "../feeds/config";
 import { FEED_INSTALL_FILES, checkInstall } from "../feeds/install";
 import { putFeedScript } from "../feeds/putscript";
+import { FindFeeds } from "./FindFeeds";
 
 type Loaded = { data: FeedsFile; sha: string | undefined };
 type StateFeeds = Record<string, { title?: string; lastError?: { message?: string } | null }>;
@@ -86,6 +87,17 @@ export function FeedsCard({ folder }: { folder: Folder }) {
     };
   }, [gh]);
 
+  // Re-reads the feeds file, so feeds followed from elsewhere show up in this list.
+  async function reload() {
+    if (!gh) return;
+    try {
+      const cfg = await gh.getFile(CONFIG_PATH);
+      setFile({ data: parseFeedsJson(cfg?.text ?? null), sha: cfg?.sha });
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }
+
   if (!gh || !repo) {
     return <p className="muted">Feeds need a folder that is synced to GitHub. Connect this folder first.</p>;
   }
@@ -106,6 +118,13 @@ export function FeedsCard({ folder }: { folder: Folder }) {
 
   // Applies a change and saves feeds.json. On a stale sha it re-reads the file and tries once more.
   async function writeFeeds(change: (f: FeedsFile) => FeedsFile | { error: string }): Promise<boolean> {
+    // A file that is not valid JSON, or has no feeds list, is not written over: the reader fixes it on GitHub first.
+    const raw = await gh!.getFile(CONFIG_PATH);
+    const problem = checkFeedsText(raw?.text ?? null);
+    if (problem) {
+      setError(problem);
+      return false;
+    }
     let current: Loaded = file ?? { data: parseFeedsJson(null), sha: undefined };
     for (let attempt = 0; attempt < 2; attempt++) {
       const next = change(current.data);
@@ -171,6 +190,8 @@ export function FeedsCard({ folder }: { folder: Folder }) {
         A scheduled GitHub Action in your library folder's repo reads your feeds and drops new posts into your Inbox. You
         accept or dismiss them in the app.
       </p>
+      <FindFeeds onFollowed={() => void reload()} />
+
 
       {error && (
         <p role="alert" style={{ color: "var(--danger, #b3261c)" }}>

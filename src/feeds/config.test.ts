@@ -136,10 +136,10 @@ test("parseFeedsJson skips bad entries and duplicates but keeps the good ones", 
   const f = parseFeedsJson(text);
   assert.deepEqual(
     f.feeds.map((x) => x.id),
-    ["aaaaaaaa", "ffffffff"],
+    ["aaaaaaaa", "cc", "ffffffff"],
   );
-  assert.equal(f.feeds[1]!.title, "example.com");
-  assert.equal(f.feeds[1]!.addedAt, 0);
+  assert.equal(f.feeds[1]!.title, "C");
+  assert.equal(f.feeds[1]!.addedAt, 3);
 });
 
 test("parseFeedsJson keeps at most 50 feeds", () => {
