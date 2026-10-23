@@ -70,6 +70,10 @@ const VIEWS: { id: View; label: string }[] = [
 
 const LOCATION_LABEL: Record<Location, string> = { inbox: "Inbox", later: "Later", archive: "Archive" };
 
+/** The views that sort items by where they sit. A folder with no articles or links has no use for them. */
+const LOCATION_VIEWS: View[] = ["inbox", "later", "archive"];
+const LINK_TYPES: ItemType[] = ["article", "post", "tweet", "thread", "bookmark"];
+
 /**
  * What a card needs of an item: everything but its words and saved text, which can be long.
  * The few lines a card shows are cut out once, when the list is read.
@@ -104,7 +108,7 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
   const access = useGrantAccess(folder, s.message);
   const backupDismissed = useHabit((h) => h.backupDismissed);
   const [sort, setSort] = useState<Sort>(() => (localStorage.getItem("reader.sort") as Sort) ?? "recent");
-  const [view, setViewState] = useState<View>(() => (localStorage.getItem("reader.view") as View | null) ?? "inbox");
+  const [viewPick, setViewState] = useState<View>(() => (localStorage.getItem("reader.view") as View | null) ?? "inbox");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("");
   const [topicFilter, setTopicFilter] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -198,6 +202,9 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
   const inPlaylists = useLiveQuery(async () => new Set((await db.annotations.filter((a) => a.kind === "entry" && !a.deleted && !!a.ref).toArray()).map((a) => a.ref!)), [db]);
   const live = (rows ?? []).filter((d) => !d.deleted && !(d.type === "video" && inPlaylists?.has(d.id)));
   const trash = (rows ?? []).filter((d) => d.deleted);
+  // Once the items are known: a folder without articles or links shows All in place of the location views.
+  const hasLinks = rows === undefined || live.some((d) => LINK_TYPES.includes(d.type));
+  const view: View = !hasLinks && LOCATION_VIEWS.includes(viewPick) ? "all" : viewPick;
   const where = (d: Row) => itemLocation(d, isFinished(d, positions?.get(d.id)));
   const inView = (d: Row) =>
     view === "trash"
@@ -511,7 +518,7 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
       {!emptyAll && (
         <div className="library-bar">
           <div className="views" role="group" aria-label="Show">
-            {VIEWS.filter((v) => v.id !== "trash" || trash.length > 0 || view === "trash").map((v) => {
+            {VIEWS.filter((v) => (v.id !== "trash" || trash.length > 0 || view === "trash") && (hasLinks || !LOCATION_VIEWS.includes(v.id))).map((v) => {
               const n = v.id === "inbox" || v.id === "later" ? tally(v.id) : v.id === "trash" ? trash.length : 0;
               return (
                 <button key={v.id} className={`view ${view === v.id ? "on" : ""}`} aria-pressed={view === v.id} onClick={() => setView(v.id)}>
