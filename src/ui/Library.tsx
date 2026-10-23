@@ -464,14 +464,28 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
           <option value="added">Newest</option>
           <option value="title">A–Z</option>
         </select>
-        <button className="btn" aria-label="Graph" title="See how your items link and share topics" onClick={() => navigate({ name: "graph", folder: folder.id })}>
-          <Network size={16} /> <span className="hide-narrow">Graph</span>
+        {/* On a phone, Graph and Import move into the More menu, so Save is the one primary action in the bar. */}
+        <button className="btn hide-narrow" aria-label="Graph" title="See how your items link and share topics" onClick={() => navigate({ name: "graph", folder: folder.id })}>
+          <Network size={16} /> <span>Graph</span>
         </button>
-        <button className="btn" aria-label="Import" title="Import highlights from a Kindle or Readwise export, or links from a CSV" onClick={() => setImporting(true)}>
-          <BookUp size={16} /> <span className="hide-narrow">Import</span>
+        <button className="btn hide-narrow" aria-label="Import" title="Import highlights from a Kindle or Readwise export, or links from a CSV" onClick={() => setImporting(true)}>
+          <BookUp size={16} /> <span>Import</span>
+        </button>
+        <button
+          className="icon-btn only-narrow"
+          aria-label="More actions"
+          title="Import and graph"
+          onClick={(e) =>
+            menu.open(e, [
+              { label: "Import", icon: <BookUp size={15} />, run: () => setImporting(true) },
+              { label: "Graph", icon: <Network size={15} />, run: () => navigate({ name: "graph", folder: folder.id }) },
+            ])
+          }
+        >
+          <Ellipsis size={20} />
         </button>
         <button className="btn btn-primary" aria-label="Save" title="Save a link, a quote or a note (N)" onClick={() => openQuickAdd({ folder: folder.id })}>
-          <Plus size={16} /> <span className="hide-narrow">Save</span>
+          <Plus size={16} /> <span>Save</span>
         </button>
       </header>
 

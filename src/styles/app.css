@@ -420,6 +420,9 @@ main {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* Takes the width of the name, so a short name stays on one line; a long one still wraps (see below). */
+  flex: 0 0 auto;
+  max-width: 100%;
 }
 .folder-title {
   min-width: 0;
@@ -447,13 +450,24 @@ main {
   flex-shrink: 0;
 }
 .topbar h1 > .folder-title {
-  display: -webkit-box;
+  /* Sized to the name: a short name stays on one line, and a long one wraps when the bar is too narrow for it. */
+  display: inline-block;
   max-width: 100%;
+  /* No negative margin here: it is counted in the header's width and would force the name onto two lines. */
+  margin-left: 0;
   overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
   white-space: normal;
   text-align: left;
+}
+/* Phones and touch screens: every control in the library bar is at least 44px, the size a finger hits without missing. */
+@media (pointer: coarse), (max-width: 760px) {
+  .topbar .btn,
+  .topbar .icon-btn,
+  .topbar .sync-badge,
+  .topbar .select {
+    min-height: 44px;
+    min-width: 44px;
+  }
 }
 .banner {
   display: flex;
