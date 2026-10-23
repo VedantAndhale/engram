@@ -1,7 +1,7 @@
 /*
  * The AI notes beside a saved article. Each note is one thread: a question or action on a passage, its
  * answer, and the follow-ups under it. A note's thread key is `${item}:${id}`, so the engine keeps one
- * conversation per note. Notes live in memory and clear when the page reloads, as threads do.
+ * conversation per note. Notes are kept on this device between reloads (notestore.ts); nothing is synced.
  *
  * A note asked before the model is on this device waits. Downloading is the reader's own choice, made
  * from the note; once it finishes, the waiting notes answer without being asked again.
@@ -138,6 +138,12 @@ export function retryNote(id: string): void {
 /** Answer every note that was waiting for the model. */
 export function runWaiting(): void {
   for (const n of useNotes.getState().notes) if (n.waiting) void run(n.id, n.waiting);
+}
+
+/** Answer one note's waiting question now: the model is already on this device, e.g. after a reload. */
+export function answerWaiting(id: string): void {
+  const note = noteOf(id);
+  if (note?.waiting) void run(id, note.waiting);
 }
 
 /** Forget every note and its thread: the model that wrote them is gone from this device. */

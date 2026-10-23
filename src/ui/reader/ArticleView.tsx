@@ -31,11 +31,23 @@ function paraOf(range: Range): number {
 function InlineNotes({ item, slots }: { item: string; slots: Record<number, HTMLElement> }) {
   const all = useNotes((s) => s.notes);
   const active = useNotes((s) => s.active);
+  const mine = all.filter((n) => n.item === item);
+  // Once the slots are known, a note whose paragraph is no longer in the article (it was saved again, shorter) is
+  // shown below the text, so it can still be read or deleted.
+  const loose = Object.keys(slots).length ? mine.filter((n) => !slots[n.anchor.para]) : [];
   return (
     <>
-      {all
-        .filter((n) => n.item === item && slots[n.anchor.para])
+      {mine
+        .filter((n) => slots[n.anchor.para])
         .map((n) => createPortal(<NoteCard note={n} variant="inline" active={active === n.id} />, slots[n.anchor.para], n.id))}
+      {loose.length > 0 && (
+        <div className="note-loose">
+          <p className="hint">These notes are on paragraphs the article no longer has.</p>
+          {loose.map((n) => (
+            <NoteCard key={n.id} note={n} variant="inline" active={active === n.id} />
+          ))}
+        </div>
+      )}
     </>
   );
 }

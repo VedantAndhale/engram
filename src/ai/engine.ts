@@ -3,6 +3,7 @@
  * Screens read `useAiStatus` to show what is happening; they call the functions here to act.
  */
 import { create } from "zustand";
+import { Awaiting } from "./awaiting";
 import { GEMMA, deleteModel, downloadModel, modelCached, readModel, webGpuAvailable, type DownloadProgress } from "./model";
 import { clearAllThreads, markAllRebuild } from "./thread";
 
@@ -43,12 +44,18 @@ export interface ThreadRef {
 
 const messageOf = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
+/** An answer stopped before its first word: the conversation is untouched, and the turn is not recorded. */
+const stoppedBeforeStart = (): Outcome => ({ text: "", tokens: 0, cancelled: true, threadEnded: false });
+
 let worker: Worker | null = null;
 const listeners = new Set<(reply: Reply) => void>();
 let loading: Promise<void> | null = null;
 let nextId = 1;
 /** Requests run one after another: the engine holds one conversation at a time. */
 let queue: Promise<unknown> = Promise.resolve();
+/** What the engine is waiting on from the worker. Ended when the model is unloaded, so nothing waits forever. */
+const awaiting = new Awaiting<number | "load">();
+const UNLOADED = "The model was unloaded before it finished. Ask again.";
 
 function startWorker(): Worker {
   if (!worker) {
@@ -110,16 +117,24 @@ export function load(): Promise<void> {
       const w = startWorker();
       const wasmDir = new URL("litert/", document.baseURI).href;
       await new Promise<void>((resolve, reject) => {
+        const done = () => {
+          listeners.delete(listen);
+          awaiting.delete("load");
+        };
         const listen = (reply: Reply) => {
           if (reply.type === "loaded") {
-            listeners.delete(listen);
+            done();
             resolve();
           } else if (reply.type === "error" && reply.id === null) {
-            listeners.delete(listen);
+            done();
             reject(new Error(reply.message));
           }
         };
         listeners.add(listen);
+        awaiting.set("load", (err) => {
+          done();
+          reject(err);
+        });
         w.postMessage({ type: "load", model, wasmDir });
       });
       useAiStatus.setState({ phase: "loaded" });
@@ -138,7 +153,10 @@ export function load(): Promise<void> {
  * rebuild from its turns the next time it is asked a question; the turns themselves are kept.
  */
 export function unload(): void {
-  if (useAiStatus.getState().phase !== "loaded") return;
+  const phase = useAiStatus.getState().phase;
+  if (phase !== "loaded" && phase !== "loading") return;
+  // Ends the answers and the load that were waiting on this worker first: they would never be answered now.
+  awaiting.failAll(new Error(UNLOADED));
   worker?.terminate();
   worker = null;
   listeners.clear();
@@ -165,8 +183,11 @@ export function dropThread(key: string): void {
  * conversation, and the outcome says whether Stop ended it.
  */
 export function generate(prompt: string, onToken: (text: string) => void, signal?: AbortSignal, thread?: ThreadRef): Promise<Outcome> {
-  const run = queue.then(async () => {
+  const run = queue.then(async (): Promise<Outcome> => {
+    // Stopped while it waited its turn (or while the model loaded): nothing is written, so nothing is run.
+    if (signal?.aborted) return stoppedBeforeStart();
     await load();
+    if (signal?.aborted) return stoppedBeforeStart();
     const w = startWorker();
     const id = nextId++;
     let text = "";
@@ -186,11 +207,15 @@ export function generate(prompt: string, onToken: (text: string) => void, signal
       };
       const finish = () => {
         listeners.delete(listen);
+        awaiting.delete(id);
         signal?.removeEventListener("abort", cancel);
       };
+      awaiting.set(id, (err) => {
+        finish();
+        reject(err);
+      });
       listeners.add(listen);
       signal?.addEventListener("abort", cancel);
-      if (signal?.aborted) cancel();
       w.postMessage({ type: "generate", id, prompt, thread });
     });
   });

@@ -7,6 +7,7 @@ import { registerSW } from "virtual:pwa-register";
 import { completeSignIn, startFolders, visibleFolders } from "./folders/registry";
 import "./lib/install"; // listen for the install prompt before it fires
 import { startAnalytics } from "./analytics";
+import { restoreAiNotes } from "./ai/notestore";
 import { evictCache, keepStorage } from "./store/actions";
 import { toast } from "./store/ui";
 import "./styles/app.css";
@@ -35,6 +36,8 @@ startFolders()
     );
     const signIn = takeSignIn();
     if (signIn) void completeSignIn(signIn);
+    // The AI notes kept on this device come back, so they survive a reload.
+    void restoreAiNotes();
     await evictCache((await visibleFolders()).map((f) => f.id));
   })
   .catch((e) => {

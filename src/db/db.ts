@@ -1,5 +1,6 @@
 import Dexie, { type EntityTable } from "dexie";
 import type { Annotation, Folder, Item, PeerPosition, Position } from "../model";
+import type { NoteRecord, ThreadRecord } from "../ai/notestate";
 import type { InboxEntry } from "../sync/inboxfile";
 import { itemPath } from "../sync/paths";
 
@@ -100,13 +101,16 @@ export class ReaderDB extends Dexie {
 
 export const folderDbName = (folderId: string) => `reader-folder-${folderId}`;
 
-/** App-wide data: the folder list. */
+/** App-wide data: the folder list, and the AI notes kept on this device (see ai/notestate.ts). */
 class AppDB extends Dexie {
   folders!: EntityTable<Folder, "id">;
+  aiNotes!: EntityTable<NoteRecord, "id">;
+  aiThreads!: EntityTable<ThreadRecord, "key">;
 
   constructor() {
     super("reader-app");
     this.version(1).stores({ folders: "&id, createdAt" });
+    this.version(2).stores({ aiNotes: "&id, item", aiThreads: "&key" });
   }
 }
 

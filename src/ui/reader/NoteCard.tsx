@@ -6,7 +6,7 @@ import { download, stopDownload, useAiStatus } from "../../ai/engine";
 import { firstSentence, plainAnswer } from "../../ai/format";
 import { GEMMA } from "../../ai/model";
 import { appendKept, keptBlock } from "../../ai/keep";
-import { followUp, markKept, openNote, removeNote, retryNote, stopNote, threadKey, type Note, type NoteAction } from "../../ai/notes";
+import { answerWaiting, followUp, markKept, openNote, removeNote, retryNote, stopNote, threadKey, type Note, type NoteAction } from "../../ai/notes";
 import { passageBudget, threadOf, useThreads, type Turn } from "../../ai/thread";
 import { AnswerBody, type Cite } from "../../reader/markdown";
 import { folderCtx } from "../../folders/registry";
@@ -67,6 +67,8 @@ export const NoteCard = forwardRef<
   const where = whole ? "Whole article" : `¶${note.anchor.para}`;
   /** What the reader asked for, as the offer to download names it. */
   const asked = note.action === "ask" ? "question" : "request";
+  // The model is already on this device (a waiting question restored after a reload): no download is needed.
+  const modelHere = status.phase === "ready" || status.phase === "loaded" || status.phase === "loading";
   const room = passageBudget(thread) > 0;
   const style: CSSProperties | undefined = variant === "margin" ? { top: Math.round(top ?? 0), ...(top === undefined ? { visibility: "hidden" } : null), ...(fresh ? { transition: "none" } : null) } : undefined;
 
@@ -232,11 +234,11 @@ export const NoteCard = forwardRef<
         {note.waiting && !offerOpen && (
           <div className="note-setup">
             <p className="hint">
-              Your {asked} is waiting here. It is answered when you choose to download the model.
+              Your {asked} is waiting here.
             </p>
             <div className="note-actions">
               <button className="btn" onClick={() => setOfferOpen(true)}>
-                Show the download
+                Show
               </button>
             </div>
           </div>
@@ -252,17 +254,29 @@ export const NoteCard = forwardRef<
                   pendingLabel="Starting"
                   completeLabel="Downloaded"
                 />
-                <p className="hint">Keep reading. Your {asked} is saved and will be answered when it is ready.</p>
+                <p className="hint">Keep reading. Your {asked} will be answered when the model is ready.</p>
                 <div className="note-actions">
                   <button className="btn" onClick={stopDownload}>
                     Stop download
                   </button>
                 </div>
               </>
+            ) : modelHere ? (
+              <>
+                <p>Your {asked} is waiting. The model is already on this device, so it can answer now.</p>
+                <div className="note-actions">
+                  <button className="btn btn-primary" onClick={() => answerWaiting(note.id)}>
+                    Answer now
+                  </button>
+                  <button className="btn" onClick={() => setOfferOpen(false)}>
+                    Not now
+                  </button>
+                </div>
+              </>
             ) : (
               <>
                 <p>
-                  Your {asked} is saved. To answer it, Engram needs a language model on this device: {GEMMA.name}, about {GB} GB, downloaded once from Hugging Face, which takes
+                  Your {asked} is waiting. To answer it, Engram needs a language model on this device: {GEMMA.name}, about {GB} GB, downloaded once from Hugging Face, which takes
                   roughly 9 minutes on a typical connection.
                 </p>
                 <p className="hint">After that it runs here and the text never leaves this device. You can keep reading while it downloads, and remove it any time.</p>

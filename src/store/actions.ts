@@ -1,3 +1,4 @@
+import { dropItemAiNotes } from "../ai/notedrop";
 import { folderCtx } from "../folders/registry";
 import { extractText, inspectPdf, openPdf } from "../lib/pdf";
 import { deviceId, deviceName, formatBytes, sha256Hex, uid } from "../lib/util";
@@ -240,6 +241,7 @@ export async function purgeItem(folder: string, id: string) {
     await db.thumbs.delete(id);
     await db.pageText.where("doc").equals(id).delete();
   });
+  await dropItemAiNotes(id);
   await sync.markDirty(cur.path, 500);
   if (cur.type === "pdf") await sync.markDirty(pdfPath(id), 0);
 }

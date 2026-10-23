@@ -1,3 +1,4 @@
+import { dropItemAiNotes } from "../ai/notedrop";
 import { appDb, type ReaderDB } from "../db/db";
 import { newer, type Annotation, type Folder, type Item, type Position } from "../model";
 import { buildIndex, serializeIndex } from "./indexfile";
@@ -213,13 +214,14 @@ export async function mergeItemFile(db: ReaderDB, path: string, text: string, lo
     if (ann.put.length) await db.annotations.bulkPut(ann.put);
     return { id: item.id, path: canonical, localAhead: itemAhead || ann.localAhead || canonical !== path, orphan };
   });
-  // Deleted for good on another device: its file and page text go from this one too.
+  // Deleted for good on another device: its file, page text and AI notes go from this one too.
   if ((await db.items.get(item.id))?.purged) {
     await db.transaction("rw", db.blobs, db.thumbs, db.pageText, async () => {
       await db.blobs.delete(item.id);
       await db.thumbs.delete(item.id);
       await db.pageText.where("doc").equals(item.id).delete();
     });
+    await dropItemAiNotes(item.id);
   }
   return result;
 }

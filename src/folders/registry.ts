@@ -1,4 +1,5 @@
 import Dexie from "dexie";
+import { dropItemAiNotes } from "../ai/notedrop";
 import { appDb, folderDbName, ReaderDB } from "../db/db";
 import { setHabit } from "../habit/prefs";
 import { uid } from "../lib/util";
@@ -129,10 +130,13 @@ export async function removeFolder(id: string) {
   const folder = await appDb.folders.get(id);
   if (!folder) return;
   const ctx = folderCtx(id);
+  // Read before the database goes, so the items' AI notes can go with them.
+  const itemIds = (await ctx.db.items.toCollection().primaryKeys()) as string[];
   await ctx.sync.attach(undefined);
   ctxs.delete(id);
   ctx.db.close();
   await Dexie.delete(folderDbName(id));
+  for (const item of itemIds) await dropItemAiNotes(item);
   if (folder.repo) await appDb.folders.update(id, { hidden: true });
   else await appDb.folders.delete(id);
 }
