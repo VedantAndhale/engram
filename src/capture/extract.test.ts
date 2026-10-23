@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { capText, CUT_NOTE, pageCharset, pdfUrl, shrinks, toMarkdown, withBreaks } from "./extract";
+import { capText, CUT_NOTE, imageUrl, pageCharset, pdfUrl, shrinks, toMarkdown, withBreaks } from "./extract";
 
 /*
  * Node has no DOM, so the Markdown walker is given a few stand-in nodes: just what it reads (tag names,
@@ -108,4 +108,12 @@ test("a page's charset comes from the header, else its own meta tag", () => {
   assert.equal(pageCharset(null, bytes('<meta http-equiv="Content-Type" content="text/html; charset=Shift_JIS">')), "shift_jis");
   assert.equal(pageCharset("text/html", bytes("<meta charset=utf-16>")), "utf-8");
   assert.equal(pageCharset("text/html", bytes("<p>no tag</p>")), "utf-8");
+});
+
+test("a page's picture is an absolute web address, or none", () => {
+  assert.equal(imageUrl("https://cdn.example.com/a.jpg", "https://example.com/post"), "https://cdn.example.com/a.jpg");
+  assert.equal(imageUrl("/img/cover.png", "https://example.com/post/1"), "https://example.com/img/cover.png");
+  assert.equal(imageUrl("  ", "https://example.com/"), undefined);
+  assert.equal(imageUrl(undefined, "https://example.com/"), undefined);
+  assert.equal(imageUrl("javascript:alert(1)", "https://example.com/"), undefined);
 });

@@ -5,6 +5,8 @@
  * HTML is kept, so nothing from the page can run in the app.
  */
 
+import { externalUrl } from "../lib/util";
+
 export interface Extracted {
   title?: string;
   markdown: string;
@@ -15,6 +17,19 @@ export interface Extracted {
   description?: string;
   /** When it was published, as ISO 8601. */
   published?: string;
+  /** The page's main picture, from its og:image or twitter:image tag. */
+  image?: string;
+}
+
+/** A picture address from a page or a bookmarklet, made absolute against the page; undefined unless it is a web address. */
+export function imageUrl(value: string | null | undefined, base: string): string | undefined {
+  const v = value?.trim();
+  if (!v) return undefined;
+  try {
+    return externalUrl(new URL(v, base).href);
+  } catch {
+    return undefined;
+  }
 }
 
 /** The article in a page's HTML, or null if there's no readable article in it. */
@@ -39,6 +54,7 @@ export async function extractArticle(html: string, url: string): Promise<Extract
     siteName: metaText(article.siteName),
     description: metaText(article.excerpt),
     published: isoDate(article.publishedTime),
+    image: imageUrl(doc.querySelector('meta[property="og:image"]')?.getAttribute("content") ?? doc.querySelector('meta[name="twitter:image"]')?.getAttribute("content"), url),
   };
 }
 

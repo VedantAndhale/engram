@@ -127,6 +127,7 @@ export function serializeItem(item: Item, annotations: Annotation[]): string {
     ["site_name", item.siteName || undefined],
     ["description", item.description || undefined],
     ["published", item.published || undefined],
+    ["image", item.image || undefined],
     ["source", item.source || undefined],
     ["content_format", item.content ? item.contentFormat : undefined],
     ["captured_at", iso(item.addedAt)],
@@ -136,6 +137,7 @@ export function serializeItem(item: Item, annotations: Annotation[]): string {
     ["file_name", item.fileName],
     ["size", item.size],
     ["pages", item.pages],
+    ["duration", item.duration],
     ["updated_at", iso(item.updatedAt)],
     ["location", item.location],
     ["read_at", item.readAt ? iso(item.readAt) : undefined],
@@ -229,6 +231,7 @@ export function parseItem(text: string, path: string): { item: Item; annotations
   if (str("site_name")) item.siteName = str("site_name");
   if (str("description")) item.description = str("description");
   if (str("published")) item.published = str("published");
+  if (str("image")) item.image = str("image");
   if (str("source")) item.source = str("source");
   if (str("import_ref")) item.importRef = str("import_ref");
   if (body) item.body = body;
@@ -238,6 +241,7 @@ export function parseItem(text: string, path: string): { item: Item; annotations
   if (str("file_name")) item.fileName = str("file_name");
   if (num("size") !== undefined) item.size = num("size");
   if (num("pages") !== undefined) item.pages = num("pages");
+  if (num("duration") !== undefined) item.duration = num("duration");
   if (str("added_by")) item.addedBy = str("added_by");
   if (LOCATIONS.includes(fm.location as Location)) item.location = fm.location as Location;
   if (time("read_at") !== undefined) item.readAt = time("read_at");

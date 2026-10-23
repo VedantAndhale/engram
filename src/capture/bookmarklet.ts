@@ -18,6 +18,8 @@ export interface CaptureMessage {
   siteName: string;
   description: string;
   published: string;
+  /** The page's main picture (og:image or twitter:image). Empty when the page has none, or from older bookmarklets. */
+  image: string;
 }
 
 export const READY = "engram-ready";
@@ -54,6 +56,7 @@ function capture(app: string) {
     siteName: meta('meta[property="og:site_name"]'),
     description: meta('meta[name="description"]', 'meta[property="og:description"]'),
     published: meta('meta[property="article:published_time"]'),
+    image: ((document.querySelector('meta[property="og:image"]') as HTMLMetaElement | null)?.content || (document.querySelector('meta[name="twitter:image"]') as HTMLMetaElement | null)?.content || "").trim(),
   };
   const onMessage = (e: MessageEvent) => {
     if (e.source !== w || e.origin !== origin || e.data !== "engram-ready") return;
@@ -85,5 +88,6 @@ export function asCapture(data: unknown): CaptureMessage | null {
     siteName: str(d.siteName),
     description: str(d.description),
     published: str(d.published),
+    image: str(d.image),
   };
 }

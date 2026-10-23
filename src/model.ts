@@ -59,6 +59,8 @@ export interface Item {
   siteName?: string;
   /** The page's summary: meta description, or the excerpt Readability picks. */
   description?: string;
+  /** The page's main picture (og:image or twitter:image), an https address. Shown on its card; the picture loads from its site. */
+  image?: string;
   /** When the source says it was published: an ISO 8601 date or timestamp. */
   published?: string;
   /** Free-text attribution the reader typed for a quote: a book, a speaker, a page. */
@@ -78,6 +80,8 @@ export interface Item {
   fileName?: string;
   size?: number;
   pages?: number;
+  /** A video's length in seconds, when it is known. */
+  duration?: number;
   addedAt: number;
   addedBy?: string;
   updatedAt: number;

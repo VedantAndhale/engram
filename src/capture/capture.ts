@@ -2,7 +2,7 @@ import { folderCtx } from "../folders/registry";
 import { cleanTopic } from "../habit/prefs";
 import { HIGHLIGHT_COLORS, type Item, type ItemType } from "../model";
 import { addPdf, createItem, saveAnnotation, updateItem } from "../store/actions";
-import { capText, extractArticle, isoDate, metaText, pdfUrl, shrinks } from "./extract";
+import { capText, extractArticle, imageUrl, isoDate, metaText, pdfUrl, shrinks } from "./extract";
 import { cleanUrl, typeForUrl } from "./url";
 import { externalUrl } from "../lib/util";
 
@@ -135,6 +135,8 @@ export interface PageCapture {
   siteName?: string;
   description?: string;
   published?: string;
+  /** The page's main picture address, from its meta tags (the bookmarklet). */
+  image?: string;
   type?: ItemType;
   /** Your own words, from the save box. */
   words?: string;
@@ -148,7 +150,7 @@ export interface SaveResult {
 }
 
 /** What a page says about itself. */
-export type PageDetails = Pick<Item, "author" | "siteName" | "description" | "published">;
+export type PageDetails = Pick<Item, "author" | "siteName" | "description" | "published" | "image">;
 
 /** The details an item doesn't have yet. A value the reader or an earlier save set is never replaced. */
 export function missingDetails(item: Partial<PageDetails>, found: Partial<PageDetails>): Partial<PageDetails> {
@@ -157,6 +159,7 @@ export function missingDetails(item: Partial<PageDetails>, found: Partial<PageDe
   if (found.siteName && !item.siteName) out.siteName = found.siteName;
   if (found.description && !item.description) out.description = found.description;
   if (found.published && !item.published) out.published = found.published;
+  if (found.image && !item.image) out.image = found.image;
   return out;
 }
 
@@ -182,6 +185,7 @@ export async function saveLink(folder: string, c: PageCapture): Promise<SaveResu
     siteName: metaText(c.siteName) ?? article?.siteName,
     description: metaText(c.description) ?? article?.description,
     published: isoDate(c.published) ?? article?.published,
+    image: imageUrl(c.image, c.url) ?? article?.image,
   };
 
   // A quote can carry the page's address as its source. It is a quote, not the page, so it never matches.
@@ -242,7 +246,7 @@ function yours(item: Item, words: string | undefined, topics: string[]): Partial
   return patch;
 }
 
-export const PDF_LINK_NOTE = "A link to a PDF. Its site doesn't let Engram download it: save the file, then use Add PDF to read and highlight it here.";
+export const PDF_LINK_NOTE = "A link to a PDF. Its site doesn't let Engram download it: save the file, then add it with the PDF button in Save to read and highlight it here.";
 
 /**
  * Download a PDF into the folder; its id, or null. Most sites don't let another site's page read their files,

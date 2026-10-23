@@ -195,6 +195,11 @@ export async function setLocation(folder: string, ids: string[], location: Locat
   for (const id of ids) await updateItem(folder, id, { location }, 500);
 }
 
+/** Mark items read or unread by hand. Read stamps the time; unread clears it, so the item shows as unread again. */
+export async function setRead(folder: string, ids: string[], read: boolean) {
+  for (const id of ids) await updateItem(folder, id, { readAt: read ? Date.now() : undefined }, 500);
+}
+
 export async function setFavorite(folder: string, id: string, favorite: boolean) {
   await updateItem(folder, id, { favorite: favorite || undefined }, 500);
 }

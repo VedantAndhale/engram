@@ -1,8 +1,9 @@
 import { folderCtx } from "../folders/registry";
-import type { Item } from "../model";
-import { updateItem } from "../store/actions";
+import type { Item, ItemType } from "../model";
+import { fillItem, updateItem } from "../store/actions";
+import { pickUntried, markTried } from "./backlog";
 import { cleanMarkdown, missingDetails, READABLE, titleFromUrl, typeForUrl } from "./capture";
-import { extractArticle, shrinks, type Extracted } from "./extract";
+import { extractArticle, imageUrl, shrinks, type Extracted } from "./extract";
 
 /*
  * Filling in articles from the web. Links saved from a phone or by pasting arrive with no text,
@@ -36,7 +37,12 @@ export async function fillFromWeb(folder: string, id: string): Promise<boolean> 
   tried.add(id);
   const got = await fetchArticle(item.sourceUrl);
   const markdown = got && cleanMarkdown(got.markdown);
-  if (!got || !markdown) return false;
+  // A page that couldn't be fetched may work next time, so it isn't counted as tried.
+  if (!got) {
+    tried.delete(id);
+    return false;
+  }
+  if (!markdown) return false;
   const now = await db.items.get(id);
   if (!now || now.deleted || now.contentFormat === "markdown") return false;
   const patch: Partial<Item> = missingDetails(now, got);
@@ -51,4 +57,31 @@ export async function fillFromWeb(folder: string, id: string): Promise<boolean> 
   if (!Object.keys(patch).length) return false;
   await updateItem(folder, id, patch, 500);
   return true;
+}
+
+const PICTURE_TRIED = "reader.pictureTried";
+/** Kinds of item whose page can carry a picture: links, articles and posts, tweets included. */
+const PICTURED: ItemType[] = [...READABLE, "tweet"];
+
+/**
+ * Give saved links, articles and tweets their page's picture when they have none. A few are tried each time a
+ * library opens, the ones tried longest ago first (see backlog.ts), so a page that won't load doesn't hold up the rest.
+ */
+export async function backfillPictures(folder: string, limit = 25): Promise<void> {
+  const { db } = folderCtx(folder);
+  const candidates = (await db.items.toArray()).filter((i) => !i.image && !i.deleted && i.sourceUrl && PICTURED.includes(i.type)).map((i) => i.id);
+  for (const id of pickUntried(PICTURE_TRIED, candidates, limit)) {
+    const item = await db.items.get(id);
+    if (!item?.sourceUrl) continue;
+    markTried(PICTURE_TRIED, id);
+    try {
+      const res = await fetch(`/api/page?url=${encodeURIComponent(item.sourceUrl)}`, { signal: AbortSignal.timeout(20_000) });
+      if (!res.ok) continue;
+      const doc = new DOMParser().parseFromString(await res.text(), "text/html");
+      const image = imageUrl(doc.querySelector('meta[property="og:image"]')?.getAttribute("content") ?? doc.querySelector('meta[name="twitter:image"]')?.getAttribute("content"), item.sourceUrl);
+      if (image) await fillItem(folder, id, { image });
+    } catch {
+      // Tried already; it is tried again after a week.
+    }
+  }
 }
