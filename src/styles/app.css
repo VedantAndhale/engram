@@ -469,6 +469,14 @@ main {
     min-width: 44px;
   }
 }
+/*
+ * The sort control shows a tap as focus, and the page's orange focus ring then stays on it. It keeps a neutral
+ * border instead, so a keyboard user still sees where focus is.
+ */
+.topbar .select:focus {
+  outline: none;
+  border-color: var(--muted);
+}
 .banner {
   display: flex;
   align-items: center;
