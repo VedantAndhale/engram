@@ -49,7 +49,6 @@ import { ArticleView, scrollArticleTo, stickyReach, type ReadingPrefs } from "./
 import { AskBar, summarizeHere } from "./reader/AskBar";
 import { LocalGraph } from "./Graph";
 import { Listen } from "./reader/Listen";
-import { Minimap } from "./reader/Minimap";
 import { Margin, useMarginFits } from "./reader/Margin";
 import { setItemContext, useNotes } from "../ai/notes";
 import { turnContext } from "../ai/turn";
@@ -422,7 +421,6 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
 
             {item.content && !isNote && (
               <section className="article" aria-label="Article">
-                <Minimap scroller={scroller} ranges={ranges} highlightKey={placed.join(",")} item={item.id} />
                 <div className="article-tools">
                   <span className="field-label">From the page</span>
                   <div className="spacer" />
