@@ -119,6 +119,31 @@
     opacity: 1;
   }
 }
+/*
+ * A picture from the web is shown as it is: at its own proportions, not cropped or stretched, and not
+ * inverted by the dark theme's page filter.
+ */
+.cover.cover-natural {
+  aspect-ratio: auto;
+  background: transparent;
+}
+.cover.cover-natural .cover-image {
+  position: static;
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+  filter: none;
+}
+.unread-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  vertical-align: 1px;
+  border-radius: 50%;
+  background: var(--accent);
+}
 .fav-star {
   margin-right: 4px;
   vertical-align: -1px;

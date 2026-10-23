@@ -21,6 +21,9 @@ import { openAi } from "../ai/dialog";
 import { generate, useAiStatus } from "../ai/engine";
 import { pickTopics, topicsPrompt } from "../ai/prompts";
 import { visibleFolders } from "../folders/registry";
+import { addPdf } from "../store/actions";
+import { importPlaylist } from "../video/actions";
+import { playlistIdOf } from "../video/playlist";
 import { installApp, isIOS, useInstall } from "../lib/install";
 import { setHabit, useHabit } from "../habit/prefs";
 import type { Folder, ItemType } from "../model";
@@ -108,12 +111,36 @@ function QuickAddDialog({ prefill }: { prefill: QuickAddPrefill }) {
   const folder = folders?.find((f) => f.id === folderId) ?? folders?.[0];
   const canSave = !!folder && !busy && (kind === "link" ? !!url : !!text.trim());
 
+  const pdfInput = useRef<HTMLInputElement>(null);
+  const savePdf = async (file: File) => {
+    setBusy(true);
+    try {
+      const id = await addPdf(folder!.id, file);
+      closeQuickAdd();
+      toast(`Saved to ${folder!.name}.`, { action: { label: "Open", run: () => (location.hash = itemHref(folder!.id, { id, type: "pdf" })) } });
+    } catch (e) {
+      console.error(e);
+      toast("Couldn't save that PDF. Try again.");
+      setBusy(false);
+    }
+  };
+
   const save = async () => {
     if (!canSave) return;
     setBusy(true);
     try {
       let item;
       let existed = false;
+      // A YouTube playlist link saves the playlist: its videos come from the page, in order.
+      if (kind === "link" && playlistIdOf(url!)) {
+        const { playlist, added } = await importPlaylist(folder.id, url!);
+        rememberTopics(topics);
+        closeQuickAdd();
+        toast(added === 1 ? "Saved the playlist with 1 video." : `Saved the playlist with ${added} videos.`, {
+          action: { label: "Open", run: () => (location.hash = itemHref(folder.id, playlist)) },
+        });
+        return;
+      }
       if (kind === "link") ({ item, existed } = await saveLink(folder.id, { url: url!, title: title.trim() || undefined, words, topics, selection: quote || undefined }));
       else if (kind === "quote") item = await saveQuote(folder.id, { quote: text, source, words, topics });
       else item = await saveNote(folder.id, { text, topics });
@@ -121,7 +148,7 @@ function QuickAddDialog({ prefill }: { prefill: QuickAddPrefill }) {
       closeQuickAdd();
       // A PDF its site wouldn't hand over is kept as a link; say so, rather than leave it to look unfinished.
       const pdfLink = kind === "link" && !existed && item.type !== "pdf" && isPdfFile(url!);
-      toast(pdfLink ? "Saved the link. Its site doesn't allow Engram to download the PDF: save the file and use Add PDF." : existed ? "You'd saved that already. Added to it." : `Saved to ${folder.name}.`, {
+      toast(pdfLink ? "Saved the link. Its site doesn't allow Engram to download the PDF: save the file and use the PDF button here." : existed ? "You'd saved that already. Added to it." : `Saved to ${folder.name}.`, {
         action: { label: "Open", run: () => (location.hash = itemHref(folder.id, item)) },
       });
     } catch (e) {
@@ -150,6 +177,20 @@ function QuickAddDialog({ prefill }: { prefill: QuickAddPrefill }) {
               {k === "link" ? "Link" : k === "quote" ? "Quote" : "Note"}
             </button>
           ))}
+          <button type="button" role="tab" aria-selected={false} onClick={() => pdfInput.current?.click()} disabled={busy || !folder}>
+            PDF
+          </button>
+          <input
+            ref={pdfInput}
+            type="file"
+            accept="application/pdf,.pdf"
+            hidden
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) void savePdf(file);
+            }}
+          />
         </div>
 
         <label>
@@ -320,6 +361,7 @@ export function SavePage() {
         siteName: page.data.siteName,
         description: page.data.description,
         published: page.data.published,
+        image: page.data.image,
         type,
         words,
         topics,

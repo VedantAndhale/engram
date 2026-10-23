@@ -529,6 +529,7 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
               </section>
             )}
 
+            {!item.content && item.description && !isNote && <p>{item.description}</p>}
             {!item.content && href && !isNote && (
               <p className="hint">
                 {fetching ? "Getting the article from the page…" : "Only the link is saved. Open the page and use Save to Engram to keep its text too."}

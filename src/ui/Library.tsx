@@ -1,6 +1,8 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import {
   Archive,
+  Check,
+  Circle,
   Clock,
   CloudUpload,
   Copy,
@@ -8,7 +10,6 @@ import {
   FileText,
   FolderInput,
   Inbox,
-  ListVideo,
   LoaderCircle,
   Menu as MenuIcon,
   Network,
@@ -28,11 +29,12 @@ import { hostOf, itemHref, titleFromText, TYPE_LABELS } from "../capture/capture
 import { useEffect, useRef, useState } from "react";
 import { folderCtx, renameFolder, setAttention, visibleFolders } from "../folders/registry";
 import { formatBytes, timeAgo } from "../lib/util";
-import { isDailyNote, itemLocation, type Folder, type Item, type ItemType, type Location, type Position } from "../model";
+import { isDailyNote, itemLocation, type Annotation, type Folder, type Item, type ItemType, type Location, type Position } from "../model";
+import { formatLength } from "../video/duration";
+import { thumbnailUrl, youtubeId } from "../video/youtube";
 import { partlyRead } from "../reader/articlePosition";
-import { addPdf, copyItem, isFinished, moveItem, purgeItem, removeItem, restoreItem, setFavorite, setItemTopics, setLocation } from "../store/actions";
+import { addPdf, copyItem, isFinished, moveItem, purgeItem, removeItem, restoreItem, setFavorite, setItemTopics, setLocation, setRead } from "../store/actions";
 import { renameWithLinks } from "../notes/notes";
-import { createPlaylist } from "../video/actions";
 import { setHabit, useHabit } from "../habit/prefs";
 import { TopicsDialog } from "./habit";
 import { navigate, openQuickAdd, rememberFolder, toast } from "../store/ui";
@@ -44,7 +46,14 @@ import "../styles/library.css";
 type Sort = "recent" | "added" | "title";
 
 /** Which part of the library is shown. Inbox, Later and Archive are where items sit; the rest cut across them. */
-type View = Location | "all" | "favorites" | "trash";
+type View = Location | "all" | "unread" | "favorites" | "trash";
+
+/**
+ * Whether there is still something to read in an item: a link, article, video, PDF or book you haven't
+ * finished. Quotes, notes and playlists have nothing to finish. Finished means read by hand or to the end.
+ */
+const isUnread = (d: Pick<Item, "id" | "type" | "readAt">, position?: Position) =>
+  !isDailyNote(d) && !["quote", "note", "playlist"].includes(d.type) && !d.readAt && !isFinished(d as Pick<Item, "type" | "pages">, position);
 
 /** Narrow the list to one kind of item. "daily" is the day's notes, which are otherwise only under All. */
 type TypeFilter = ItemType | "daily" | "";
@@ -53,6 +62,7 @@ const VIEWS: { id: View; label: string }[] = [
   { id: "inbox", label: "Inbox" },
   { id: "later", label: "Later" },
   { id: "archive", label: "Archive" },
+  { id: "unread", label: "Unread" },
   { id: "all", label: "All" },
   { id: "favorites", label: "Favourites" },
   { id: "trash", label: "Trash" },
@@ -69,7 +79,8 @@ type Row = Omit<Item, "body" | "content"> & { excerpt: string };
 /** A card's few lines: a note's words after its title, or the start of a saved page. */
 function excerptOf(item: Item): string {
   if (item.type === "pdf" || item.type === "playlist" || item.type === "quote") return "";
-  let text = (item.type === "note" ? item.body : (item.content ?? item.body)) ?? "";
+  // A page that couldn't be saved in full still has its summary, which says what it is about.
+  let text = (item.type === "note" ? item.body : (item.content ?? item.body)) || item.description || "";
   // A note's first line is already its title.
   if (item.type === "note" && titleFromText(text) === item.title) text = text.trim().split(/\r?\n/).slice(1).join(" ");
   // Formatted articles: images go, links keep their words.
@@ -101,13 +112,11 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
     | { kind: "rename" | "copy" | "topics"; doc: Row }
     | { kind: "move" | "purge"; ids: string[] }
     | { kind: "renameFolder" }
-    | { kind: "newPlaylist" }
     | null
   >(null);
   const topics = useHabit((h) => h.topics);
   const [adding, setAdding] = useState(0);
   const [dragging, setDragging] = useState(false);
-  const fileInput = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const menu = useMenu();
   // After an item leaves the list from the keyboard, the next one takes focus.
@@ -122,6 +131,12 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
   useEffect(() => {
     rememberFolder(folder.id);
     setAttention(folder.id, "open");
+  }, [folder.id]);
+
+  // Links saved before pictures were kept get their page's picture, and playlist videos their length, a few at a time.
+  useEffect(() => {
+    void import("../capture/fetchpage").then((m) => m.backfillPictures(folder.id));
+    void import("../video/duration").then((m) => m.backfillDurations(folder.id));
   }, [folder.id]);
 
   const rows = useLiveQuery(async () => {
@@ -148,12 +163,51 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
   }, [db]);
   const notes = counts?.notes;
   const videos = counts?.videos;
+  // A playlist's total time: the lengths its videos are known to have, and how many have none yet.
+  const totals = useLiveQuery(async () => {
+    const out = new Map<string, { seconds: number; unknown: number }>();
+    const entries = await db.annotations.filter((a) => a.kind === "entry" && !a.deleted && !!a.ref).toArray();
+    for (const entry of entries) {
+      const total = out.get(entry.doc) ?? { seconds: 0, unknown: 0 };
+      const video = await db.items.get(entry.ref!);
+      if (video?.duration) total.seconds += video.duration;
+      else total.unknown++;
+      out.set(entry.doc, total);
+    }
+    return out;
+  }, [db]);
+  // A playlist's cover is the picture of its first video.
+  const covers = useLiveQuery(async () => {
+    const first = new Map<string, Annotation>();
+    await db.annotations.each((a) => {
+      if (a.deleted || a.kind !== "entry" || !a.ref) return;
+      const cur = first.get(a.doc);
+      if (!cur || (a.order ?? 0) < (cur.order ?? 0)) first.set(a.doc, a);
+    });
+    const out = new Map<string, string>();
+    for (const [playlist, entry] of first) {
+      const video = await db.items.get(entry.ref!);
+      const id = video?.sourceUrl ? youtubeId(video.sourceUrl) : null;
+      if (id) out.set(playlist, id);
+    }
+    return out;
+  }, [db]);
 
-  const live = (rows ?? []).filter((d) => !d.deleted);
+  // A video in a playlist is listed by its playlist, not as a card of its own. It is still kept and plays from there.
+  const inPlaylists = useLiveQuery(async () => new Set((await db.annotations.filter((a) => a.kind === "entry" && !a.deleted && !!a.ref).toArray()).map((a) => a.ref!)), [db]);
+  const live = (rows ?? []).filter((d) => !d.deleted && !(d.type === "video" && inPlaylists?.has(d.id)));
   const trash = (rows ?? []).filter((d) => d.deleted);
   const where = (d: Row) => itemLocation(d, isFinished(d, positions?.get(d.id)));
   const inView = (d: Row) =>
-    view === "trash" ? !!d.deleted : view === "all" ? true : view === "favorites" ? !!d.favorite : where(d) === view;
+    view === "trash"
+      ? !!d.deleted
+      : view === "all"
+        ? true
+        : view === "favorites"
+          ? !!d.favorite
+          : view === "unread"
+            ? isUnread(d, positions?.get(d.id))
+            : where(d) === view;
   const pool = view === "trash" ? trash : live.filter(inView);
   const ofType = (d: Row) => (typeFilter === "daily" ? isDailyNote(d) : typeFilter === "note" ? d.type === "note" && !isDailyNote(d) : d.type === typeFilter);
 
@@ -275,6 +329,11 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
     });
   };
 
+  const markRead = (items: Row[], read: boolean) => {
+    void setRead(folder.id, items.map((d) => d.id), read);
+    toast(read ? "Marked as read." : "Marked as unread.");
+  };
+
   const toggleFavorite = (d: Row) => {
     void setFavorite(folder.id, d.id, !d.favorite);
     toast(d.favorite ? "Removed from Favourites." : "Added to Favourites.");
@@ -347,8 +406,12 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
             run: () => void moveTo([d], l),
           }))
       : [];
+    const unread = isUnread(d, positions?.get(d.id));
     menu.open(e, [
       ...places,
+      unread
+        ? { label: "Mark as read", icon: <Check size={15} />, run: () => void markRead([d], true) }
+        : { label: "Mark as unread", icon: <Circle size={15} />, run: () => void markRead([d], false) },
       { label: d.favorite ? "Remove from Favourites" : "Add to Favourites", icon: <Star size={15} />, run: () => toggleFavorite(d) },
       { label: "Rename", icon: <Pencil size={15} />, run: () => setDialog({ kind: "rename", doc: d }) },
       { label: "Topics", icon: <Tag size={15} />, run: () => setDialog({ kind: "topics", doc: d }) },
@@ -393,12 +456,6 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
           <option value="added">Newest</option>
           <option value="title">A–Z</option>
         </select>
-        <button className="btn" aria-label="New playlist" title="A list of YouTube videos, in order" onClick={() => setDialog({ kind: "newPlaylist" })}>
-          <ListVideo size={16} /> <span className="hide-narrow">New playlist</span>
-        </button>
-        <button className="btn" aria-label="Add PDF" onClick={() => fileInput.current?.click()}>
-          <Upload size={16} /> <span className="hide-narrow">Add PDF</span>
-        </button>
         <button className="btn" aria-label="Graph" title="See how your items link and share topics" onClick={() => navigate({ name: "graph", folder: folder.id })}>
           <Network size={16} /> <span className="hide-narrow">Graph</span>
         </button>
@@ -408,17 +465,6 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
         <button className="btn btn-primary" aria-label="Save" title="Save a link, a quote or a note (N)" onClick={() => openQuickAdd({ folder: folder.id })}>
           <Plus size={16} /> <span className="hide-narrow">Save</span>
         </button>
-        <input
-          ref={fileInput}
-          type="file"
-          accept="application/pdf,.pdf"
-          multiple
-          hidden
-          onChange={(e) => {
-            if (e.target.files) void addFiles(e.target.files);
-            e.target.value = "";
-          }}
-        />
       </header>
 
       {s.message && (s.state === "error" || s.state === "auth" || s.state === "pending") && (
@@ -559,13 +605,10 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
         <div className="empty">
           <FileText size={40} strokeWidth={1.4} />
           <h2>Nothing here yet</h2>
-          <p>Save a link, a quote or a note, or drop PDFs here.</p>
+          <p>Save a link, a video, a playlist, a PDF or a note, or drop PDFs here.</p>
           <div className="row">
             <button className="btn btn-primary" onClick={() => openQuickAdd({ folder: folder.id })}>
               <Plus size={16} /> Save
-            </button>
-            <button className="btn" onClick={() => fileInput.current?.click()}>
-              <Upload size={16} /> Add PDF
             </button>
           </div>
         </div>
@@ -585,6 +628,8 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
                 item={d}
                 position={positions?.get(d.id)}
                 thumb={thumbs?.get(d.id)}
+                videoId={d.type === "video" ? youtubeId(d.sourceUrl ?? "") ?? undefined : covers?.get(d.id)}
+                length={d.type === "playlist" ? totals?.get(d.id) : undefined}
                 notes={notes?.get(d.id) ?? 0}
                 videos={videos?.get(d.id) ?? 0}
                 selected={selected.has(d.id)}
@@ -626,19 +671,6 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
           action="Rename"
           onClose={() => setDialog(null)}
           onSubmit={(name) => renameFolder(folder.id, name)}
-        />
-      )}
-      {dialog?.kind === "newPlaylist" && (
-        <PromptDialog
-          title="New playlist"
-          label="Name"
-          initial=""
-          action="Create"
-          onClose={() => setDialog(null)}
-          onSubmit={async (name) => {
-            const playlist = await createPlaylist(folder.id, name);
-            navigate({ name: "item", folder: folder.id, item: playlist.id });
-          }}
         />
       )}
       {dialog?.kind === "copy" && <CopyDialog from={folder} doc={dialog.doc} onClose={() => setDialog(null)} />}
@@ -694,6 +726,7 @@ const EMPTY: Record<View, { title: string; text: string }> = {
   later: { title: "Nothing for later", text: "Press L on an item, or use its menu, to keep it here for another day." },
   archive: { title: "Nothing archived yet", text: "Press E on an item when you're done with it. It stays searchable here." },
   all: { title: "Nothing here", text: "Save a link, a quote or a note, or drop PDFs here." },
+  unread: { title: "Nothing unread", text: "Links and articles you haven't finished show up here. Mark one read or unread from its menu." },
   favorites: { title: "No favourites yet", text: "Press S on an item, or use its menu, to keep it here." },
   trash: { title: "The Trash is empty", text: "Items you delete wait here until you delete them for good." },
 };
@@ -707,6 +740,8 @@ function Card({
   item,
   position,
   thumb,
+  videoId,
+  length,
   notes,
   videos,
   selected,
@@ -719,6 +754,10 @@ function Card({
   item: Row;
   position?: Position;
   thumb?: string;
+  /** A YouTube video's id: its picture is the cover of a video, or of a playlist's first video. */
+  videoId?: string;
+  /** A playlist's total time, from the videos whose length is known. */
+  length?: { seconds: number; unknown: number };
   notes: number;
   videos: number;
   selected: boolean;
@@ -728,6 +767,10 @@ function Card({
   onPurge: () => void;
 }) {
   const titleId = `card-${item.id}-title`;
+  // The page's own picture for a link, else the YouTube still for a video or playlist.
+  const picture = item.image ?? (videoId ? thumbnailUrl(videoId) : undefined);
+  // The address that failed to load, so a different picture later is tried again.
+  const [failed, setFailed] = useState<string>();
   const metaId = `card-${item.id}-meta`;
   const pdf = item.type === "pdf";
   const playlist = item.type === "playlist";
@@ -741,9 +784,9 @@ function Card({
         notes > 0 ? `${notes} note${notes === 1 ? "" : "s"}` : null,
       ]
     : [
-        playlist ? null : host,
+        playlist ? (videos === 1 ? "1 video" : `${videos} videos`) : host,
         playlist
-          ? timeAgo(item.addedAt)
+          ? [length && (length.seconds ? `${formatLength(length.seconds)}${length.unknown ? " (some unknown)" : ""}` : "length unknown"), timeAgo(item.addedAt)].filter(Boolean).join(" · ")
           : reading
             ? `${Math.round(reading.offset * 100)}% ${item.type === "video" ? "watched" : "read"} · ${timeAgo(reading.updatedAt)}`
             : timeAgo(item.addedAt),
@@ -767,8 +810,11 @@ function Card({
       )}
     </div>
   ) : (
-    <div className={`cover cover-item type-${item.type}`} aria-hidden="true">
-      {/* A page of the text, on the same paper as a PDF's first page, so the cover reads as finished. */}
+    <div className={`cover cover-item type-${item.type}${picture && picture !== failed ? " cover-natural" : ""}`} aria-hidden="true">
+      {/* The page's own picture when it has one and it loads; otherwise a page of the text, on the same paper as a PDF's first page, so the cover reads as finished. */}
+      {picture && picture !== failed ? (
+        <img className="cover-image" src={picture} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(picture)} />
+      ) : (
       <div className="cover-page">
         <span className="type-pill">{isDailyNote(item) ? "Daily note" : TYPE_LABELS[item.type]}</span>
         {playlist ? (
@@ -781,6 +827,7 @@ function Card({
           host && <p className="cover-host">{host}</p>
         )}
       </div>
+      )}
       {reading && (
         <div className="progress">
           <div style={{ width: `${reading.offset * 100}%` }} />
@@ -789,9 +836,11 @@ function Card({
     </div>
   );
 
+  const unread = isUnread(item, position);
   const info = (
     <div className="doc-info">
       <span className="doc-title" id={titleId} title={item.title}>
+        {unread && <span className="unread-dot" role="img" aria-label="Unread" />}
         {item.favorite && <Star size={12} className="fav-star" aria-label="Favourite" />}
         {item.title}
       </span>
