@@ -274,3 +274,76 @@
     width: 72px;
   }
 }
+
+/* The video, with the playlist it is in beside it. Without a playlist the video takes the whole width. */
+.video-column {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.video-view:has(.video-up-next) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.video-view:has(.video-up-next) > .topbar {
+  grid-column: 1 / -1;
+}
+/* On a narrow window the playlist stays on the right, just narrower. */
+@media (max-width: 760px) {
+  .video-view:has(.video-up-next) {
+    grid-template-columns: minmax(0, 1fr) 210px;
+  }
+}
+.video-up-next {
+  min-height: 0;
+  overflow-y: auto;
+  border-left: 1px solid var(--border);
+  padding: 12px 14px 48px;
+}
+.video-up-next-title {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+.video-up-next ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.video-up-next a {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  border-radius: 6px;
+  color: inherit;
+  text-decoration: none;
+}
+.video-up-next a:hover {
+  background: var(--hover, rgba(127, 127, 127, 0.12));
+}
+.video-up-next li.current a {
+  background: var(--hover, rgba(127, 127, 127, 0.18));
+  font-weight: 600;
+}
+.video-up-next-index {
+  flex: none;
+  width: 18px;
+  text-align: right;
+  color: var(--muted);
+  font-size: 12px;
+}
+.video-up-next img {
+  flex: none;
+  width: 88px;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 4px;
+}
+.video-up-next-name {
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.3;
+}

@@ -1,7 +1,9 @@
 import { folderCtx } from "../folders/registry";
 import type { Annotation, Item } from "../model";
 import { createItem, restoreItem, saveAnnotation, savePosition, updateAnnotation } from "../store/actions";
+import { fillDuration } from "./duration";
 import { orderAfterMove } from "./order";
+import { playlistIdOf, playlistName, playlistUrl, playlistVideoIds } from "./playlist";
 import { fillVideoTitle } from "./title";
 import { videosIn, watchUrl } from "./youtube";
 
@@ -55,6 +57,27 @@ export async function videoFor(folder: string, id: string): Promise<Item> {
 
 export async function createPlaylist(folder: string, name: string): Promise<Item> {
   return createItem(folder, { type: "playlist", title: name.trim() || "Playlist" });
+}
+
+/**
+ * A YouTube playlist saved as a playlist here: its name and videos come from its page, through Engram's
+ * server, and the videos are added in the order the page lists them.
+ */
+export async function importPlaylist(folder: string, url: string): Promise<{ playlist: Item; added: number }> {
+  const id = playlistIdOf(url);
+  if (!id) throw new Error("That isn't a YouTube playlist.");
+  const res = await fetch(`/api/page?url=${encodeURIComponent(playlistUrl(id))}`);
+  if (!res.ok) throw new Error("Couldn't read that playlist.");
+  const html = await res.text();
+  const ids = playlistVideoIds(html, id);
+  if (!ids.length) throw new Error("No videos were found in that playlist.");
+  const playlist = await createPlaylist(folder, playlistName(html) ?? "Playlist");
+  const { added } = await addVideos(folder, playlist.id, ids.map(watchUrl).join("\n"));
+  // Each video's length is read from its own page, one at a time, after the save has returned.
+  void (async () => {
+    for (const entry of await playlistEntries(folder, playlist.id)) if (entry.ref) await fillDuration(folder, entry.ref);
+  })();
+  return { playlist, added };
 }
 
 /**

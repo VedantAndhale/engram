@@ -1,7 +1,7 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { ArrowLeft, Play, X } from "lucide-react";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
-import { hostOf, safeHref } from "../capture/capture";
+import { hostOf, itemHref, safeHref } from "../capture/capture";
 import { folderCtx } from "../folders/registry";
 import type { Folder, Item } from "../model";
 import { piecesOf } from "../notes/images";
@@ -186,6 +186,7 @@ export function VideoView({ folder, item }: { folder: Folder; item: Item }) {
         <div className="spacer" />
       </header>
 
+      <div className="video-column">
       <div className="video-top">
         {videoId ? (
           <div className="video-frame">
@@ -294,6 +295,48 @@ export function VideoView({ folder, item }: { folder: Folder; item: Item }) {
           </ol>
         )}
       </section>
+      </div>
+      <PlaylistSide folder={folder} videoId={item.id} />
     </main>
+  );
+}
+
+/**
+ * The playlist this video is in, with its videos in order, so the next one can be played from here. Nothing
+ * shows for a video that is in no playlist.
+ */
+function PlaylistSide({ folder, videoId }: { folder: Folder; videoId: string }) {
+  const { db } = folderCtx(folder.id);
+  const list = useLiveQuery(async () => {
+    const entry = (await db.annotations.filter((a) => a.kind === "entry" && a.ref === videoId && !a.deleted).first());
+    if (!entry) return null;
+    const playlist = await db.items.get(entry.doc);
+    if (!playlist || playlist.deleted) return null;
+    const entries = (await db.annotations.where("doc").equals(playlist.id).toArray())
+      .filter((a) => a.kind === "entry" && !a.deleted && a.ref)
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    const videos = await Promise.all(entries.map((e) => db.items.get(e.ref!)));
+    return { playlist, videos: videos.filter((v): v is Item => !!v && !v.deleted) };
+  }, [db, videoId]);
+  if (!list) return null;
+  return (
+    <aside className="video-up-next" aria-label={`In ${list.playlist.title}`}>
+      <h2 className="video-up-next-title">{list.playlist.title}</h2>
+      <ol>
+        {list.videos.map((v, i) => {
+          const id = youtubeId(v.sourceUrl ?? "");
+          const current = v.id === videoId;
+          return (
+            <li key={v.id} className={current ? "current" : undefined}>
+              <a href={itemHref(folder.id, v)} aria-current={current ? "true" : undefined}>
+                <span className="video-up-next-index">{i + 1}</span>
+                {id ? <img src={thumbnailUrl(id)} alt="" loading="lazy" /> : null}
+                <span className="video-up-next-name">{v.title}</span>
+              </a>
+            </li>
+          );
+        })}
+      </ol>
+    </aside>
   );
 }
