@@ -9,6 +9,7 @@ import { parseLinks, type LinkRow } from "./links";
 import { parseReadwiseCsv } from "./readwise";
 import { importLinks, type LinkImportResult } from "./saveLinks";
 import type { ImportBook } from "./types";
+import { libraryOf } from "../folders/library";
 
 // Files are read whole into memory, so a cap keeps a wrong pick from freezing the tab.
 const MAX_BYTES = 20 * 1024 * 1024;
@@ -18,8 +19,8 @@ const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? "" 
 export function ImportDialog({ onClose, folder }: { onClose: () => void; folder?: string }) {
   const folders = useLiveQuery(visibleFolders, []) ?? [];
   const [folderId, setFolderId] = useState("");
-  // The folder the reader is viewing is the default; the first folder is the fallback, unless the reader picks another.
-  const chosenFolder = folderId || folder || folders[0]?.id || "";
+  // The folder the reader is viewing is the default; the library folder is the fallback, unless the reader picks another.
+  const chosenFolder = folderId || folder || libraryOf(folders)?.id || "";
   const [books, setBooks] = useState<ImportBook[] | null>(null);
   const [links, setLinks] = useState<LinkRow[] | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);

@@ -10,6 +10,8 @@ import { startSignIn } from "../sync/signin";
 import { ConfirmDialog, GitHubMark, PrivateBadge, SyncDot, syncLabel, useFolderSync } from "./common";
 import { FeedsCard } from "./FeedsCard";
 import { AppInstallCard } from "./AppInstallCard";
+import { useHabit } from "../habit/prefs";
+import { chooseLibrary, libraryOf } from "../folders/library";
 
 export function Setup({ onOpenSidebar }: { onOpenSidebar: () => void }) {
   const { account, authError, legacyToken, signIn } = useAccount();
@@ -50,6 +52,8 @@ function AccountCard() {
   const removed = useLiveQuery(hiddenFolders, []) ?? [];
   const [confirm, setConfirm] = useState<{ pending: boolean } | null>(null);
   const [fixing, setFixing] = useState(false);
+  const libraryId = useHabit((h) => h.libraryId);
+  const library = libraryOf(folders, libraryId);
   const missing = folders.filter((f) => !f.repo).length;
 
   return (
@@ -70,12 +74,11 @@ function AccountCard() {
       <AppInstallCard />
       <ul className="repo-list">
         {folders.map((f) => (
-          <RepoRow key={f.id} folder={f} />
+          <RepoRow key={f.id} folder={f} isLibrary={library?.id === f.id} />
         ))}
       </ul>
-      {folders.filter((f) => f.repo).map((f) => (
-        <FeedsCard key={f.id} folder={f} />
-      ))}
+      {library && <FeedsCard key={library.id} folder={library} />}
+      {library && <p className="hint">Feeds set up in other folders keep running there. To manage those here, make that folder the library.</p>}
       {missing > 0 && (
         <button
           className="btn btn-small"
@@ -138,7 +141,7 @@ function AccountCard() {
   );
 }
 
-function RepoRow({ folder }: { folder: Folder }) {
+function RepoRow({ folder, isLibrary }: { folder: Folder; isLibrary: boolean }) {
   const s = useFolderSync(folder.id);
   const access = useGrantAccess(folder, s.message);
 
@@ -159,6 +162,15 @@ function RepoRow({ folder }: { folder: Folder }) {
         <span className="muted repo-link">No repository yet</span>
       )}
       <span className="muted repo-state">{s.message ?? syncLabel(s)}</span>
+      {isLibrary ? (
+        <span className="muted repo-state">Articles and feeds go here</span>
+      ) : (
+        folder.repo && (
+          <button className="btn btn-small" onClick={() => chooseLibrary(folder.id)}>
+            Use for articles and feeds
+          </button>
+        )
+      )}
       {access.needed && (
         <button className="btn btn-small" disabled={access.granting} onClick={() => void access.grant()}>
           {access.granting ? "Adding…" : "Give Engram access"}

@@ -168,7 +168,7 @@ export function FeedsCard({ folder }: { folder: Folder }) {
     <div>
       <h3>Feeds</h3>
       <p className="muted">
-        A scheduled GitHub Action in this folder's repo reads your feeds and drops new posts into your Inbox. You
+        A scheduled GitHub Action in your library folder's repo reads your feeds and drops new posts into your Inbox. You
         accept or dismiss them in the app.
       </p>
 

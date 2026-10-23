@@ -23,7 +23,8 @@ import { dailyNote, openOrCreate } from "../notes/notes";
 import { escapeTitle, sameTitle } from "../notes/links";
 import { openAi } from "../ai/dialog";
 import { refresh, useAiStatus } from "../ai/engine";
-import { closePalette, go, lastFolder, navigate, openQuickAdd, openShortcuts, setTheme, useUI } from "../store/ui";
+import { closePalette, go, navigate, openQuickAdd, openShortcuts, setTheme, useUI } from "../store/ui";
+import { libraryOf } from "../folders/library";
 
 /*
  * Ctrl+K (or Cmd+K) from anywhere: type to jump to any item in any folder by its title, or to run
@@ -79,11 +80,11 @@ export function matchScore(text: string, query: string): number {
   return 500 - gaps * 20 - i;
 }
 
-/** The folder new things go into: the one on screen, else the last used, else the first. */
+/** The folder new things go into: the one on screen, else the library folder. */
 function targetFolder(folders: Folder[]): Folder | undefined {
   const r = useUI.getState().route;
   const onScreen = r.name === "library" || r.name === "item" || r.name === "reader" ? r.folder : undefined;
-  return folders.find((f) => f.id === onScreen) ?? folders.find((f) => f.id === lastFolder()) ?? folders[0];
+  return folders.find((f) => f.id === onScreen) ?? libraryOf(folders);
 }
 
 function PaletteDialog() {

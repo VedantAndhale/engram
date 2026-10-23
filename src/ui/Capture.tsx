@@ -27,9 +27,10 @@ import { playlistIdOf } from "../video/playlist";
 import { installApp, isIOS, useInstall } from "../lib/install";
 import { setHabit, useHabit } from "../habit/prefs";
 import type { Folder, ItemType } from "../model";
-import { closeQuickAdd, go, lastFolder, toast, useUI, type QuickAddPrefill } from "../store/ui";
+import { closeQuickAdd, go, toast, useUI, type QuickAddPrefill } from "../store/ui";
 import { Modal } from "./common";
 import { TopicPicker } from "./habit";
+import { libraryOf } from "../folders/library";
 
 /** Topics first typed while saving become the reader's topics too. */
 function rememberTopics(chosen: string[]) {
@@ -84,7 +85,7 @@ function QuickAddDialog({ prefill }: { prefill: QuickAddPrefill }) {
   const [source, setSource] = useState("");
   const [words, setWords] = useState("");
   const [topics, setTopics] = useState<string[]>([]);
-  const [folderId, setFolderId] = useState(prefill.folder ?? lastFolder() ?? "");
+  const [folderId, setFolderId] = useState(prefill.folder ?? "");
   const [busy, setBusy] = useState(false);
   const [suggesting, setSuggesting] = useState(false);
   const aiReady = useAiStatus((s) => s.phase === "ready" || s.phase === "loaded" || s.phase === "loading");
@@ -108,7 +109,7 @@ function QuickAddDialog({ prefill }: { prefill: QuickAddPrefill }) {
 
   const url = asUrl(text);
   const kind: CaptureKind = chosenKind ?? (url ? "link" : "note");
-  const folder = folders?.find((f) => f.id === folderId) ?? folders?.[0];
+  const folder = folders?.find((f) => f.id === folderId) ?? libraryOf(folders);
   const canSave = !!folder && !busy && (kind === "link" ? !!url : !!text.trim());
 
   const pdfInput = useRef<HTMLInputElement>(null);
@@ -320,7 +321,7 @@ export function SavePage() {
   const [title, setTitle] = useState("");
   const [words, setWords] = useState("");
   const [topics, setTopics] = useState<string[]>([]);
-  const [folderId, setFolderId] = useState(lastFolder() ?? "");
+  const [folderId, setFolderId] = useState("");
   const [state, setState] = useState<"idle" | "saving" | "saved">("idle");
 
   // The title is put back when this page goes, so a save link that opens it in the app does not leave it behind.
@@ -345,7 +346,7 @@ export function SavePage() {
     return () => window.removeEventListener("message", onMessage);
   }, []);
 
-  const folder = folders?.find((f) => f.id === folderId) ?? folders?.[0];
+  const folder = folders?.find((f) => f.id === folderId) ?? libraryOf(folders);
 
   const save = async () => {
     if (!page || !folder || state !== "idle") return;

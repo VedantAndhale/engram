@@ -4,10 +4,11 @@ import { findUrl, saveLink } from "../capture/capture";
 import { createFolder, visibleFolders } from "../folders/registry";
 import { setHabit, SUGGESTED_TOPICS, useHabit } from "../habit/prefs";
 import { addPdf, setItemTopics } from "../store/actions";
-import { lastFolder, navigate, toast } from "../store/ui";
+import { navigate, toast } from "../store/ui";
 import { startSignIn } from "../sync/signin";
 import { ReminderSetup, TopicPicker } from "./habit";
 import { GitHubMark } from "./common";
+import { chooseLibrary, LIBRARY_NAME, libraryOf } from "../folders/library";
 
 type Step = "hello" | "topics" | "reminder" | "first";
 
@@ -39,7 +40,11 @@ export function Welcome() {
   // The reader is saving something here, so if there is no folder left, make one for it.
   const intoFolder = async () => {
     const folders = await visibleFolders();
-    return folders.find((f) => f.id === lastFolder()) ?? folders[0] ?? (await createFolder("My library"));
+    const existing = libraryOf(folders);
+    if (existing) return existing;
+    const made = await createFolder(LIBRARY_NAME);
+    chooseLibrary(made.id);
+    return made;
   };
 
   const addFirst = async (file: File) => {

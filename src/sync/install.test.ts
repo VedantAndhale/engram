@@ -114,7 +114,7 @@ test("grantFolderRepo reports a 404 from the lookup instead of throwing", async 
       outcome = await grantFolderRepo("token", folderRepo);
     },
   );
-  assert.deepEqual(outcome, { result: "failed", status: 404 });
+  assert.deepEqual(outcome, { result: "failed", status: 404, message: "Not Found" });
   assert.deepEqual(calls, ["GET /user/installations", "GET /repos/vedant/folder-x"]);
 });
 

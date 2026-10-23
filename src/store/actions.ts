@@ -6,6 +6,7 @@ import { isDailyNote, type Annotation, type Item, type Location, type Position }
 import { getAccount } from "../sync/account";
 import { itemPath, MAX_PDF_BYTES, pdfPath, positionsPath } from "../sync/paths";
 import { toast } from "./ui";
+import { agedFromInbox, type AgingItem } from "./aging";
 
 /*
  * Every user action writes to the folder's IndexedDB first (instant, works offline), then
@@ -188,6 +189,31 @@ export async function removeItem(folder: string, id: string) {
 
 export async function restoreItem(folder: string, id: string) {
   await updateItem(folder, id, { deleted: undefined }, 500);
+}
+
+/**
+ * Moves the links that have waited a week in Inbox to Later. Returns how many moved.
+ * Each move is checked again as it is written, so a move made since the scan is kept. No edit stamp is set,
+ * as in fillItem: a move by hand on any device still beats this one when the devices merge.
+ */
+export async function sweepInbox(folder: string, since: number, now = Date.now()): Promise<number> {
+  const { db } = folderCtx(folder);
+  const items: AgingItem[] = [];
+  await db.items.each((i) => {
+    if (i.purged) return;
+    items.push({ id: i.id, type: i.type, location: i.location, addedAt: i.addedAt, enteredInbox: i.edited?.location ?? i.addedAt, deleted: i.deleted });
+  });
+  const moved: string[] = [];
+  for (const id of agedFromInbox(items, now, since)) {
+    await db.transaction("rw", db.items, async () => {
+      const cur = await db.items.get(id);
+      if (!cur || cur.deleted || cur.location !== "inbox") return;
+      await db.items.update(id, { location: "later", updatedAt: Date.now() });
+      moved.push(id);
+    });
+  }
+  for (const id of moved) await touchItem(folder, id, 500);
+  return moved.length;
 }
 
 /** Move items to the Inbox, Later or the Archive. */

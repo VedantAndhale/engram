@@ -9,12 +9,13 @@ import { startOfDay, todaysShare } from "../habit/schedule";
 import { timeAgo } from "../lib/util";
 import { dailyNote } from "../notes/notes";
 import type { ItemType } from "../model";
-import { lastFolder, navigate, openQuickAdd } from "../store/ui";
+import { navigate, openQuickAdd } from "../store/ui";
 import { useAccount } from "../sync/account";
 import { BookmarkletCard } from "./Capture";
 import { partlyRead } from "../reader/articlePosition";
 import { ReminderDialog, TopicsDialog } from "./habit";
 import { AgentInbox } from "./Inbox";
+import { libraryOf } from "../folders/library";
 
 // The Markdown editor, loaded when a review asks for a note (as ItemView does).
 const Editor = lazy(() => import("../editor/Editor"));
@@ -238,7 +239,7 @@ export function Today({ onOpenSidebar }: { onOpenSidebar: () => void }) {
               className="btn"
               onClick={async () => {
                 const folders = await visibleFolders();
-                const folder = folders.find((f) => f.id === lastFolder()) ?? folders[0];
+                const folder = libraryOf(folders);
                 if (!folder) return;
                 const note = await dailyNote(folder.id);
                 navigate({ name: "item", folder: folder.id, item: note.id });

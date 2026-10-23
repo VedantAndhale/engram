@@ -28,7 +28,7 @@ export interface InstallGh {
  * Makes sure the App can reach one repo. "not-installed" means the user hasn't installed the App
  * yet, so the caller should send them to INSTALL_URL instead of retrying.
  */
-export type ReachOutcome = { result: "added" | "not-installed" | "failed"; status?: number };
+export type ReachOutcome = { result: "added" | "not-installed" | "failed"; status?: number; message?: string };
 
 /** Same as reachRepo, but also says what GitHub answered, so the UI can show it. */
 export async function reachRepoDetail(gh: InstallGh, repoId: number): Promise<ReachOutcome> {
@@ -42,7 +42,7 @@ export async function reachRepoDetail(gh: InstallGh, repoId: number): Promise<Re
     return { result: "failed", status: res.status };
   } catch (e) {
     // 403, 404 and 422 come back as thrown errors from the client; so does a dropped connection.
-    return { result: "failed", status: e instanceof GitHubError ? e.status : undefined };
+    return { result: "failed", status: e instanceof GitHubError ? e.status : undefined, message: e instanceof GitHubError ? e.message : undefined };
   }
 }
 
@@ -69,7 +69,7 @@ export async function grantFolderRepo(token: string, repo: RepoRef): Promise<Rea
     if (!pickInstallation(installations ?? [])) return { result: "not-installed" };
     id = (await gh.getRepo()).id;
   } catch (e) {
-    return { result: "failed", status: e instanceof GitHubError ? e.status : undefined };
+    return { result: "failed", status: e instanceof GitHubError ? e.status : undefined, message: e instanceof GitHubError ? e.message : undefined };
   }
   return reachRepoDetail(gh, id);
 }

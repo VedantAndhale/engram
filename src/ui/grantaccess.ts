@@ -15,7 +15,8 @@ export function problemText(o: ReachOutcome): string | null {
   if (o.result === "added") return null;
   if (o.result === "not-installed") return "Engram Reader isn't installed on this GitHub account yet.";
   if (o.status === 404) return "Engram can't add this repository by itself. Select it in the Engram Reader App's settings on GitHub.";
-  return `GitHub answered ${o.status ?? "with an error"} when Engram tried to add this repository. Select it in the Engram Reader App's settings on GitHub.`;
+  const said = o.message ? ` ("${o.message}")` : "";
+  return `GitHub answered ${o.status ?? "with an error"}${said} when Engram tried to add this repository. Select it in the Engram Reader App's settings on GitHub.`;
 }
 
 /**

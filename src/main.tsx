@@ -8,10 +8,11 @@ import { completeSignIn, startFolders, visibleFolders } from "./folders/registry
 import "./lib/install"; // listen for the install prompt before it fires
 import { startAnalytics } from "./analytics";
 import { restoreAiNotes } from "./ai/notestore";
-import { evictCache, keepStorage } from "./store/actions";
+import { evictCache, keepStorage, sweepInbox } from "./store/actions";
 import { toast } from "./store/ui";
 import "./styles/app.css";
 import { Home, isFirstVisit } from "./landing/Home";
+import { agingStart } from "./habit/prefs";
 
 // A new version of the app is ready: it is used once you choose to reload, never in the middle of
 // something (a share arriving, a note being typed).
@@ -41,6 +42,19 @@ startFolders()
     // The AI notes kept on this device come back, so they survive a reload.
     void restoreAiNotes();
     await evictCache((await visibleFolders()).map((f) => f.id));
+    // Links that have waited a week in Inbox move to Later. Checked now, then hourly while the app is open.
+    const sweep = async () => {
+      const since = agingStart();
+      for (const f of await visibleFolders()) {
+        try {
+          await sweepInbox(f.id, since);
+        } catch (e) {
+          console.error("The inbox check failed for a folder", e);
+        }
+      }
+    };
+    void sweep();
+    setInterval(() => void sweep(), 60 * 60_000);
   })
   .catch((e) => {
     console.error(e);

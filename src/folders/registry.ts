@@ -13,6 +13,7 @@ import { reachRepo } from "../sync/install";
 import { parseFolderFile } from "../sync/merge";
 import { FOLDER_FILE } from "../sync/paths";
 import type { SignInReturn } from "../sync/signin";
+import { chooseLibrary } from "./library";
 
 /** Everything needed to work inside one folder: its database, its sync engine and its search index. */
 export interface FolderCtx {
@@ -58,7 +59,7 @@ export async function startFolders() {
   // reader: removing the last one leaves none (see removeFolder).
   if (!localStorage.getItem(BOOTED_KEY)) {
     localStorage.setItem(BOOTED_KEY, "1");
-    if ((await appDb.folders.count()) === 0) await createFolder("My library");
+    if ((await appDb.folders.count()) === 0) chooseLibrary((await createFolder("My library")).id);
   }
   for (const f of await visibleFolders()) await folderCtx(f.id).sync.attach(f.repo);
 

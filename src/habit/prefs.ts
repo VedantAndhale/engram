@@ -18,6 +18,10 @@ interface HabitPrefs {
   backupDismissed?: boolean;
   /** When Engram was first opened on this device. */
   firstUse: number;
+  /** When the inbox rule began on this device. Links added before then are left where they are. */
+  agingSince?: number;
+  /** The folder articles and feed entries go to, by id. Unset means the folder named "My library". */
+  libraryId?: string;
 }
 
 const KEY = "engram.habit";
@@ -33,12 +37,40 @@ function load(): HabitPrefs {
 
 export const useHabit = create<HabitPrefs>(load);
 
+/** The settings as they are saved on this device right now, whichever tab wrote them last. */
+function storedHabit(): Partial<HabitPrefs> {
+  try {
+    return JSON.parse(localStorage.getItem(KEY) ?? "{}") as Partial<HabitPrefs>;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Save what this tab knows. A key this tab has not set (undefined) keeps the value another tab saved, so a
+ * library choice made in one tab survives a change made in a tab that was opened before it.
+ */
+function save(s: HabitPrefs) {
+  const merged: Record<string, unknown> = { ...storedHabit() };
+  for (const [k, v] of Object.entries(s)) if (v !== undefined) merged[k] = v;
+  localStorage.setItem(KEY, JSON.stringify(merged));
+}
+
 // Save on every change, including the first load, so firstUse is fixed from the very first visit.
-localStorage.setItem(KEY, JSON.stringify(useHabit.getState()));
-useHabit.subscribe((s) => localStorage.setItem(KEY, JSON.stringify(s)));
+save(useHabit.getState());
+useHabit.subscribe(save);
 
 export function setHabit(patch: Partial<HabitPrefs>) {
   useHabit.setState(patch);
+}
+
+/** When the inbox rule began on this device. It starts now the first time the rule runs. */
+export function agingStart(): number {
+  const known = useHabit.getState().agingSince ?? storedHabit().agingSince;
+  if (known !== undefined) return known;
+  const now = Date.now();
+  setHabit({ agingSince: now });
+  return now;
 }
 
 /** Tidy a typed topic: trimmed, single spaces, first letter capitalised. */

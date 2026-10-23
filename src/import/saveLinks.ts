@@ -51,6 +51,8 @@ async function saveAll(folder: string, links: LinkRow[], onProgress?: (done: num
           siteName: cleanText(link.publication, MAX_TITLE),
           description: cleanText(link.description, 1000),
           topics: topics.length ? topics : undefined,
+          // Imported links are for later, so they skip the Inbox that the weekly rule clears.
+          location: "later",
         });
         created.push(item.id);
         known.add(url);
