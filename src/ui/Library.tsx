@@ -133,9 +133,10 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
     setAttention(folder.id, "open");
   }, [folder.id]);
 
-  // Links saved before pictures were kept get their page's picture, and playlist videos their length, a few at a time.
+  // Older links get their page's picture and text, and playlist videos their length, a few at a time.
   useEffect(() => {
     void import("../capture/fetchpage").then((m) => m.backfillPictures(folder.id));
+    void import("../capture/fetchpage").then((m) => m.backfillArticles(folder.id));
     void import("../video/duration").then((m) => m.backfillDurations(folder.id));
   }, [folder.id]);
 

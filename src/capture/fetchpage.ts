@@ -85,3 +85,20 @@ export async function backfillPictures(folder: string, limit = 25): Promise<void
     }
   }
 }
+
+const ARTICLE_TRIED = "reader.articleTried";
+
+/**
+ * Give saved links that have no text yet their page\x27s text, author and picture, the way a pasted link is filled in.
+ * A few are tried each time a library opens, the ones tried longest ago first (see backlog.ts).
+ */
+export async function backfillArticles(folder: string, limit = 25): Promise<void> {
+  const { db } = folderCtx(folder);
+  const candidates = (await db.items.toArray())
+    .filter((i) => !i.deleted && !i.content && i.sourceUrl && READABLE.includes(i.type))
+    .map((i) => i.id);
+  for (const id of pickUntried(ARTICLE_TRIED, candidates, limit)) {
+    markTried(ARTICLE_TRIED, id);
+    await fillFromWeb(folder, id);
+  }
+}
