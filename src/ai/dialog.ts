@@ -29,7 +29,9 @@ export type AiTask =
       article?: { markdown: boolean };
     }
   /** `context` is the sentence the selection sits in, when the item's text can be found. Empty when it cannot. */
-  | { mode: "explain"; title: string; text: string; context?: string };
+  | { mode: "explain"; title: string; text: string; context?: string }
+  /** Two passages of one item, the first kept and the second selected after it. */
+  | { mode: "compare"; title: string; first: string; second: string };
 
 export type AskTask = Extract<AiTask, { mode: "ask" }>;
 

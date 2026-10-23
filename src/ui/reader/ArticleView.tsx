@@ -1,7 +1,8 @@
 import { AnimatePresence } from "motion/react";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { QUICK_ACTIONS, type QuickAction } from "../../ai/dialog";
+import { clearKept, keepPassage, keptIn, useKept } from "../../ai/compare";
+import { openAi, QUICK_ACTIONS, type QuickAction } from "../../ai/dialog";
 import { addNote, useNotes } from "../../ai/notes";
 import { DEFINE_MAX_WORDS, wordCount } from "../../ai/prompts";
 import { savedText, sentenceAround } from "../../ai/source";
@@ -166,6 +167,10 @@ export function ArticleView({
     };
   }, [noteAnchor]);
 
+  // A passage kept for comparison belongs to this article, so it is dropped when the reader leaves it.
+  const keptText = keptIn(useKept((s) => s.kept), item.id);
+  useEffect(() => () => clearKept(), [item.id]);
+
   /** Ask the model about a selection: its answer opens as a note beside the passage. */
   const askAbout = (range: Range, action: QuickAction | "ask", question?: string) => {
     const quote = range.toString().replace(/\s+/g, " ").trim();
@@ -246,6 +251,11 @@ export function ArticleView({
               actions: QUICK_ACTIONS.filter((a) => a !== "define" || wordCount(selection.range.toString()) <= DEFINE_MAX_WORDS),
               onAction: (action) => askAbout(selection.range, action),
               onAsk: (question) => askAbout(selection.range, "ask", question),
+            }}
+            compare={{
+              kept: keptText,
+              onKeep: () => keepPassage(item.id, selection.range.toString()),
+              onCompare: () => openAi({ mode: "compare", title: item.title, first: keptText ?? "", second: selection.range.toString() }),
             }}
             onHighlight={(color, withNote) => void highlight(color, selection.range, withNote)}
             onClose={() => setSelection(null)}

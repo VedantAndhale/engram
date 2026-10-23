@@ -9,6 +9,8 @@ import type { Picked } from "./chunks";
 export type Coverage =
   | { kind: "summary"; used: number; total: number }
   | { kind: "explain"; used: number; total: number }
+  /** Two passages compared: each one's used and total characters. */
+  | { kind: "compare"; first: { used: number; total: number }; second: { used: number; total: number } }
   | { kind: "ask"; picked: Picked; pages: number[]; cite?: CiteKind };
 
 /** The PDF pages named by the [Page n] labels in the passages sent, in order, without repeats. */
@@ -39,6 +41,12 @@ export function coverageLine(c: Coverage): string | null {
     return c.kind === "summary"
       ? `Covers the first ${n(c.used)} of ${n(c.total)} characters of this item. The rest was not used.`
       : `Only the first ${n(c.used)} of ${n(c.total)} characters of your selection were used.`;
+  }
+  if (c.kind === "compare") {
+    const part = (p: { used: number; total: number }, which: string) => (p.used < p.total ? `${n(p.used)} of ${n(p.total)} characters of the ${which} passage` : null);
+    const cut = [part(c.first, "first"), part(c.second, "second")].filter(Boolean);
+    if (cut.length === 0) return null;
+    return `Only ${cut.join(" and ")} were compared.`;
   }
   const { picked, pages, cite } = c;
   if (picked.sent === 0) return "No new passage of this item matched, so the passages earlier in this thread still stand.";

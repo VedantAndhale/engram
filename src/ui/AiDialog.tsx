@@ -3,7 +3,7 @@ import { closeAi, QUICK_ACTIONS, QUICK_LABEL, useAiDialog, type AiTask, type Qui
 import { coverageLine, type Coverage } from "../ai/coverage";
 import { download, generate, refresh, removeModel, stopDownload, unload, useAiStatus } from "../ai/engine";
 import { GEMMA } from "../ai/model";
-import { DEFINE_MAX_WORDS, EXPLAIN_LIMIT, quickPrompt, sourceCut, summarizePrompt, wordCount } from "../ai/prompts";
+import { comparePrompt, DEFINE_MAX_WORDS, EXPLAIN_LIMIT, quickPrompt, sourceCut, summarizePrompt, wordCount } from "../ai/prompts";
 import { plainAnswer } from "../ai/format";
 import "../ai/ai.css";
 import { AnswerBody } from "../reader/markdown";
@@ -58,7 +58,9 @@ function AiModal({ task }: { task: Exclude<AiTask, { mode: "remove" }> }) {
         ? "Summary"
         : task.mode === "explain"
           ? QUICK_LABEL[quick]
-          : "Ask this item";
+          : task.mode === "compare"
+            ? "Compare"
+            : "Ask this item";
   const modelReady = status.phase === "ready" || status.phase === "loaded" || status.phase === "loading";
   const pct = status.progress ? Math.round((status.progress.received / status.progress.total) * 100) : 0;
   const summaryCut = task.mode === "summarize" ? sourceCut(task.text) : null;
@@ -93,6 +95,17 @@ function AiModal({ task }: { task: Exclude<AiTask, { mode: "remove" }> }) {
     setQuick(action);
     const cut = sourceCut(task.text, EXPLAIN_LIMIT);
     void answer(quickPrompt(action, task.text, task.title, task.context), cut.cut ? { kind: "explain", used: cut.used, total: cut.total } : null);
+  };
+
+  const runCompare = () => {
+    if (task.mode !== "compare") return;
+    const first = sourceCut(task.first, EXPLAIN_LIMIT);
+    const second = sourceCut(task.second, EXPLAIN_LIMIT);
+    void answer(comparePrompt(task.first, task.second, task.title), {
+      kind: "compare",
+      first: { used: first.used, total: first.total },
+      second: { used: second.used, total: second.total },
+    });
   };
 
   return (
@@ -140,6 +153,18 @@ function AiModal({ task }: { task: Exclude<AiTask, { mode: "remove" }> }) {
 
           {task.mode !== "settings" && task.mode !== "ask" && modelReady && (
             <>
+              {task.mode === "compare" && (
+                <div className="ai-passages">
+                  <blockquote className="ai-quote">
+                    <span className="hint">First passage</span>
+                    <p>{task.first}</p>
+                  </blockquote>
+                  <blockquote className="ai-quote">
+                    <span className="hint">Second passage</span>
+                    <p>{task.second}</p>
+                  </blockquote>
+                </div>
+              )}
               {task.mode === "explain" ? (
                 <div className="ai-actions">
                   {QUICK_ACTIONS.filter((a) => a !== "define" || wordCount(task.text) <= DEFINE_MAX_WORDS).map((a) => (
@@ -147,6 +172,12 @@ function AiModal({ task }: { task: Exclude<AiTask, { mode: "remove" }> }) {
                       {QUICK_LABEL[a]}
                     </button>
                   ))}
+                </div>
+              ) : task.mode === "compare" ? (
+                <div className="ai-actions">
+                  <button className="btn btn-primary" onClick={runCompare} disabled={busy}>
+                    Compare
+                  </button>
                 </div>
               ) : (
                 <div className="ai-actions">
@@ -185,7 +216,7 @@ function AiModal({ task }: { task: Exclude<AiTask, { mode: "remove" }> }) {
                 <>
                   <p className="hint">Written by {GEMMA.name} on this device. Check it against the original before you rely on it.</p>
                   <div className="ai-actions">
-                    <CopyButton value={[plainAnswer(output), note].filter(Boolean).join("\n\n")} />
+                    <CopyButton value={[...(task.mode === "compare" ? [`First passage: ${task.first}`, `Second passage: ${task.second}`] : []), plainAnswer(output), note].filter(Boolean).join("\n\n")} />
                   </div>
                 </>
               )}

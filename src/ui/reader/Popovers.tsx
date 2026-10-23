@@ -1,5 +1,5 @@
 import "../../styles/notes.css";
-import { ArrowUp, Copy, NotebookPen, Sparkles, StickyNote, Trash2 } from "lucide-react";
+import { ArrowUp, Copy, GitCompareArrows, NotebookPen, Pin, Sparkles, StickyNote, Trash2 } from "lucide-react";
 import { m, useIsPresent, useReducedMotion } from "motion/react";
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { openAi, QUICK_LABEL, type QuickAction } from "../../ai/dialog";
@@ -138,6 +138,14 @@ function AskBox({ onAsk }: { onAsk: (question: string) => void }) {
   );
 }
 
+/** Keep a passage, then compare the next one selected in the same item with it. */
+export interface SelectionCompare {
+  /** The passage kept in this item, or null. */
+  kept: string | null;
+  onKeep: () => void;
+  onCompare: () => void;
+}
+
 /** Shown after selecting text: pick a colour to highlight it, or copy it. With `ai`, it also explains or answers beside the passage. */
 export function SelectionPopover({
   anchor,
@@ -145,6 +153,7 @@ export function SelectionPopover({
   item,
   page,
   ai,
+  compare,
   onHighlight,
   onClose,
 }: {
@@ -154,6 +163,7 @@ export function SelectionPopover({
   item?: Item;
   page?: number;
   ai?: SelectionAi;
+  compare?: SelectionCompare;
   onHighlight: (color: string, withNote: boolean) => void;
   onClose: () => void;
 }) {
@@ -176,6 +186,32 @@ export function SelectionPopover({
             }}
           >
             <Sparkles size={16} />
+          </button>
+        )}
+        {compare && compare.kept !== text && (
+          <button
+            className="icon-btn"
+            title="Keep this passage to compare it with the next one"
+            aria-label="Keep for comparison"
+            onClick={() => {
+              compare.onKeep();
+              onClose();
+            }}
+          >
+            <Pin size={16} />
+          </button>
+        )}
+        {compare?.kept && compare.kept !== text && (
+          <button
+            className="icon-btn"
+            title="Compare with the kept passage"
+            aria-label="Compare with the kept passage"
+            onClick={() => {
+              compare.onCompare();
+              onClose();
+            }}
+          >
+            <GitCompareArrows size={16} />
           </button>
         )}
         <button

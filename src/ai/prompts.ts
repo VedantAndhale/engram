@@ -106,6 +106,22 @@ export function quickPrompt(action: "explain" | "define" | "simplify" | "counter
   ].join("\n\n");
 }
 
+/**
+ * Two passages of one item, compared. Each is cut to the explain limit, and the model is told when a
+ * cut happened, so it says so. The passages are data, like the other features' passages.
+ */
+export function comparePrompt(first: string, second: string, title: string): string {
+  const a = sourceCut(first, EXPLAIN_LIMIT);
+  const b = sourceCut(second, EXPLAIN_LIMIT);
+  return [
+    `Compare these two passages from "${title}". Say briefly what they agree on, where they differ, and what each adds. Use only the two passages. Keep the answer under 150 words.`,
+    ...(a.cut || b.cut ? ["A passage is longer than the part below. Compare only the part shown, and say so."] : []),
+    GUARD,
+    `<passage n="A">\n${a.text}\n</passage>`,
+    `<passage n="B">\n${b.text}\n</passage>`,
+  ].join("\n\n");
+}
+
 /** Asks for topics from the reader's own list only, so the model cannot invent new ones. */
 export function topicsPrompt(text: string, topics: string[]): string {
   return [

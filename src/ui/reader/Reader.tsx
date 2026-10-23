@@ -15,6 +15,8 @@ import {
   ZoomOut,
 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { clearKept, keepPassage, keptIn, useKept } from "../../ai/compare";
+import { openAi } from "../../ai/dialog";
 import { folderCtx, setAttention } from "../../folders/registry";
 import { openPdf, type PDFDoc } from "../../lib/pdf";
 import { clamp, scrollMotion } from "../../lib/util";
@@ -96,6 +98,9 @@ export function Reader({
   const preparing = useRef(false);
   const readRanges = useRef(new Map<string, Range>());
   const [readSel, setReadSel] = useState<ReflowSelection | null>(null);
+  // A passage kept for comparison belongs to this document, so it is dropped when the reader leaves it.
+  const keptText = keptIn(useKept((s) => s.kept), doc);
+  useEffect(() => () => clearKept(), [doc]);
   /** The page to show once the view changes: the page the old view showed at its top. */
   const pendingPage = useRef<number | null>(null);
   /** Set once the reader scrolls, taps or types in the document: from then on the view never changes by itself. */
@@ -853,6 +858,11 @@ export function Reader({
           text={selection.text}
           item={meta}
           page={[...selection.parts.keys()][0]}
+          compare={{
+            kept: keptText,
+            onKeep: () => keepPassage(doc, selection.text),
+            onCompare: () => openAi({ mode: "compare", title, first: keptText ?? "", second: selection.text }),
+          }}
           onHighlight={(color) => void highlight(color, selection.parts, true)}
           onClose={() => setSelection(null)}
         />
@@ -863,6 +873,11 @@ export function Reader({
           text={readSel.text}
           item={meta}
           page={readSel.page}
+          compare={{
+            kept: keptText,
+            onKeep: () => keepPassage(doc, readSel.text),
+            onCompare: () => openAi({ mode: "compare", title, first: keptText ?? "", second: readSel.text }),
+          }}
           onHighlight={(color, withNote) => void highlightReading(color, readSel, withNote)}
           onClose={() => setReadSel(null)}
         />
