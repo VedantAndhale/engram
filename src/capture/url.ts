@@ -1,5 +1,5 @@
 import type { ItemType } from "../model";
-import { watchUrl, youtubeId } from "../video/youtube";
+import { watchUrl, youtubeId } from "../video/youtube.js";
 
 /*
  * Addresses: the form a link is kept in, and what kind of page it points to. Pure (no storage, no
