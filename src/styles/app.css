@@ -436,12 +436,24 @@ main {
 .topbar h1:has(> .folder-title) {
   min-width: 0;
 }
+/*
+ * A long folder name gets a line of its own when the bar is narrow: the controls drop to a second line
+ * instead of squeezing the name down to a few letters.
+ */
+.topbar {
+  flex-wrap: wrap;
+}
+.topbar > :not(h1) {
+  flex-shrink: 0;
+}
 .topbar h1 > .folder-title {
-  display: block;
+  display: -webkit-box;
   max-width: 100%;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
+  text-align: left;
 }
 .banner {
   display: flex;
