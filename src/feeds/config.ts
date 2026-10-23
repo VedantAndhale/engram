@@ -34,14 +34,14 @@ export function normalizeFeedUrl(raw: string): string | null {
   return u.toString();
 }
 
-function cleanTitle(value: unknown, fallback: string): string {
+export function cleanTitle(value: unknown, fallback: string): string {
   if (typeof value !== "string") return fallback;
   const t = value.replace(/\s+/g, " ").trim().slice(0, TITLE_CAP);
   return t || fallback;
 }
 
 // 8 hex chars from the browser's random source. Retry on the (very unlikely) clash.
-function newId(taken: Set<string>): string {
+export function newId(taken: Set<string>): string {
   for (;;) {
     const bytes = globalThis.crypto.getRandomValues(new Uint8Array(4));
     const id = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
@@ -105,40 +105,6 @@ export function checkFeedsText(text: string | null): string | null {
   if (!Array.isArray(list)) return "feeds.json on GitHub has no feeds list, so nothing was changed. Fix that file on GitHub first.";
   if (list.length > MAX_FEEDS) return `feeds.json on GitHub has more than ${MAX_FEEDS} feeds, so nothing was changed. Remove some on GitHub first.`;
   return null;
-}
-
-// Stable, readable output so the file diffs cleanly in the user's repo.
-export function feedsToJson(f: FeedsFile): string {
-  return JSON.stringify(f, null, 2) + "\n";
-}
-
-// Returns a new file object, or an error message the UI can show as is.
-export function addFeed(
-  f: FeedsFile,
-  url: string,
-  title?: string,
-): FeedsFile | { error: string } {
-  const normal = normalizeFeedUrl(url);
-  if (!normal) {
-    return { error: "Enter a full feed address that starts with http:// or https://." };
-  }
-  if (f.feeds.some((x) => normalizeFeedUrl(x.url) === normal)) {
-    return { error: "You already follow this feed." };
-  }
-  if (f.feeds.length >= MAX_FEEDS) {
-    return { error: `You can follow up to ${MAX_FEEDS} feeds.` };
-  }
-  const feed: FeedConfig = {
-    id: newId(new Set(f.feeds.map((x) => x.id))),
-    url: normal,
-    title: cleanTitle(title, new URL(normal).hostname),
-    addedAt: Date.now(),
-  };
-  return { version: 1, feeds: [...f.feeds, feed] };
-}
-
-export function removeFeed(f: FeedsFile, id: string): FeedsFile {
-  return { version: 1, feeds: f.feeds.filter((x) => x.id !== id) };
 }
 
 export type FollowPlan =

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { followFeeds, recordFeedDecisions, scanForFeeds, type FeedFound } from "../feeds/follow";
+import { followFeeds, forgetFeedDecisions, recordFeedDecisions, scanForFeeds, type FeedFound } from "../feeds/follow";
+import { useHabit } from "../habit/prefs";
 
 // Each listed site and feed is its own row, so the same feed listed for two sites can be picked for each.
 const keyOf = (f: FeedFound) => `${f.site} ${f.feed}`;
@@ -15,6 +16,9 @@ export function FindFeeds({ onFollowed }: { onFollowed: () => void }) {
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState<string | null>(null);
   const stop = useRef<{ current: boolean }>({ current: false });
+  const feedAsked = useHabit((s) => s.feedAsked);
+  // Sites decided about, so the reader can check one again. Sorted so the list stays put.
+  const asked = [...(feedAsked ?? [])].sort();
 
   // Leaving the page stops a scan that is still running.
   useEffect(() => () => void (stop.current.current = true), []);
@@ -66,6 +70,12 @@ export function FindFeeds({ onFollowed }: { onFollowed: () => void }) {
     setMessage("Those sites won't be listed again.");
   };
 
+  // Clears the decision for a site, so the next scan or saved article from it is looked at again.
+  const checkAgain = (site: string) => {
+    forgetFeedDecisions([site]);
+    setMessage(`${site} will be checked again the next time you scan or save from it.`);
+  };
+
   const toggle = (key: string, on: boolean) =>
     setPicked((prev) => {
       const next = new Set(prev);
@@ -115,6 +125,21 @@ export function FindFeeds({ onFollowed }: { onFollowed: () => void }) {
         </>
       )}
       {message && <p className="muted">{message}</p>}
+      {asked.length > 0 && (
+        <details>
+          <summary>Sites already checked ({asked.length})</summary>
+          <ul>
+            {asked.map((site) => (
+              <li key={site}>
+                {site}{" "}
+                <button className="btn btn-small" onClick={() => checkAgain(site)} aria-label={`Check ${site} again`}>
+                  Check again
+                </button>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
     </div>
   );
 }

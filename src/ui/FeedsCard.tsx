@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import type { Folder } from "../model";
 import { getAccount } from "../sync/account";
 import { GitHub } from "../sync/github";
-import { addFeed, checkFeedsText, parseFeedsJson, removeFeed, type FeedsFile } from "../feeds/config";
+import { parseFeedsJson, type FeedsFile } from "../feeds/config";
+import { planAddFeed, planRemoveFeed, type RawPlan } from "../feeds/raw";
 import { FEED_INSTALL_FILES, checkInstall } from "../feeds/install";
 import { putFeedScript } from "../feeds/putscript";
 import { FindFeeds } from "./FindFeeds";
@@ -116,31 +117,28 @@ export function FeedsCard({ folder }: { folder: Folder }) {
     }
   }
 
-  // Applies a change and saves feeds.json. On a stale sha it re-reads the file and tries once more.
-  async function writeFeeds(change: (f: FeedsFile) => FeedsFile | { error: string }): Promise<boolean> {
-    // A file that is not valid JSON, or has no feeds list, is not written over: the reader fixes it on GitHub first.
-    const raw = await gh!.getFile(CONFIG_PATH);
-    const problem = checkFeedsText(raw?.text ?? null);
-    if (problem) {
-      setError(problem);
-      return false;
-    }
-    let current: Loaded = file ?? { data: parseFeedsJson(null), sha: undefined };
+  // Applies a change to feeds.json as it is on GitHub, so entries the change does not touch are written back exactly.
+  // A file that is not valid JSON, or has no feeds list, is refused by the plan, so it is never written over. On a
+  // stale sha it re-reads the file and tries once more.
+  async function writeFeeds(change: (text: string | null) => RawPlan): Promise<boolean> {
     for (let attempt = 0; attempt < 2; attempt++) {
-      const next = change(current.data);
-      if ("error" in next) {
-        setError(next.error);
+      const current = await gh!.getFile(CONFIG_PATH);
+      const plan = change(current?.text ?? null);
+      if (!plan.ok) {
+        setError(plan.error);
         return false;
       }
+      if (!plan.changed) {
+        setFile({ data: parseFeedsJson(current?.text ?? null), sha: current?.sha });
+        return true;
+      }
       try {
-        await gh!.putFile(CONFIG_PATH, JSON.stringify(next, null, 2) + "\n", current.sha, "Update feeds");
+        await gh!.putFile(CONFIG_PATH, plan.text, current?.sha, "Update feeds");
         const fresh = await gh!.getFile(CONFIG_PATH);
-        setFile({ data: fresh ? parseFeedsJson(fresh.text) : next, sha: fresh?.sha });
+        setFile({ data: parseFeedsJson(fresh?.text ?? plan.text), sha: fresh?.sha });
         return true;
       } catch (e) {
         if (attempt === 1 || !isConflict(e)) throw e;
-        const fresh = await gh!.getFile(CONFIG_PATH);
-        current = { data: parseFeedsJson(fresh?.text ?? null), sha: fresh?.sha };
       }
     }
     return false;
@@ -149,7 +147,7 @@ export function FeedsCard({ folder }: { folder: Folder }) {
   const onAdd = (e: React.FormEvent) => {
     e.preventDefault();
     void run(async () => {
-      const ok = await writeFeeds((f) => addFeed(f, url, name.trim() || undefined));
+      const ok = await writeFeeds((text) => planAddFeed(text, url, name.trim() || undefined));
       if (!ok) return;
       setUrl("");
       setName("");
@@ -157,7 +155,7 @@ export function FeedsCard({ folder }: { folder: Folder }) {
     });
   };
 
-  const onRemove = (id: string) => void run(async () => void (await writeFeeds((f) => removeFeed(f, id))));
+  const onRemove = (id: string) => void run(async () => void (await writeFeeds((text) => planRemoveFeed(text, id))));
 
   const installScript = () =>
     void run(async () => {
