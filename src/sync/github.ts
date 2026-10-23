@@ -100,9 +100,10 @@ export class GitHub {
     }
     if (res.ok || res.status === 304) return res;
 
-    let message = res.statusText;
+    // HTTP/2 has no status text, so a response with no message would otherwise show as blank.
+    let message = res.statusText || `GitHub answered ${res.status}`;
     try {
-      message = ((await res.json()) as { message?: string }).message ?? message;
+      message = ((await res.json()) as { message?: string }).message || message;
     } catch {
       /* body was not JSON */
     }
