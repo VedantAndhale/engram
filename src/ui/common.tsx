@@ -289,8 +289,17 @@ export function Menu({
     const a = anchor.getBoundingClientRect();
     const m = ref.current!.getBoundingClientRect();
     const left = Math.min(align === "start" ? a.left : a.right - m.width, window.innerWidth - m.width - 8);
-    const below = a.bottom + 4 + m.height < window.innerHeight;
-    setPos({ top: below ? a.bottom + 4 : a.top - m.height - 4, left: Math.max(8, left) });
+    // Below the button if the menu fits there, else above it if it fits there, else pinned inside the screen. A short
+    // screen (a small pane or a phone with the keyboard up) must not push the menu above the top edge.
+    const below = a.bottom + 4;
+    const above = a.top - m.height - 4;
+    const top =
+      below + m.height <= window.innerHeight - 8
+        ? below
+        : above >= 8
+          ? above
+          : Math.max(8, Math.min(below, window.innerHeight - m.height - 8));
+    setPos({ top, left: Math.max(8, left) });
   }, [anchor, align]);
   // Closing puts focus back on what opened the menu, unless a click elsewhere or a pick moved it on purpose.
   useEffect(
@@ -328,7 +337,7 @@ export function Menu({
     all[(at + (e.key === "ArrowDown" ? 1 : all.length - 1)) % all.length]?.focus();
   };
   return (
-    <div ref={ref} className="menu" role="menu" style={pos} onKeyDown={onKeyDown}>
+    <div ref={ref} className="menu" role="menu" style={{ ...pos, maxHeight: "calc(100dvh - 16px)", overflowY: "auto" }} onKeyDown={onKeyDown}>
       {items.map((it) => (
         <button
           key={it.label}
