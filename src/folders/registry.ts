@@ -14,6 +14,7 @@ import { parseFolderFile } from "../sync/merge";
 import { FOLDER_FILE } from "../sync/paths";
 import type { SignInReturn } from "../sync/signin";
 import { chooseLibrary } from "./library";
+import { syncRepo } from "./pick";
 
 /** Everything needed to work inside one folder: its database, its sync engine and its search index. */
 export interface FolderCtx {
@@ -61,7 +62,7 @@ export async function startFolders() {
     localStorage.setItem(BOOTED_KEY, "1");
     if ((await appDb.folders.count()) === 0) chooseLibrary((await createFolder("My library")).id);
   }
-  for (const f of await visibleFolders()) await folderCtx(f.id).sync.attach(f.repo);
+  for (const f of await visibleFolders()) await folderCtx(f.id).sync.attach(syncRepo(f.repo, getAccount()?.login));
 
   window.setInterval(() => {
     for (const ctx of ctxs.values()) void ctx.sync.tick();
@@ -120,7 +121,8 @@ export async function renameFolder(id: string, name: string) {
   await ctx.sync.markDirty(FOLDER_FILE, 1_000);
   // Keep the GitHub description readable; reader.json is what actually carries the name.
   const account = getAccount();
-  if (account && folder.repo) void new GitHub(account.token, folder.repo).setDescription(clean).catch(() => {});
+  const repo = syncRepo(folder.repo, account?.login);
+  if (account && repo) void new GitHub(account.token, repo).setDescription(clean).catch(() => {});
 }
 
 /**
@@ -153,7 +155,7 @@ export async function restoreFolder(id: string) {
   const folder = await appDb.folders.get(id);
   if (!folder?.hidden) return;
   await appDb.folders.update(id, { hidden: undefined, updatedAt: Date.now() });
-  await folderCtx(id).sync.attach(folder.repo);
+  await folderCtx(id).sync.attach(syncRepo(folder.repo, getAccount()?.login));
 }
 
 /** Unsynced changes in a folder, so the UI can warn before removing it. */
@@ -315,7 +317,7 @@ async function connectAccount(token: string, extra: { refresh?: string; expiresA
       if (!f.repo && (await folderCtx(f.id).db.items.count()) === 0) await removeFolder(f.id);
     }
   }
-  for (const f of await visibleFolders()) await folderCtx(f.id).sync.attach(f.repo);
+  for (const f of await visibleFolders()) await folderCtx(f.id).sync.attach(syncRepo(f.repo, getAccount()?.login));
   const repoProblem = await ensureRepos();
   return { login: user.login, found, repoProblem };
 }

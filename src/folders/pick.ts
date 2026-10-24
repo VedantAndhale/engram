@@ -1,5 +1,15 @@
 // Which folder takes articles and feed entries, as a pure choice: no storage, so the tests can run it in Node.
-import type { Folder } from "../model";
+import type { Folder, RepoRef } from "../model";
+
+/**
+ * The repository a folder syncs to while `login` is signed in. A folder's repository belongs to one account. When
+ * another account is signed in, the folder stays linked to its own repository (so it reconnects when that account
+ * signs in again), but this device does not use it: the other account cannot write there.
+ */
+export function syncRepo(repo: RepoRef | undefined, login: string | undefined): RepoRef | undefined {
+  if (!repo || !login) return undefined;
+  return repo.owner.toLowerCase() === login.toLowerCase() ? repo : undefined;
+}
 
 /** The name of the folder that takes articles and feed entries when no other has been chosen. */
 export const LIBRARY_NAME = "My library";

@@ -1,5 +1,6 @@
 // Feeds found from the articles the reader saves. Nothing is followed unless the reader presses Follow.
 import { libraryOf } from "../folders/library";
+import { syncRepo } from "../folders/pick";
 import { folderCtx, visibleFolders } from "../folders/registry";
 import { setFeedAsked, useHabit } from "../habit/prefs";
 import { getAccount } from "../sync/account";
@@ -35,8 +36,10 @@ export function forgetFeedDecisions(sites: string[]) {
 async function libraryClient(): Promise<GitHub | null> {
   const token = getAccount()?.token;
   const folder = libraryOf(await visibleFolders());
-  if (!token || !folder?.repo) return null;
-  return new GitHub(token, folder.repo);
+  // A repository another account owns is not written to while this one is signed in.
+  const repo = syncRepo(folder?.repo, getAccount()?.login);
+  if (!token || !repo) return null;
+  return new GitHub(token, repo);
 }
 
 /** The text of the library's feeds file, or null when there is none. */

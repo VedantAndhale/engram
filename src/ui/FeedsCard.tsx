@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Folder } from "../model";
 import { getAccount } from "../sync/account";
 import { GitHub } from "../sync/github";
+import { syncRepo } from "../folders/pick";
 import { MAX_FEEDS, checkFeedsText, parseFeedsJson, type FeedsFile } from "../feeds/config";
 import { planAddFeed, planRemoveFeed, type RawPlan } from "../feeds/raw";
 import { FEED_INSTALL_FILES, checkInstall } from "../feeds/install";
@@ -110,7 +111,8 @@ function readRunState(text: string | null): RunState {
 
 export function FeedsCard({ folder }: { folder: Folder }) {
   const token = getAccount()?.token;
-  const repo = folder.repo;
+  // A repository that belongs to another account is not used while this one is signed in.
+  const repo = syncRepo(folder.repo, getAccount()?.login);
   const gh = useMemo(
     () => (token && repo ? new GitHub(token, repo) : null),
     // Rebuild only when the identity of the repo changes, not on every new object.
@@ -164,6 +166,13 @@ export function FeedsCard({ folder }: { folder: Folder }) {
   }
 
   if (!gh || !repo) {
+    if (folder.repo) {
+      return (
+        <p className="muted">
+          This folder's repository belongs to {folder.repo.owner}. Sign in as {folder.repo.owner} to manage its feeds.
+        </p>
+      );
+    }
     return <p className="muted">Feeds need a folder that is synced to GitHub. Connect this folder first.</p>;
   }
 

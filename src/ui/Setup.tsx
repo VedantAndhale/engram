@@ -12,6 +12,7 @@ import { FeedsCard } from "./FeedsCard";
 import { AppInstallCard } from "./AppInstallCard";
 import { useHabit } from "../habit/prefs";
 import { chooseLibrary, libraryOf } from "../folders/library";
+import { syncRepo } from "../folders/pick";
 
 export function Setup({ onOpenSidebar }: { onOpenSidebar: () => void }) {
   const { account, authError, legacyToken, signIn } = useAccount();
@@ -144,6 +145,7 @@ function AccountCard() {
 function RepoRow({ folder, isLibrary }: { folder: Folder; isLibrary: boolean }) {
   const s = useFolderSync(folder.id);
   const access = useGrantAccess(folder, s.message);
+  const login = useAccount((a) => a.account?.login);
 
   return (
     <li>
@@ -162,6 +164,11 @@ function RepoRow({ folder, isLibrary }: { folder: Folder; isLibrary: boolean }) 
         <span className="muted repo-link">No repository yet</span>
       )}
       <span className="muted repo-state">{s.message ?? syncLabel(s)}</span>
+      {folder.repo && !syncRepo(folder.repo, login) && (
+        <span className="muted repo-state">
+          Belongs to {folder.repo.owner}. Sign in as {folder.repo.owner} to sync it.
+        </span>
+      )}
       {isLibrary ? (
         <span className="muted repo-state">Articles and feeds go here</span>
       ) : (
