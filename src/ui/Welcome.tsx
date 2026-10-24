@@ -1,6 +1,7 @@
 import { ArrowRight, Link as LinkIcon, LoaderCircle, Pause, Play, Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { findUrl, saveLink } from "../capture/capture";
+import { APP_BASE } from "../lib/base";
 import { createFolder, visibleFolders } from "../folders/registry";
 import { setHabit, SUGGESTED_TOPICS, useHabit } from "../habit/prefs";
 import { addPdf, setItemTopics } from "../store/actions";
@@ -95,7 +96,7 @@ export function Welcome() {
 
         {step === "hello" && (
           <>
-            <img src="./icon.svg" alt="" width={44} height={44} />
+            <img src={`${APP_BASE}/icon.svg`} alt="" width={44} height={44} />
             <h1 ref={heading} tabIndex={-1}>
               Read it, highlight it, keep what matters.
             </h1>
@@ -240,7 +241,7 @@ function DemoGif() {
   const alt = "Demo: save a quote, highlight a passage with a note, then review it on Today and space it out.";
   return (
     <figure className="welcome-demo-wrap">
-      <img ref={img} className="welcome-demo" src="./engram-demo.gif" alt={alt} width={960} height={640} hidden={!playing} />
+      <img ref={img} className="welcome-demo" src={`${APP_BASE}/engram-demo.gif`} alt={alt} width={960} height={640} hidden={!playing} />
       <canvas ref={still} className="welcome-demo" width={960} height={640} hidden={playing} role="img" aria-label={alt} />
       <button
         className="btn btn-small demo-toggle"

@@ -9,6 +9,7 @@ import {
   RepoPermissionError,
   visibleFolders,
 } from "../folders/registry";
+import { APP_BASE } from "../lib/base";
 import type { Folder } from "../model";
 import { navigate, openPalette, setTheme, toast, useUI, type Theme } from "../store/ui";
 import { useAccount } from "../sync/account";
@@ -70,7 +71,7 @@ export function Sidebar({
   return (
     <nav className="sidebar" aria-label="Engram" inert={inert} ref={navRef}>
       <div className="brand">
-        <img src="./icon.svg" alt="" width={22} height={22} />
+        <img src={`${APP_BASE}/icon.svg`} alt="" width={22} height={22} />
         <span>Engram</span>
       </div>
 
