@@ -236,9 +236,9 @@ export function App() {
       ) : folders.length === 0 ? (
         <main className="empty">
           <h2>No folders on this device</h2>
-          <p>Make one from the sidebar. A folder you removed can be added back in Setup.</p>
+          <p>Make one from the sidebar. A folder you removed can be added back in Settings.</p>
           <button className="btn btn-primary" onClick={() => navigate({ name: "setup" })}>
-            Open Setup
+            Open Settings
           </button>
         </main>
       ) : (

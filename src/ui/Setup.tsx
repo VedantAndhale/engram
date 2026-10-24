@@ -23,7 +23,7 @@ export function Setup({ onOpenSidebar }: { onOpenSidebar: () => void }) {
         <button className="icon-btn only-narrow" aria-label="Folders" onClick={onOpenSidebar}>
           <MenuIcon size={20} />
         </button>
-        <h1>GitHub</h1>
+        <h1>Settings</h1>
       </header>
       <div className="setup-body">
         {signIn?.state === "repoProblem" && <RepoProblem login={signIn.login} message={signIn.message} />}

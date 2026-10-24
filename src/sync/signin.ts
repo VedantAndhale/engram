@@ -35,7 +35,7 @@ function take(): SignInReturn | null {
   // No address bar outside a browser (unit tests), so there is nothing to read.
   if (typeof location === "undefined" || !location.hash.startsWith(MARK)) return null;
   const p = new URLSearchParams(location.hash.slice(MARK.length));
-  history.replaceState(null, "", `${APP_BASE}/setup`);
+  history.replaceState(null, "", `${APP_BASE}/settings`);
   let expected: { nonce: string; at: number } | null = null;
   try {
     expected = JSON.parse(localStorage.getItem(NONCE_KEY) ?? "null");

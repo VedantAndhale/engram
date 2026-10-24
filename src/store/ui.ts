@@ -64,6 +64,12 @@ function adoptLegacyHash() {
 
 adoptLegacyHash();
 
+// The Settings page used to live at /setup. That address still opens it, but the address bar moves to /settings.
+function adoptOldSettingsPath() {
+  if (location.pathname === `${APP_BASE}/setup`) history.replaceState(null, "", `${APP_BASE}/settings${location.search}${location.hash}`);
+}
+adoptOldSettingsPath();
+
 export const useUI = create<UIState>(() => ({
   route: currentRoute(),
   theme: chosenTheme() ?? deviceTheme(),
@@ -98,6 +104,7 @@ export function closeQuickAdd() {
 /** Back and forward, and a hash address typed or pasted in, change the screen. */
 function syncRoute() {
   adoptLegacyHash();
+  adoptOldSettingsPath();
   useUI.setState({ route: currentRoute() });
 }
 window.addEventListener("popstate", syncRoute);

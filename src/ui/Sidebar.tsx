@@ -216,7 +216,7 @@ export function Sidebar({
               <strong>
                 {dialog.folder.repo.owner}/{dialog.folder.repo.repo}
               </strong>
-              . You can add it back from Setup, under Removed from this device.
+              . You can add it back from Settings, under Removed from this device.
             </p>
           ) : (
             <p>This folder has no repository yet, so its items, highlights and notes are deleted for good. This can't be undone.</p>

@@ -81,3 +81,11 @@ test("only the app's own screens are followed inside the app", () => {
   assert.equal(isAppPath("/"), false);
   assert.equal(isAppPath("/todayish"), false);
 });
+
+test("the Settings page lives at /settings, and the old /setup address still opens it", () => {
+  assert.deepEqual(parseRoute("/settings"), { name: "setup" });
+  assert.deepEqual(parseRoute("/setup"), { name: "setup" });
+  assert.equal(routeHref({ name: "setup" }), "/settings");
+  assert.equal(isAppPath("/settings"), true);
+  assert.equal(isAppPath("/setup"), true);
+});

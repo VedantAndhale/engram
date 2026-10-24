@@ -36,7 +36,8 @@ export function parseRoute(path: string, search = ""): Route {
   m = new RegExp(`^/f/(${ID})$`).exec(path);
   if (m) return { name: "library", folder: m[1] };
   if (path === "/search") return { name: "search", q: q.get("q") ?? undefined };
-  if (path === "/setup") return { name: "setup" };
+  // The page was /setup; that address still opens it, and the app moves it to /settings.
+  if (path === "/settings" || path === "/setup") return { name: "setup" };
   if (path === "/highlights") return { name: "highlights" };
   if (path === "/library") return { name: "library" };
   if (path === "/welcome") return { name: "welcome" };
@@ -72,7 +73,7 @@ export function routeHref(route: Route, base = ""): string {
       path = "/search";
       break;
     case "setup":
-      path = "/setup";
+      path = "/settings";
       break;
     case "highlights":
       path = "/highlights";
@@ -94,5 +95,5 @@ export function legacyHashPath(hash: string): string | null {
 
 /** Whether a path is one of the app's screens. Links to anything else are left to the browser. */
 export function isAppPath(path: string): boolean {
-  return /^\/(today|library|save|search|setup|highlights|welcome)(\/|$)/.test(path) || /^\/f\/[A-Za-z0-9-]+(\/|$)/.test(path);
+  return /^\/(today|library|save|search|settings|setup|highlights|welcome)(\/|$)/.test(path) || /^\/f\/[A-Za-z0-9-]+(\/|$)/.test(path);
 }
