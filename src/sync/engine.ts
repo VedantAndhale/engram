@@ -5,6 +5,7 @@ import { formatBytes } from "../lib/util";
 import type { RepoRef } from "../model";
 import { getAccount, useAccount } from "./account";
 import { GitHub, GitHubError } from "./github";
+import { refreshIfDue, refreshSignIn } from "./refresh";
 import { parseInbox } from "./inboxfile";
 import {
   BadFileError,
@@ -212,7 +213,8 @@ export class SyncEngine {
       await this.refreshPending();
       return;
     }
-    this.gh = new GitHub(account.token, repo);
+    // The token is read per request, so a sign-in refreshed in the meantime is used at once.
+    this.gh = new GitHub(() => getAccount()?.token ?? "", repo);
     const repoKey = `${repo.owner}/${repo.repo}@${repo.branch}`;
     const saved = await this.db.kvGet<RemoteState>("remote");
     if (saved?.repoKey !== repoKey) {
@@ -325,6 +327,8 @@ export class SyncEngine {
 
   async tick(keepalive = false) {
     if (!this.gh || this.running) return;
+    // Signed out, here or in another tab: nothing is sent, and the sign-in is not reported as broken.
+    if (!getAccount()) return;
     if (!navigator.onLine) {
       if (getFolderSync(this.folderId).state !== "offline") setFolderSync(this.folderId, { state: "offline", message: undefined });
       return;
@@ -342,6 +346,9 @@ export class SyncEngine {
     this.running = true;
     if (due.length > 0 || this.forcePull) setFolderSync(this.folderId, { state: "syncing" });
     try {
+      // A sign-in close to its 8-hour limit is renewed in the background. Waiting for it here would hold this tick, and
+      // every later one, behind a slow refresh. The token in use stays valid until the renewal lands.
+      if (!keepalive) void refreshIfDue();
       if (!(await this.checkPrivate())) return;
       let throttled = false;
       if (pullDue && (await this.pull())) throttled = !(await this.tidy());
@@ -453,6 +460,19 @@ export class SyncEngine {
     const set = (patch: Partial<FolderSync>) => setFolderSync(this.folderId, patch);
     if (e instanceof GitHubError) {
       if (e.isAuth) {
+        // The 8-hour token may simply have run out while this device slept. Trade the refresh token first; only a
+        // refused refresh, or a sign-in with no refresh token, means the user has to sign in again.
+        // A refusal already on record is not retried: the user has to sign in again first.
+        if (getAccount()?.refresh && !useAccount.getState().authError) {
+          this.backoffUntil = Date.now() + backoff;
+          void refreshSignIn().then((ok) => {
+            if (ok) this.forcePull = true;
+            else if (useAccount.getState().authError) {
+              set({ state: "auth", message: "GitHub stopped accepting Engram's sign-in. Sign in again; changes are safe on this device." });
+            }
+          });
+          return;
+        }
         this.backoffUntil = Date.now() + 60_000;
         useAccount.setState({ authError: true });
         set({ state: "auth", message: "GitHub stopped accepting Engram's sign-in. Sign in again; changes are safe on this device." });

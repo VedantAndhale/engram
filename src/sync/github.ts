@@ -62,10 +62,15 @@ interface RequestOpts {
  * except to api.github.com. Account-level calls need no repo; file calls need one.
  */
 export class GitHub {
+  /** A token, or a function that gives the current one, so a refreshed sign-in is used without a new client. */
   constructor(
-    private token: string,
+    private tokenSource: string | (() => string),
     private repoRef?: RepoRef,
   ) {}
+
+  private get token(): string {
+    return typeof this.tokenSource === "string" ? this.tokenSource : this.tokenSource();
+  }
 
   private get cfg(): RepoRef {
     if (!this.repoRef) throw new Error("No repository selected");

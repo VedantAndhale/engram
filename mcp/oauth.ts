@@ -337,9 +337,9 @@ async function appResult(r: { token: string; refresh?: string; expiresIn?: numbe
 /** Trades GitHub's refresh token for a new access token AND a new refresh token (GitHub rotates both). */
 async function refreshWith(
   refreshToken: string,
-): Promise<{ token: string; refresh: string; expiresIn: number } | { error: string }> {
+): Promise<{ token: string; refresh: string; expiresIn: number } | { error: string; transient: boolean }> {
   const client = clientFor(process.env, signInMode(process.env));
-  if (!client) return { error: "Sign-in is not set up on the server." };
+  if (!client) return { error: "Sign-in is not set up on the server.", transient: false };
   const res = await fetch("https://github.com/login/oauth/access_token", {
     method: "POST",
     headers: { Accept: "application/json", "Content-Type": "application/json" },
@@ -355,9 +355,15 @@ async function refreshWith(
     access_token?: string;
     refresh_token?: string;
     expires_in?: number;
+    error?: string;
     error_description?: string;
   };
-  if (!body.access_token || !body.refresh_token) return { error: body.error_description ?? "GitHub refused the refresh." };
+  if (!body.access_token || !body.refresh_token) {
+    // A refusal is GitHub saying this refresh token is no good. A server error, a rate limit, or a reply with no
+    // error in it is GitHub having a bad moment: the sign-in is still good, so it is tried again later.
+    const refused = res.status < 500 && res.status !== 429 && typeof body.error === "string";
+    return { error: body.error_description ?? "GitHub refused the refresh.", transient: !refused };
+  }
   return {
     token: body.access_token,
     refresh: body.refresh_token,
@@ -445,7 +451,8 @@ export async function refresh(req: Request): Promise<Response> {
   const old = await openRefresh(p?.get("refresh"));
   if (!old) return json({ error: "invalid_grant" }, 401);
   const fresh = await refreshWith(old.r);
-  if ("error" in fresh) return json({ error: "invalid_grant" }, 401);
+  // 503 for GitHub's bad moments, so the app retries; 401 only when GitHub refused this refresh token.
+  if ("error" in fresh) return fresh.transient ? json({ error: "temporarily_unavailable" }, 503) : json({ error: "invalid_grant" }, 401);
   return json({
     token: fresh.token,
     refresh: await seal("refresh", { r: fresh.refresh }, REFRESH_TTL_MS),

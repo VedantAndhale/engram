@@ -40,6 +40,26 @@ export const useAccount = create<AccountStore>(() => ({ ...load(), authError: fa
 
 export const getAccount = () => useAccount.getState().account;
 
+/** The account as it is stored right now, which another tab may have changed since this one loaded. */
+export function storedAccount(): StoredAccount | null {
+  try {
+    return JSON.parse(localStorage.getItem(ACCOUNT_KEY) ?? "null");
+  } catch {
+    return null;
+  }
+}
+
+// Each tab keeps its own copy of the sign-in. GitHub retires a refresh token when it is used, so a tab still holding
+// an old one would fail the next refresh and lose the sign-in. Take the other tab's copy as it changes.
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (e) => {
+    // A null key means the whole of this origin's storage was cleared, which also clears the sign-in.
+    if (e.key !== ACCOUNT_KEY && e.key !== null) return;
+    const next = storedAccount();
+    useAccount.setState((s) => ({ account: next, authError: next?.token !== s.account?.token ? false : s.authError }));
+  });
+}
+
 /** Saving null signs out (Disconnect): the token is revoked at GitHub as well as forgotten here. */
 export function saveAccount(account: StoredAccount | null) {
   const before = getAccount()?.token;
@@ -51,13 +71,19 @@ export function saveAccount(account: StoredAccount | null) {
 }
 
 /**
- * After a refresh: swap in the new token, refresh token and expiry. No revoke, because GitHub
- * already retired the old token. Does nothing if the user signed out while the refresh ran.
+ * After a refresh: swap in the new token, refresh token and expiry. No revoke of the old token, because GitHub
+ * already retired it. `sent` is the refresh token the request used. If the account changed while the request ran
+ * (signed out, or another account signed in), the new pair is not written onto it: it is revoked instead.
+ * True when the new pair was stored.
  */
-export function replaceTokens(token: string, refresh: string, expiresAt: number) {
-  const current = getAccount();
-  if (!current) return;
+export function replaceTokens(token: string, refresh: string, expiresAt: number, sent: string): boolean {
+  const current = storedAccount();
+  if (!current || current.refresh !== sent) {
+    revokeSignIn(token);
+    return false;
+  }
   const account: StoredAccount = { ...current, token, refresh, expiresAt };
   localStorage.setItem(ACCOUNT_KEY, JSON.stringify(account));
   useAccount.setState({ account, authError: false });
+  return true;
 }
