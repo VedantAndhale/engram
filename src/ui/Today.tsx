@@ -128,8 +128,8 @@ export function Today({ onOpenSidebar }: { onOpenSidebar: () => void }) {
         </button>
         <h1>Today</h1>
         <div className="spacer" />
-        <button className="btn btn-primary" title="Save a link, a quote or a note (N)" onClick={() => openQuickAdd()}>
-          <Plus size={16} /> Save
+        <button className="btn btn-primary" aria-label="Save" title="Save a link, a quote or a note (N)" onClick={() => openQuickAdd()}>
+          <Plus size={16} /> <span className="hide-narrow">Save</span>
         </button>
       </header>
 

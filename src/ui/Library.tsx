@@ -463,8 +463,9 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
         {folder.repo && <PrivateBadge isPrivate={folder.isPrivate} />}
         <div className="spacer" />
         <SyncBadge s={s} onClick={() => (account ? void sync.flush() : navigate({ name: "setup" }))} />
+        {/* On a phone the sort choice is in the More menu, so the bar fits one row. */}
         <select
-          className="select"
+          className="select hide-narrow"
           value={sort}
           aria-label="Sort by"
           title="Sort by"
@@ -487,9 +488,16 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
         <button
           className="icon-btn only-narrow"
           aria-label="More actions"
-          title="Import and graph"
+          title="Sort, import and graph"
           onClick={(e) =>
             menu.open(e, [
+              ...([["recent", "last read"], ["added", "newest"], ["title", "A–Z"]] as const).map(([value, label]) => ({
+                label: `Sort by ${label}`,
+                run: () => {
+                  setSort(value);
+                  localStorage.setItem("reader.sort", value);
+                },
+              })),
               { label: "Import", icon: <BookUp size={15} />, run: () => setImporting(true) },
               { label: "Graph", icon: <Network size={15} />, run: () => navigate({ name: "graph", folder: folder.id }) },
             ])
@@ -497,8 +505,9 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
         >
           <Ellipsis size={20} />
         </button>
+        {/* On a phone Save is a plus sign only, so the bar stays one row. The label stays on the button for screen readers. */}
         <button className="btn btn-primary" aria-label="Save" title="Save a link, a quote or a note (N)" onClick={() => openQuickAdd({ folder: folder.id })}>
-          <Plus size={16} /> <span>Save</span>
+          <Plus size={16} /> <span className="hide-narrow">Save</span>
         </button>
       </header>
 
