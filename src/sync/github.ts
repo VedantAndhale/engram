@@ -298,9 +298,9 @@ export class GitHub {
   /**
    * Write and delete many text files in one commit (text `null` deletes). Costs three writes
    * however many files change, so a whole folder can move to a new layout at once.
-   * Returns false if the base commit moved on; the caller pulls and tries again.
+   * Returns the new commit's sha, or null if the base commit moved on; the caller pulls and tries again.
    */
-  async commitFiles(files: { path: string; text: string | null }[], message: string, base: string): Promise<boolean> {
+  async commitFiles(files: { path: string; text: string | null }[], message: string, base: string): Promise<string | null> {
     const commit = await this.json<{ tree: { sha: string } }>(`${this.repoPath}/git/commits/${base}`);
     const tree = await this.json<{ sha: string }>(`${this.repoPath}/git/trees`, {
       method: "POST",
@@ -322,9 +322,9 @@ export class GitHub {
         method: "PATCH",
         body: { sha: newCommit.sha, force: false },
       });
-      return true;
+      return newCommit.sha;
     } catch (e) {
-      if (e instanceof GitHubError && e.status === 422) return false;
+      if (e instanceof GitHubError && e.status === 422) return null;
       throw e;
     }
   }

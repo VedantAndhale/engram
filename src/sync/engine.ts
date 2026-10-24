@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { appDb, type OutboxRow, type ReaderDB } from "../db/db";
+import { batchMessage, planBatches } from "./batch";
 import { formatBytes } from "../lib/util";
 import type { RepoRef } from "../model";
 import { getAccount, useAccount } from "./account";
@@ -344,7 +345,14 @@ export class SyncEngine {
       if (!(await this.checkPrivate())) return;
       let throttled = false;
       if (pullDue && (await this.pull())) throttled = !(await this.tidy());
+      // Two or more ready text files and deletions go out as one commit per batch. Everything else, and anything the
+      // batch could not send, goes one file at a time as before. A page closing (keepalive) always goes one file at a time.
+      const batchable = keepalive ? [] : due.filter((row) => isBatchable(row.path));
+      const batched = batchable.length >= 2 ? batchable : [];
+      const inBatch = new Set(batched);
+      const left = new Set(batched.length ? await this.pushBatch(batched) : []);
       for (const row of due) {
+        if (inBatch.has(row) && !left.has(row)) continue;
         try {
           throttled = !(await this.push(row.path, row.rev, keepalive)) || throttled;
         } catch (e) {
@@ -638,10 +646,12 @@ export class SyncEngine {
     const gone = Object.keys(this.remote.shas).filter((p) => isLegacy(p) || this.orphans.has(p));
     for (const path of gone) files.push({ path, text: null });
     const legacy = gone.some(isLegacy);
-    const ok = await gh.commitFiles(files, legacy ? "Move to one Markdown file per item" : "Remove duplicate item files", this.remote.head!);
+    const head = await gh.commitFiles(files, legacy ? "Move to one Markdown file per item" : "Remove duplicate item files", this.remote.head!);
     recordWrites(3);
     this.forcePull = true;
-    if (!ok) return true; // someone pushed meanwhile: pull again next tick and retry
+    if (!head) return true; // someone pushed meanwhile: pull again next tick and retry
+    // The tree just written is the new head, built on the one we had, so batches may use it straight away.
+    this.remote.head = head;
     for (const f of files) {
       if (f.text === null) delete this.remote.shas[f.path];
       else {
@@ -694,6 +704,7 @@ export class SyncEngine {
       const sha = this.remote.shas[path];
       if (row?.resolved && sha) {
         if (!canWrite(1)) return false;
+        this.headUnknown();
         await gh.deleteFile(path, sha, `Inbox: ${row.resolved} ${row.entry.title ?? row.entry.targetTitle ?? "item"}`);
         recordWrites(1);
         delete this.remote.shas[path];
@@ -706,6 +717,7 @@ export class SyncEngine {
       // Deleted for good: the file goes from the repository too.
       if (sha && (await db.items.get(p.doc))?.purged) {
         if (!canWrite(1)) return false;
+        this.headUnknown();
         await gh.deleteFile(path, sha, "Delete a PDF for good");
         recordWrites(1);
         delete this.remote.shas[path];
@@ -721,6 +733,7 @@ export class SyncEngine {
             );
           }
           if (!canWrite(4)) return false;
+          this.headUnknown();
           this.remote.shas[path] = await gh.putBinary(path, blob.data, `Add ${meta?.title ?? "PDF"}`);
           recordWrites(4);
           this.uploaded(path);
@@ -740,6 +753,7 @@ export class SyncEngine {
           const bytes = new TextEncoder().encode(text).length;
           // The body goes base64-encoded (4 bytes per 3) inside JSON.
           const ka = keepalive && Math.ceil(bytes / 3) * 4 + 1_000 < KEEPALIVE_MAX_BYTES;
+          this.headUnknown();
           this.remote.shas[path] = await gh.putFile(path, text, this.remote.shas[path], commitMessage(path), ka);
           recordWrites(1);
           this.remember(this.remote.shas[path], text);
@@ -765,6 +779,131 @@ export class SyncEngine {
     });
     return true;
   }
+
+  /**
+   * Send ready text files and inbox deletions as one commit per batch (see planBatches), so a bulk import is a few
+   * commits rather than one per file. Returns the rows it did not send: rows that could not be read, the rows of a
+   * batch GitHub refused, and everything left once the write budget runs out. The caller sends those one by one.
+   */
+  private async pushBatch(rows: OutboxRow[]): Promise<OutboxRow[]> {
+    const gh = this.gh!;
+    const db = this.db;
+    // A batch is built on the branch head we last saw. It waits while a catch-up is moving that head, and while the
+    // head is unknown after a write outside a batch (the next pull reads it again).
+    if (!this.remote.head || this.catchUp || !canWrite(3)) return rows;
+    const byPath = new Map(rows.map((row) => [row.path, row]));
+    const rowsOf = (items: { path: string }[]) => items.map((f) => byPath.get(f.path)!);
+    const leftover: OutboxRow[] = [];
+    const settled: OutboxRow[] = [];
+    const ready: { path: string; text: string | null; sha?: string; bytes: number; line: string }[] = [];
+    // Inbox files resolved here, which leave the local inbox once their deletion is on GitHub.
+    const resolvedInbox = new Set<string>();
+    for (const row of rows) {
+      if (!isBatchable(row.path)) {
+        leftover.push(row);
+        continue;
+      }
+      try {
+        if (parsePath(row.path).kind === "inbox") {
+          const inbox = await db.inbox.get(row.path);
+          if (!inbox?.resolved) settled.push(row);
+          else if (this.remote.shas[row.path]) {
+            resolvedInbox.add(row.path);
+            // The same line as the single-file message for this deletion.
+            const title = inbox.entry.title ?? inbox.entry.targetTitle ?? "item";
+            ready.push({ path: row.path, text: null, bytes: 0, line: `Inbox: ${inbox.resolved} ${title}` });
+          } else {
+            await db.inbox.delete(row.path);
+            settled.push(row);
+          }
+          continue;
+        }
+        const text = await this.serialize(row.path);
+        if (text === null) {
+          settled.push(row);
+          continue;
+        }
+        const sha = await gitBlobSha(text);
+        if (sha === this.remote.shas[row.path]) settled.push(row);
+        else ready.push({ path: row.path, text, sha, bytes: new TextEncoder().encode(text).length, line: await this.label(row.path) });
+      } catch {
+        // Sent one at a time instead, so the error is recorded against that file as it is today.
+        leftover.push(row);
+      }
+    }
+    await this.settle(settled);
+    // One ready file goes through push() with putFile, which costs one request rather than three.
+    if (ready.length < 2) return [...leftover, ...rowsOf(ready)];
+
+    const batches = planBatches(ready);
+    for (let i = 0; i < batches.length; i++) {
+      const batch = batches[i]!;
+      if (!canWrite(3)) {
+        for (const rest of batches.slice(i)) leftover.push(...rowsOf(rest));
+        break;
+      }
+      // A batch is three requests: the tree, the commit and the ref update. Charged before the call, so a failure counts too.
+      recordWrites(3);
+      let head: string | null;
+      try {
+        head = await gh.commitFiles(
+          batch.map(({ path, text }) => ({ path, text })),
+          batchMessage(batch.map((f) => f.line)),
+          this.remote.head,
+        );
+      } catch (e) {
+        // Connection, sign-in and limit problems stop the sync, as they do for a single file.
+        if (e instanceof GitHubError && (e.status === 0 || e.isAuth || e.isRateLimit || e.status === 403 || e.status === 404)) throw e;
+        // Any other refusal: these files go one at a time, so the one GitHub refuses fails on its own.
+        leftover.push(...rowsOf(batch));
+        continue;
+      }
+      if (head === null) {
+        // The branch moved on. Nothing in this batch or the rest is written; a pull comes next tick.
+        this.forcePull = true;
+        for (const rest of batches.slice(i)) leftover.push(...rowsOf(rest));
+        break;
+      }
+      this.remote.head = head;
+      for (const f of batch) {
+        if (f.text === null) delete this.remote.shas[f.path];
+        else if (f.sha) {
+          this.remote.shas[f.path] = f.sha;
+          this.remember(f.sha, f.text);
+        }
+        this.uploaded(f.path);
+        if (resolvedInbox.has(f.path)) await db.inbox.delete(f.path);
+      }
+      await this.saveRemote();
+      await this.settle(rowsOf(batch));
+    }
+    return leftover;
+  }
+
+  /** Clear outbox rows whose change has gone out, unless the file changed again since. */
+  private async settle(rows: OutboxRow[]) {
+    if (!rows.length) return;
+    const db = this.db;
+    await db.transaction("rw", db.outbox, async () => {
+      for (const row of rows) {
+        const cur = await db.outbox.get(row.path);
+        if (cur && cur.rev === row.rev) await db.outbox.delete(row.path);
+      }
+    });
+  }
+
+  /**
+   * A write outside a batch moves the branch, and this device does not learn the new head from it. Until a pull reads
+   * the head again, batches wait, rather than being built on a head that is already behind GitHub.
+   */
+  private headUnknown() {
+    this.remote.head = undefined;
+  }
+}
+
+/** Text files and inbox deletions can share a commit. A PDF keeps its own commit, since its blob goes up first. */
+function isBatchable(path: string) {
+  return parsePath(path).kind !== "pdf";
 }
 
 function commitMessage(path: string) {
