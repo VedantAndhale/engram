@@ -440,8 +440,8 @@ main {
   min-width: 0;
 }
 /*
- * A long folder name gets a line of its own when the bar is narrow: the controls drop to a second line
- * instead of squeezing the name down to a few letters.
+ * On a wide bar a long folder name wraps onto its own line. On a phone the bar stays on one row instead (see the
+ * phone rules further down).
  */
 .topbar {
   flex-wrap: wrap;
@@ -501,12 +501,25 @@ main {
   }
 }
 @media (max-width: 760px) {
+  /* One row on a phone: the name takes the room the controls leave, and a long name is cut short with an ellipsis. */
   .topbar {
+    flex-wrap: nowrap;
     gap: 6px;
     padding: 10px 12px;
   }
+  .topbar .spacer {
+    flex: 0 0 0;
+  }
   .topbar h1 {
     font-size: 19px;
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  .topbar h1 > .folder-title {
+    display: block;
+    max-width: 100%;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
   .topbar .select {
     font-size: 13px;
