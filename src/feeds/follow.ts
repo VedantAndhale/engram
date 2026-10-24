@@ -6,7 +6,7 @@ import { getAccount } from "../sync/account";
 import { GitHub } from "../sync/github";
 import { toast } from "../store/ui";
 import { LINK_TYPES } from "../store/aging";
-import { planFollow } from "./config";
+import { followedUrls, normalizeFeedUrl, planFollow } from "./config";
 import { feedLinksIn, siteOf } from "./discover";
 
 const CONFIG_PATH = "feeds.json";
@@ -37,6 +37,11 @@ async function libraryClient(): Promise<GitHub | null> {
   const folder = libraryOf(await visibleFolders());
   if (!token || !folder?.repo) return null;
   return new GitHub(token, folder.repo);
+}
+
+/** The text of the library's feeds file, or null when there is none. */
+async function feedsText(gh: GitHub): Promise<string | null> {
+  return (await gh.getFile(CONFIG_PATH))?.text ?? null;
 }
 
 const isConflict = (e: unknown) => {
@@ -124,12 +129,16 @@ export async function offerFeedFor(pageUrl: string, html?: string): Promise<void
   if (/\.pdf($|[?#])/i.test(pageUrl)) return;
   const site = siteOf(pageUrl);
   if (!site || askedSites().has(site)) return;
-  if (!(await libraryClient())) return;
+  const gh = await libraryClient();
+  if (!gh) return;
+  const followed = followedUrls(await feedsText(gh));
   const { feed, checked } = await feedOf(pageUrl, html);
   // A site that could not be read is not decided, so it is tried again on a later save.
   if (!checked) return;
   recordFeedDecisions([site]);
-  if (!feed) return;
+  // A feed the library already follows is not offered again.
+  const normal = feed ? normalizeFeedUrl(feed) : null;
+  if (!feed || (normal && followed.has(normal))) return;
   toast(`${site} has a feed. Follow it?`, {
     ttl: 12_000,
     action: { label: "Follow", run: () => void followAndReport(site, feed) },
@@ -155,6 +164,8 @@ export type ScanResult = {
   checked: number;
   /** True when more sites are waiting than one scan looks at. */
   capped: boolean;
+  /** Feeds found that the library already follows. They are not listed again. */
+  alreadyFollowed: number;
 };
 
 /**
@@ -163,6 +174,9 @@ export type ScanResult = {
  * followed here.
  */
 export async function scanForFeeds(onProgress: (done: number, total: number) => void, stop: { current: boolean }): Promise<ScanResult> {
+  // Feeds the library already follows are not listed, and their sites count as decided.
+  const gh = await libraryClient();
+  const followed = gh ? followedUrls(await feedsText(gh)) : new Set<string>();
   const articleOf = new Map<string, string>();
   const decided = askedSites();
   for (const f of await visibleFolders()) {
@@ -177,15 +191,20 @@ export async function scanForFeeds(onProgress: (done: number, total: number) => 
   const todo = all.slice(0, MAX_SITES_PER_SCAN);
   const found: FeedFound[] = [];
   let checked = 0;
+  let alreadyFollowed = 0;
   for (let n = 0; n < todo.length && !stop.current; n++) {
     const [site, page] = todo[n];
     onProgress(n, todo.length);
     const { feed, checked: reached } = await feedOf(page);
     if (reached) checked++;
-    if (feed) found.push({ site, feed });
+    const normal = feed ? normalizeFeedUrl(feed) : null;
+    if (feed && normal && followed.has(normal)) {
+      alreadyFollowed++;
+      recordFeedDecisions([site]);
+    } else if (feed) found.push({ site, feed });
     else if (reached) recordFeedDecisions([site]);
     if (n + 1 < todo.length && !stop.current) await new Promise((r) => setTimeout(r, PAUSE_MS));
   }
   onProgress(todo.length, todo.length);
-  return { found, total: todo.length, checked, capped: all.length > MAX_SITES_PER_SCAN };
+  return { found, total: todo.length, checked, capped: all.length > MAX_SITES_PER_SCAN, alreadyFollowed };
 }

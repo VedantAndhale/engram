@@ -107,6 +107,29 @@ export function checkFeedsText(text: string | null): string | null {
   return null;
 }
 
+/**
+ * The feed addresses already in the file, normalised, so a feed found on a site can be checked against them. Reads
+ * every entry with a usable address, including ones parseFeedsJson would hide, because those are still followed.
+ */
+export function followedUrls(text: string | null): Set<string> {
+  const followed = new Set<string>();
+  if (!text || !text.trim()) return followed;
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    return followed;
+  }
+  const list = json && typeof json === "object" ? (json as { feeds?: unknown }).feeds : undefined;
+  if (!Array.isArray(list)) return followed;
+  for (const entry of list) {
+    const url = (entry as { url?: unknown } | null)?.url;
+    const normal = typeof url === "string" ? normalizeFeedUrl(url) : null;
+    if (normal) followed.add(normal);
+  }
+  return followed;
+}
+
 export type FollowPlan =
   | { ok: false; error: string }
   | { ok: true; changed: boolean; text: string; added: number; done: string[]; refused: number; reason?: string };

@@ -33,8 +33,11 @@ export function FindFeeds({ onFollowed }: { onFollowed: () => void }) {
       setFound(result.found);
       setPicked(new Set());
       setPhase("done");
-      if (result.total === 0) setMessage("Nothing new to check: every site has been looked at.");
-      else if (result.capped) setMessage(`Checked ${result.total} sites. Scan again for the rest.`);
+      const notes: string[] = [];
+      if (result.total === 0) notes.push("Nothing new to check: every site has been looked at.");
+      if (result.capped) notes.push(`Checked ${result.total} sites. Scan again for the rest.`);
+      if (result.alreadyFollowed) notes.push(`${result.alreadyFollowed} already followed, not listed.`);
+      if (notes.length) setMessage(notes.join(" "));
     } catch (e) {
       setPhase("idle");
       setMessage(`The scan stopped: ${e instanceof Error ? e.message : String(e)}`);

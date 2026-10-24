@@ -1,6 +1,27 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MAX_FEEDS, normalizeFeedUrl, parseFeedsJson } from "./config";
+import { MAX_FEEDS, followedUrls, normalizeFeedUrl, parseFeedsJson } from "./config";
+
+test("followedUrls reads every usable address, normalised, and ignores the rest", () => {
+  const text = JSON.stringify({
+    version: 1,
+    feeds: [
+      { id: "aaaaaaaa", url: "HTTPS://Blog.example/rss#top", title: "A", addedAt: 1 },
+      { id: "cc", url: "https://news.example/feed", title: "C", addedAt: 2 },
+      { id: "bad id!", url: "ftp://nope.example/feed", title: "B", addedAt: 3 },
+      "text",
+      null,
+    ],
+  });
+  assert.deepEqual([...followedUrls(text)].sort(), ["https://blog.example/rss", "https://news.example/feed"]);
+});
+
+test("followedUrls is empty for a missing, empty or broken file", () => {
+  assert.equal(followedUrls(null).size, 0);
+  assert.equal(followedUrls("").size, 0);
+  assert.equal(followedUrls("{not json").size, 0);
+  assert.equal(followedUrls('{"version":1,"feeds":"nope"}').size, 0);
+});
 
 test("parseFeedsJson gives an empty list for missing or damaged input", () => {
   const empty = { version: 1, feeds: [] };
