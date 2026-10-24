@@ -30,7 +30,7 @@ what you saved and suggest additions, which you accept or dismiss.
 - A link like `/save?url=…&text=…` opens the save box filled in. It never saves by itself. Links from
   before the clean addresses, `#/save?…`, still open.
 - **Feeds** (in Setup): add RSS or Atom feeds, and new entries arrive in your Inbox. A scheduled GitHub
-  Action in your own folder repository fetches them every six hours. You copy its workflow file into the
+  Action in your own folder repository fetches them twice a day, at 03:17 and 15:17 UTC. You copy its workflow file into the
   repository once; it uses your own free Actions minutes.
 - The **Save to Engram** bookmark keeps a page's formatted text and your selection. Allow pop-ups for
   the page when you use it. Some sites with strict security settings block bookmarks; paste the link

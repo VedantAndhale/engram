@@ -13,8 +13,8 @@ export type FeedsFile = {
   feeds: FeedConfig[];
 };
 
-// One run fetches every feed, so the list stays small to fit the Action's time limit.
-export const MAX_FEEDS = 50;
+// Each run fetches every feed. The Action's time budget is sized for this many, so raise both together.
+export const MAX_FEEDS = 500;
 
 const TITLE_CAP = 120;
 // The ids the Action runs. Engram's own ids are 8 hex characters, but a hand-written id such as "blog1" works too.

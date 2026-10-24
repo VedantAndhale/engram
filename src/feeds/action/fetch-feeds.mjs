@@ -1,4 +1,4 @@
-// engram-feeds v1
+// engram-feeds v2
 // Fetches the RSS/Atom feeds listed in feeds.json and writes new entries into inbox/ as
 // Markdown files for the Engram app. Zero dependencies; runs on Node 22 inside a GitHub Action.
 import { mkdir, open, readFile, writeFile } from "node:fs/promises";
@@ -6,16 +6,19 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
 
-const MAX_FEEDS = 50;
+const MAX_FEEDS = 500;
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
-const CONCURRENCY = 4;
-const RUN_LIMIT_MS = 3 * 60 * 1000;
+const CONCURRENCY = 8;
+// 500 feeds, 8 at a time, with every fetch timing out, is about 16 minutes. The job gets 30.
+const RUN_LIMIT_MS = 20 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 15000;
 const DEFAULT_RETRY_MS = 24 * 60 * 60 * 1000;
 const MAX_RETRY_MS = 7 * DEFAULT_RETRY_MS;
 const FIRST_RUN_ENTRIES = 5;
-const MAX_WRITES = 30;
-const LEDGER_CAP = 1000;
+// Twice a day, so 60 per run matches the 30-per-six-hours the Action wrote before.
+const MAX_WRITES = 60;
+// Remembered items per feed. At 500 feeds this keeps state.json to a few MB.
+const LEDGER_CAP = 300;
 const MAX_DEPTH = 256;
 const TITLE_CAP = 300;
 const SUMMARY_CAP = 1000;
@@ -585,13 +588,24 @@ export function planRun({ feeds, state, fetched, now }) {
   for (const feed of feeds) {
     const prev = own(prevFeeds, feed.id) ?? null;
     const res = !fetched ? undefined : fetched instanceof Map ? fetched.get(feed.id) : own(fetched, feed.id);
-    // Held feeds, 304s and feeds nobody fetched keep their state exactly as it was.
-    if (!res || isHeld(prev, nowMs) || res.kind === "notModified") {
+    // Held feeds and feeds nobody fetched keep their state exactly as it was.
+    if (!res || isHeld(prev, nowMs)) {
       if (prev) nextFeeds[feed.id] = prev;
+      continue;
+    }
+    // A 304 means the feed answered fine, so an error from an earlier run no longer applies.
+    if (res.kind === "notModified") {
+      if (prev) nextFeeds[feed.id] = { ...prev, retryAfter: null, lastError: null };
       continue;
     }
     if (res.kind === "error") {
       const message = String(res.message);
+      // A run that ran out of time says nothing about the feed, so its last real error stays until a fetch reaches it.
+      if (message === "deadline" && prev && prev.lastError && prev.lastError.message !== "deadline") {
+        nextFeeds[feed.id] = prev;
+        errors.push({ feedId: feed.id, message });
+        continue;
+      }
       const keepSince = prev && prev.lastError && prev.lastError.message === message && prev.lastError.since;
       nextFeeds[feed.id] = {
         ...baseState(prev, feed),

@@ -149,7 +149,36 @@ test("a 304 leaves the feed's state unchanged", () => {
   assert.equal(stableStringify(plan.state), stableStringify(withEtag));
 });
 
-test("a run writes at most 30 entries, round-robin across feeds, and leftovers come next run", () => {
+test("a 304 after a failed run clears the old error, because the feed answers again", () => {
+  const f = feed(1);
+  const seen = keysOf(f.id, entries("a", 3));
+  const failing = feedState(f, seen, { etag: '"abc"', lastError: { message: "HTTP 500", since: iso(NOW - HOUR) } });
+  const state: FeedsState = { version: 1, updatedAt: iso(0), feeds: { [f.id]: failing } };
+  const plan = run([f], state, { [f.id]: notModified() }, NOW);
+  assert.deepEqual(stateOf(plan.state, f.id), feedState(f, seen, { etag: '"abc"' }));
+  assert.deepEqual(plan.errors, []);
+});
+
+test("a run that ran out of time keeps the feed's last real error", () => {
+  const f = feed(1);
+  const seen = keysOf(f.id, entries("a", 3));
+  const since = iso(NOW - HOUR);
+  const failing = feedState(f, seen, { lastError: { message: "HTTP 500", since } });
+  const state: FeedsState = { version: 1, updatedAt: iso(0), feeds: { [f.id]: failing } };
+  const plan = run([f], state, { [f.id]: failed("deadline") }, NOW);
+  assert.deepEqual(stateOf(plan.state, f.id).lastError, { message: "HTTP 500", since });
+  assert.match(plan.errors[0]!.message, /deadline/);
+});
+
+test("a run that ran out of time marks a feed with no earlier error as waiting", () => {
+  const f = feed(1);
+  const seen = keysOf(f.id, entries("a", 3));
+  const state: FeedsState = { version: 1, updatedAt: iso(0), feeds: { [f.id]: feedState(f, seen) } };
+  const plan = run([f], state, { [f.id]: failed("deadline") }, NOW);
+  assert.deepEqual(stateOf(plan.state, f.id).lastError, { message: "deadline", since: iso(NOW) });
+});
+
+test("a run writes at most 60 entries, round-robin across feeds, and leftovers come next run", () => {
   const feeds = Array.from({ length: 10 }, (_, i) => feed(i + 1));
   // Each feed lists 8 unseen entries, then one already-seen entry.
   // The seen one stops reset detection from treating the feed as new.
@@ -170,33 +199,29 @@ test("a run writes at most 30 entries, round-robin across feeds, and leftovers c
   const start: FeedsState = { version: 1, updatedAt: iso(0), feeds: stateFeeds };
 
   const first = run(feeds, start, fetched, NOW);
-  assert.equal(first.writes.length, 30);
+  assert.equal(first.writes.length, 60);
   // The first ten writes are each feed's newest entry, in feeds.json order.
   assert.deepEqual(
     first.writes.slice(0, 10).map((w) => w.path),
     feeds.map((f) => pathOf(f.id, newEntry(f, 0))),
   );
-  assert.deepEqual(sorted(first.writes.map((w) => w.path)), sorted(pathsFor(0, 3)));
+  assert.deepEqual(sorted(first.writes.map((w) => w.path)), sorted(pathsFor(0, 6)));
   // Leftovers stay unseen.
   const firstFeed = feeds[0];
   assert.ok(firstFeed);
-  assert.ok(!stateOf(first.state, firstFeed.id).seen.includes(entryKey(firstFeed.id, newEntry(firstFeed, 3).guid)));
+  assert.ok(!stateOf(first.state, firstFeed.id).seen.includes(entryKey(firstFeed.id, newEntry(firstFeed, 6).guid)));
 
-  const second = run(feeds, first.state, fetched, NOW + 6 * HOUR);
-  assert.equal(second.writes.length, 30);
-  assert.deepEqual(sorted(second.writes.map((w) => w.path)), sorted(pathsFor(3, 6)));
+  const second = run(feeds, first.state, fetched, NOW + 12 * HOUR);
+  assert.equal(second.writes.length, 20);
+  assert.deepEqual(sorted(second.writes.map((w) => w.path)), sorted(pathsFor(6, 8)));
 
-  const third = run(feeds, second.state, fetched, NOW + 12 * HOUR);
-  assert.equal(third.writes.length, 20);
-  assert.deepEqual(sorted(third.writes.map((w) => w.path)), sorted(pathsFor(6, 8)));
-
-  const fourth = run(feeds, third.state, fetched, NOW + 18 * HOUR);
-  assert.equal(fourth.writes.length, 0);
+  const third = run(feeds, second.state, fetched, NOW + 24 * HOUR);
+  assert.equal(third.writes.length, 0);
 });
 
-test("the ledger is capped at 1000 keys and keeps the newest", () => {
+test("the ledger is capped at 300 keys and keeps the newest", () => {
   const f = feed(1);
-  const old = entries("old", 1000);
+  const old = entries("old", 300);
   const oldKeys = keysOf(f.id, old);
   const state: FeedsState = {
     version: 1,
@@ -208,14 +233,14 @@ test("the ledger is capped at 1000 keys and keeps the newest", () => {
   const plan = run([f], state, { [f.id]: okResult(list) });
   assert.equal(plan.writes.length, 3);
   const seen = stateOf(plan.state, f.id).seen;
-  assert.equal(seen.length, 1000);
+  assert.equal(seen.length, 300);
   // New keys go to the front.
   assert.deepEqual(sorted(seen.slice(0, 3)), sorted(keysOf(f.id, entries("new", 3))));
   // The three oldest keys fall off the end.
-  for (const dropped of oldKeys.slice(997)) {
+  for (const dropped of oldKeys.slice(297)) {
     assert.ok(!seen.includes(dropped));
   }
-  assert.ok(seen.includes(oldKeys[996] ?? ""));
+  assert.ok(seen.includes(oldKeys[296] ?? ""));
 });
 
 test("reset detection treats a feed whose ledger matches nothing as a first run", () => {

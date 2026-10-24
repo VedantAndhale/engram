@@ -6,7 +6,7 @@ import workflowYaml from "./action/engram-feeds.yml?raw";
 import { installedVersion, installStatus, type InstallStatus } from "./installstatus";
 
 // Bump this together with the "engram-feeds vN" first line of both files below.
-export const FEEDS_VERSION = 1;
+export const FEEDS_VERSION = 2;
 
 export type FeedInstallFile = { path: string; text: string };
 

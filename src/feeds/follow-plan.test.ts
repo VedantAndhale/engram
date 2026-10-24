@@ -63,7 +63,7 @@ test("when the list is full, the extra feeds are refused and say why", () => {
   assert.equal(plan.added, 0);
   assert.equal(plan.refused, 1);
   assert.deepEqual(plan.done, []);
-  assert.match(plan.reason ?? "", /up to 50 feeds/);
+  assert.match(plan.reason ?? "", new RegExp(`up to ${MAX_FEEDS} feeds`));
 });
 
 test("in a batch that only partly fits, the feeds that fit are added and the rest are reported", () => {

@@ -1448,6 +1448,55 @@ main {
 .setup-body > .banner {
   margin: 0;
 }
+/* Your feeds: one row per feed, with its status and a Remove button. Problems sort to the top. */
+.feed-filter {
+  max-width: 280px;
+  margin-bottom: 12px;
+}
+.feed-list {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  border-top: 1px solid var(--border);
+}
+.feed-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.feed-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.feed-name,
+.feed-url {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.feed-status {
+  flex: none;
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+.feed-status-failing {
+  color: var(--danger);
+}
+@media (max-width: 760px) {
+  .feed-row {
+    flex-wrap: wrap;
+  }
+  .feed-main {
+    flex-basis: 100%;
+  }
+  .feed-row .btn-small {
+    min-height: 44px;
+  }
+}
 .setup-card {
   display: flex;
   flex-direction: column;
