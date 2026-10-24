@@ -183,7 +183,8 @@ export function ItemView({ folder, id }: { folder: Folder; id: string }) {
   }, []);
   const place = async (to: Location) => {
     if (!item) return;
-    const from = itemLocation(item);
+    // Undo puts back the stored place, so an item saved under Unread is not filed as Archive once it is read.
+    const from = item.location ?? itemLocation(item);
     if (!from || from === to) return;
     await setLocation(folder.id, [item.id], to);
     toast(to === "archive" ? "Archived." : to === "later" ? "Moved to Later." : "Moved to the Inbox.", {

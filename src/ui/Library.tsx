@@ -69,7 +69,7 @@ const VIEWS: { id: View; label: string }[] = [
   { id: "trash", label: "Trash" },
 ];
 
-const LOCATION_LABEL: Record<Location, string> = { inbox: "Inbox", later: "Later", archive: "Archive" };
+const LOCATION_LABEL: Record<Location, string> = { inbox: "Inbox", later: "Later", archive: "Archive", unread: "Unread" };
 
 /** The views that sort items by where they sit. A folder with no articles or links has no use for them. */
 const LOCATION_VIEWS: View[] = ["inbox", "later", "archive"];
@@ -337,7 +337,8 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
   };
 
   const moveTo = async (items: Row[], to: Location) => {
-    const from = new Map(items.map((d) => [d.id, where(d)]));
+    // Undo puts back the stored place, so an item saved under Unread is not filed as Archive once it is read.
+    const from = new Map(items.map((d) => [d.id, d.location ?? where(d)]));
     const moving = items.filter((d) => from.get(d.id) && from.get(d.id) !== to);
     if (!moving.length) return;
     await setLocation(folder.id, moving.map((d) => d.id), to);
@@ -555,7 +556,14 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
         <div className="library-bar">
           <div className="views" role="group" aria-label="Show">
             {VIEWS.filter((v) => (v.id !== "trash" || trash.length > 0 || view === "trash") && (hasLinks || !LOCATION_VIEWS.includes(v.id))).map((v) => {
-              const n = v.id === "inbox" || v.id === "later" ? tally(v.id) : v.id === "trash" ? trash.length : 0;
+              const n =
+                v.id === "inbox" || v.id === "later"
+                  ? tally(v.id)
+                  : v.id === "unread"
+                    ? live.filter((d) => isUnread(d, positions?.get(d.id))).length
+                    : v.id === "trash"
+                      ? trash.length
+                      : 0;
               return (
                 <button key={v.id} className={`view ${view === v.id ? "on" : ""}`} aria-pressed={view === v.id} onClick={() => setView(v.id)}>
                   {v.label}
@@ -766,11 +774,11 @@ export function Library({ folder, onOpenSidebar }: { folder: Folder; onOpenSideb
 const label = (k: TypeFilter) => (k === "daily" ? "Daily note" : k ? TYPE_LABELS[k] : "All types");
 
 const EMPTY: Record<View, { title: string; text: string }> = {
-  inbox: { title: "Your Inbox is clear", text: "New things you save land here. Archive what you've finished and move the rest to Later." },
+  inbox: { title: "Your Inbox is clear", text: "Links your agents send land here once you accept them. Archive what you've finished and move the rest to Later." },
   later: { title: "Nothing for later", text: "Press L on an item, or use its menu, to keep it here for another day." },
   archive: { title: "Nothing archived yet", text: "Press E on an item when you're done with it. It stays searchable here." },
   all: { title: "Nothing here", text: "Save a link, a quote or a note, or drop PDFs here." },
-  unread: { title: "Nothing unread", text: "Links and articles you haven't finished show up here. Mark one read or unread from its menu." },
+  unread: { title: "Nothing unread", text: "Links, videos, PDFs and articles you've added and not finished show up here. Mark one read or unread from its menu." },
   favorites: { title: "No favourites yet", text: "Press S on an item, or use its menu, to keep it here." },
   trash: { title: "The Trash is empty", text: "Items you delete wait here until you delete them for good." },
 };

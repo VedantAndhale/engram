@@ -27,7 +27,11 @@ export interface Folder {
 export const ITEM_TYPES = ["pdf", "article", "post", "tweet", "thread", "bookmark", "video", "note", "quote", "playlist", "book"] as const;
 export type ItemType = (typeof ITEM_TYPES)[number];
 
-export const LOCATIONS = ["inbox", "later", "archive"] as const;
+/**
+ * "unread" is a new item the reader added by hand: it waits under Unread until it is read, and is not in Inbox.
+ * "inbox" is what agents send and what the reader files there.
+ */
+export const LOCATIONS = ["inbox", "later", "archive", "unread"] as const;
 export type Location = (typeof LOCATIONS)[number];
 
 /** A day's note (see notes/notes.ts dailyNote). Its id is the date, the same on every device. */
@@ -40,6 +44,8 @@ export const isDailyNote = (item: Pick<Item, "id" | "type">) => item.type === "n
  */
 export function itemLocation(item: Pick<Item, "id" | "type" | "location" | "readAt">, finished = false): Location | null {
   if (isDailyNote(item)) return null;
+  // A new item by hand waits under Unread. Once read it is archived, as an item saved before triage is.
+  if (item.location === "unread") return item.readAt || finished ? "archive" : "unread";
   return item.location ?? (item.readAt || finished ? "archive" : "inbox");
 }
 

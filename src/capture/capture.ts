@@ -1,6 +1,6 @@
 import { folderCtx } from "../folders/registry";
 import { cleanTopic } from "../habit/prefs";
-import { HIGHLIGHT_COLORS, type Item, type ItemType } from "../model";
+import { HIGHLIGHT_COLORS, type Item, type ItemType, type Location } from "../model";
 import { addPdf, createItem, saveAnnotation, updateItem } from "../store/actions";
 import { capText, extractArticle, imageUrl, isoDate, metaText, pdfUrl, shrinks } from "./extract";
 import { cleanUrl, typeForUrl } from "./url";
@@ -126,6 +126,8 @@ export interface PageCapture {
   url: string;
   /** Set when the save is not one the reader made here, such as an entry accepted from the feed inbox. */
   noFeedOffer?: boolean;
+  /** Where a new link goes. A link the reader saves goes to Unread; an entry accepted from the agent inbox stays in Inbox. */
+  location?: Location;
   title?: string;
   /** Readable text of the page, from older bookmarklets. */
   text?: string;
@@ -218,12 +220,15 @@ export async function saveLink(folder: string, c: PageCapture): Promise<SaveResu
   // A link to a PDF brings the PDF itself into the library, when its site lets Engram download it. An arXiv
   // page saved with the bookmarklet already brought its article, so it is kept as that.
   const pdf = !contentFormat || isPdfFile(url) ? pdfUrl(url) : null;
-  const pdfId = pdf ? await downloadPdf(folder, pdf) : null;
+  const type = c.type ?? typeForUrl(url, content?.length ?? 0);
+  // Quotes, notes and playlists are not in the Unread view, so they stay in Inbox.
+  const to = c.location ?? (["quote", "note", "playlist"].includes(type) ? "inbox" : "unread");
+  const pdfId = pdf ? await downloadPdf(folder, pdf, to) : null;
   if (pdfId) return { item: await keepPdf(folder, pdfId, url, words, topics), existed: false };
   const pdfFile = isPdfFile(url);
 
   const item = await createItem(folder, {
-    type: c.type ?? typeForUrl(url, content?.length ?? 0),
+    type,
     title,
     sourceUrl: url,
     ...details,
@@ -233,6 +238,7 @@ export async function saveLink(folder: string, c: PageCapture): Promise<SaveResu
     content,
     contentFormat,
     topics: topics.length ? topics : undefined,
+    location: to,
   });
   if (selection) await addQuote(folder, item.id, selection);
   if (!contentFormat && !pdfFile) fillLater(folder, item.id);
@@ -257,7 +263,7 @@ export const PDF_LINK_NOTE = "A link to a PDF. Its site doesn't let Engram downl
  * Download a PDF into the folder; its id, or null. Most sites don't let another site's page read their files,
  * so this often fails (arXiv allows it), and the link is kept instead.
  */
-async function downloadPdf(folder: string, url: string): Promise<string | null> {
+async function downloadPdf(folder: string, url: string, to: Location): Promise<string | null> {
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(60_000) });
     if (!res.ok || Number(res.headers.get("content-length")) > MAX_PDF) return null;
@@ -266,7 +272,7 @@ async function downloadPdf(folder: string, url: string): Promise<string | null> 
     if (blob.size > MAX_PDF || head !== "%PDF-") return null;
     const last = decodeURIComponent(new URL(res.url || url).pathname.split("/").pop() ?? "") || "document";
     const name = /\.pdf$/i.test(last) ? last : `${last}.pdf`;
-    return await addPdf(folder, new File([blob], name, { type: "application/pdf" }));
+    return await addPdf(folder, new File([blob], name, { type: "application/pdf" }), to);
   } catch {
     return null;
   }

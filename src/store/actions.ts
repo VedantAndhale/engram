@@ -84,7 +84,7 @@ export async function createItem(folder: string, fields: Omit<Item, "id" | "path
   return item;
 }
 
-export async function addPdf(folder: string, file: File): Promise<string> {
+export async function addPdf(folder: string, file: File, to: Location = "unread"): Promise<string> {
   const { db, sync } = folderCtx(folder);
   const data = await file.arrayBuffer();
   const hash = await sha256Hex(data);
@@ -100,7 +100,8 @@ export async function addPdf(folder: string, file: File): Promise<string> {
     ...existing,
     id: hash,
     type: "pdf",
-    title: existing?.title ?? title,
+    // A purged tombstone is titled "Deleted", so a PDF added again takes its title from the file.
+    title: existing && !existing.purged ? existing.title : title,
     author: existing?.author ?? author,
     description: existing?.description ?? description,
     fileName: file.name,
@@ -109,8 +110,8 @@ export async function addPdf(folder: string, file: File): Promise<string> {
     addedAt,
     addedBy: login(),
     updatedAt: now,
-    // Added again after it was deleted: back in the Inbox, as new.
-    location: existing && !existing.deleted ? existing.location : "inbox",
+    // Added again after it was deleted: back as new, under the same place a new one would get.
+    location: existing && !existing.deleted ? existing.location : to,
     deleted: undefined,
     purged: undefined,
     path: existing?.path ?? itemPath(hash, existing?.title ?? title, addedAt),
